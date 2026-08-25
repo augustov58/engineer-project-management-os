@@ -1,9 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { archiveProject } from '../../actions';
 import { getProject, listOpenItems } from '../../api';
 import { NewOpenItemForm } from '../../new-open-item-form';
-import { OpenItemEntry } from '../../open-item';
+import { day, OpenItemEntry } from '../../open-item';
 
 /** Archived projects are readable here; only the list hides them. */
 export const dynamic = 'force-dynamic';
@@ -30,56 +33,81 @@ export default async function ProjectRecord({
   }
 
   return (
-    <main>
-      <p>
-        <Link href="/">&larr; Projects</Link>
-      </p>
+    <div className="space-y-8">
+      <div>
+        <Link
+          href="/"
+          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+        >
+          &larr; Projects
+        </Link>
 
-      <h1>
-        {project.projectNumber} {project.name}
-      </h1>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <Badge variant="secondary" className="font-mono text-sm">
+            {project.projectNumber}
+          </Badge>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {project.name}
+          </h1>
+          {project.archivedAt !== null && (
+            <Badge variant="outline">Archived {day(project.archivedAt)}</Badge>
+          )}
+        </div>
 
-      <dl>
-        <dt>Created</dt>
-        <dd>{project.createdAt}</dd>
-        <dt>Status</dt>
-        <dd>
-          {project.archivedAt === null
-            ? 'Live'
-            : `Archived ${project.archivedAt}`}
-        </dd>
-      </dl>
+        <div className="text-muted-foreground mt-2 flex items-center gap-4 text-sm">
+          <span>Created {day(project.createdAt)}</span>
+          {project.archivedAt === null && (
+            <form action={archive}>
+              <Button type="submit" variant="ghost" size="sm">
+                Archive this project
+              </Button>
+            </form>
+          )}
+        </div>
+      </div>
 
-      {project.archivedAt === null && (
-        <form action={archive}>
-          <button type="submit">Archive this project</button>
-        </form>
-      )}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Open items</h2>
+          <span className="text-muted-foreground text-sm">
+            {unresolved.length} unresolved
+          </span>
+        </div>
 
-      <h2>Open items</h2>
-      {unresolved.length === 0 ? (
-        <p>Nothing unresolved.</p>
-      ) : (
-        <ul>
-          {unresolved.map((item) => (
-            <OpenItemEntry key={item.id} item={item} projectId={id} />
-          ))}
-        </ul>
-      )}
+        {unresolved.length === 0 ? (
+          <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+            Nothing unresolved.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {unresolved.map((item) => (
+              <OpenItemEntry key={item.id} item={item} projectId={id} />
+            ))}
+          </ul>
+        )}
+      </section>
 
-      <h3>Add an open item</h3>
-      <NewOpenItemForm projectId={id} />
+      <Card>
+        <CardHeader>
+          <CardTitle>Add an open item</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <NewOpenItemForm projectId={id} />
+        </CardContent>
+      </Card>
 
       {resolved.length > 0 && (
-        <>
-          <h3>Resolved</h3>
-          <ul>
+        <section className="space-y-3">
+          <h2 className="text-muted-foreground text-sm font-medium">
+            Resolved ({resolved.length})
+          </h2>
+          <ul className="space-y-3">
             {resolved.map((item) => (
               <OpenItemEntry key={item.id} item={item} projectId={id} />
             ))}
           </ul>
-        </>
+        </section>
       )}
-    </main>
+    </div>
   );
 }
