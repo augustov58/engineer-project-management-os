@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { listProjects, type Project } from './api';
+import { listExposure, listProjects, type Project } from './api';
 import { NewProjectForm } from './new-project-form';
 
 /** Read on every request: this screen is the engineer's live-project count. */
@@ -39,9 +39,10 @@ function ProjectList({
 }
 
 export default async function Home() {
-  const [live, archived] = await Promise.all([
+  const [live, archived, exposure] = await Promise.all([
     listProjects(),
     listProjects(true),
+    listExposure(),
   ]);
 
   return (
@@ -54,6 +55,24 @@ export default async function Home() {
             : `${live.length} live${archived.length > 0 ? `, ${archived.length} archived` : ''}`}
         </p>
       </div>
+
+      {/*
+        Exposure across every live project, as a count you can act on and
+        never as a share of anything (ADR-0016). It links to exactly the
+        submissions it counted, because the number is that list's length.
+      */}
+      <Link
+        href="/exposure"
+        className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
+      >
+        <span className="text-2xl font-semibold tabular-nums">
+          {exposure.length}
+        </span>
+        <span className="text-muted-foreground text-sm">
+          issued {exposure.length === 1 ? 'submission' : 'submissions'}{' '}
+          currently standing on an unresolved open item
+        </span>
+      </Link>
 
       {live.length > 0 && <ProjectList projects={live} />}
 

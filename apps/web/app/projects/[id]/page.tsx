@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { archiveProject, createOpenItem } from '../../actions';
 import {
   getProject,
+  listExposure,
   listOpenItems,
   listPhases,
   listSubmissions,
@@ -30,12 +31,16 @@ export default async function ProjectRecord({
     notFound();
   }
 
-  const [unresolved, resolved, phases, submissions] = await Promise.all([
-    listOpenItems(id),
-    listOpenItems(id, true),
-    listPhases(id),
-    listSubmissions(id),
-  ]);
+  const [unresolved, resolved, phases, submissions, exposure] =
+    await Promise.all([
+      listOpenItems(id),
+      listOpenItems(id, true),
+      listPhases(id),
+      listSubmissions(id),
+      // The same call the count links to, so the number here and the rows it
+      // lands on are one query rather than two expressions that agree today.
+      listExposure(id),
+    ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
 
@@ -118,6 +123,23 @@ export default async function ProjectRecord({
           </span>
         </div>
 
+        {/*
+          This project's exposure. The number is the length of the list it
+          links to, so clicking it lands on exactly what it counted.
+        */}
+        {exposure.length > 0 && (
+          <Link
+            href={`/exposure?projectId=${id}`}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-baseline gap-2 rounded-lg border border-dashed px-4 py-2 text-sm transition-colors"
+          >
+            <span className="text-foreground font-medium tabular-nums">
+              {exposure.length}
+            </span>
+            issued {exposure.length === 1 ? 'submission is' : 'submissions are'}{' '}
+            still standing on an unresolved open item
+          </Link>
+        )}
+
         {submissions.length > 0 && (
           <ul className="divide-y rounded-lg border">
             {submissions.map((issued) => (
@@ -134,6 +156,18 @@ export default async function ProjectRecord({
                     {day(issued.issuedAt)} &middot; {issued.recipient} (
                     {issued.recipientRole})
                   </span>
+                  {/*
+                    Two different facts, so two marks that can both show. A
+                    set that went out on unconfirmed inputs and is still
+                    standing on one carries both — collapsing them would hide
+                    the historical half this ticket exists to keep.
+                  */}
+                  {issued.issuedProvisional && (
+                    <Badge variant="secondary">Issued provisional</Badge>
+                  )}
+                  {issued.currentlyProvisional && (
+                    <Badge variant="destructive">Provisional</Badge>
+                  )}
                 </Link>
               </li>
             ))}

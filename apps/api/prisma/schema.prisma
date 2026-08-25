@@ -109,6 +109,19 @@ model Submission {
   /// Entry order, so two sets issued on the same day do not list at random.
   createdAt DateTime @map("created_at")
 
+  /// Whether the set went out on unconfirmed inputs — true when any open item
+  /// it was issued resting on was unresolved at that moment (issue #6).
+  ///
+  /// Stamped once by the create route and never recomputed: resolving those
+  /// items afterwards answers the inputs, it does not change what the set
+  /// went out on. *Currently* provisional is the other fact, derived from
+  /// `openItems` on every read and never stored — a single column would have
+  /// to lie about one of the two the moment an item resolved.
+  ///
+  /// No `@default`, for the reason the timestamps have none: only the route
+  /// may supply it, or a caller could claim a set went out clean.
+  issuedProvisional Boolean @map("issued_provisional")
+
   openItems SubmissionOpenItem[]
 
   @@index([projectId, issuedAt])
@@ -122,8 +135,8 @@ model Submission {
 /// this one is many-to-many: one unconfirmed input that several sets went
 /// out on is a single record, not one copy per set that rested on it.
 ///
-/// Issue #6 stamps the snapshot of what was unresolved at issuance as a
-/// column here. Issue #7's carry-forward is an insert against the successor,
+/// `unresolved_at_issuance` is issue #6's snapshot of what was unresolved at
+/// that moment. Issue #7's carry-forward is an insert against the successor,
 /// which leaves the superseded submission's rows untouched — the reason this
 /// is a join table and not a second subject.
 model SubmissionOpenItem {
@@ -132,6 +145,12 @@ model SubmissionOpenItem {
 
   openItemId String   @map("open_item_id")
   openItem   OpenItem @relation(fields: [openItemId], references: [id])
+
+  /// Where this item stood at the moment the set went out (issue #6). Null is
+  /// an item attached afterwards, which was no part of the issuance and is
+  /// therefore the only kind that may be detached again — deleting a row of
+  /// the snapshot would be the erasure by cleanup ADR-0026 flagged.
+  unresolvedAtIssuance Boolean? @map("unresolved_at_issuance")
 
   @@id([submissionId, openItemId])
   @@index([openItemId])

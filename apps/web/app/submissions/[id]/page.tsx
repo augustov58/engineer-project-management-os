@@ -62,6 +62,31 @@ export default async function SubmissionRecord({
               ({submission.recipientRole})
             </span>
           </dd>
+
+          {/*
+            Provisional is two facts, and they are shown apart because they
+            answer different questions and stop agreeing the moment an item
+            resolves. The first is permanent; the second is what exposure
+            counts.
+          */}
+          <dt className="text-muted-foreground">At issuance</dt>
+          <dd>
+            {submission.issuedProvisional
+              ? 'Went out on unconfirmed inputs'
+              : 'Nothing unresolved was named'}
+          </dd>
+
+          <dt className="text-muted-foreground">Right now</dt>
+          <dd>
+            {submission.currentlyProvisional ? (
+              <span className="inline-flex items-center gap-2">
+                <Badge variant="destructive">Provisional</Badge>
+                still standing on an unresolved open item
+              </span>
+            ) : (
+              'Everything it rests on is resolved'
+            )}
+          </dd>
         </dl>
       </div>
 
@@ -88,14 +113,25 @@ export default async function SubmissionRecord({
           </p>
         ) : (
           <ul className="space-y-3">
-            {submission.openItems.map((item) => (
-              <OpenItemEntry
-                key={item.id}
-                item={item}
-                projectId={projectId}
-                detach={detachOpenItem.bind(null, id, projectId, item.id)}
-              />
-            ))}
+            {submission.openItems.map((item) => {
+              // Only what was attached after the set went out can come off:
+              // detaching a row of the snapshot would erase the record of what
+              // was issued (ADR-0026).
+              const wasIssuedOn = item.unresolvedAtIssuance !== null;
+              return (
+                <OpenItemEntry
+                  key={item.id}
+                  item={item}
+                  projectId={projectId}
+                  detach={
+                    wasIssuedOn
+                      ? undefined
+                      : detachOpenItem.bind(null, id, projectId, item.id)
+                  }
+                  restedOnAtIssuance={wasIssuedOn}
+                />
+              );
+            })}
           </ul>
         )}
 

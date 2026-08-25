@@ -29,6 +29,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               >
                 Pending items
               </Link>
+              <Link
+                href="/exposure"
+                className="hover:text-foreground transition-colors"
+              >
+                Exposure
+              </Link>
             </div>
           </nav>
         </header>

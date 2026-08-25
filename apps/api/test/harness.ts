@@ -235,6 +235,19 @@ export interface SubmissionResponse {
   revision: string;
   sheetList: string;
   createdAt: string;
+  /** Stamped at issuance and never recomputed (issue #6). */
+  issuedProvisional: boolean;
+  /** Derived from live open items on every read, never stored (issue #6). */
+  currentlyProvisional: boolean;
+}
+
+/**
+ * An open item as it reads on a submission resting on it: the item plus where
+ * it stood at the moment that set went out. Null is an item attached
+ * afterwards, which was no part of the issuance.
+ */
+export interface RestsOnResponse extends OpenItemResponse {
+  unresolvedAtIssuance: boolean | null;
 }
 
 /**
@@ -245,7 +258,13 @@ export interface SubmissionResponse {
 export interface SubmissionDetail extends SubmissionResponse {
   phase: PhaseResponse;
   project: { id: string; projectNumber: string; name: string };
-  openItems: OpenItemResponse[];
+  openItems: RestsOnResponse[];
+}
+
+/** A currently provisional submission as the exposure view returns it. */
+export interface ExposureRow extends SubmissionResponse {
+  phase: PhaseResponse;
+  project: { id: string; projectNumber: string; name: string };
 }
 
 export interface SubmissionBody {
