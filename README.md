@@ -21,6 +21,15 @@ pnpm dev
 Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, frontend on
 <http://127.0.0.1:3000>.
 
+Use `localhost`, not `127.0.0.1`, in the browser: `next dev` refuses to serve its own
+`/_next/*` assets to an origin it does not recognise, so the page renders and then dies
+with a 403 on every script. `apps/web/next.config.ts` adds this machine's own network
+addresses to that list, which is what makes the app viewable from another device on the
+same network. **Only the frontend is reachable that way** — the API, PostgreSQL and Redis
+stay bound to loopback, and nothing breaks because every call to the API is made by the
+Next server rather than by the browser. A client-side fetch to `NEXT_PUBLIC_API_URL` would
+break that, and would only fail on the second device.
+
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Everything: containers, migrations, API, frontend |
