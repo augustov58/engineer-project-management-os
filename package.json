@@ -1,0 +1,20 @@
+{
+  "name": "engineer-project-management-os",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "setup:env": "for a in api web; do [ -f apps/$a/.env ] || cp apps/$a/.env.example apps/$a/.env; done",
+    "dev": "pnpm run setup:env && docker compose up -d --wait && pnpm --filter api migrate:deploy && pnpm -r --parallel dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "services:up": "docker compose up -d --wait",
+    "services:down": "docker compose down"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

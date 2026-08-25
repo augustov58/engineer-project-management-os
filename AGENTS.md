@@ -22,17 +22,22 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 
 ## Current status
 
-Planning complete. Development has NOT started. The 2026-08-24 grilling session deleted
-the old Phase 0-4 milestones; the current plan is the six-step **Revised MVP sequence**
-in `PRD and Architecture.md`. Next planned step is step 1: entering T-1's open items
-against the real project. Do not begin development without explicit instruction to do so.
+Slice 1 — the walking skeleton and the test harness (issue #2) — is built. The plan is the
+six-step **Revised MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as
+GitHub issues #2-#22. Step 1, entering T-1's open items against the real project, is next.
+Work one ticket at a time, and only when asked.
+
+`pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
+See [README.md](./README.md).
 
 ## Ground rules for agents
 
 - Plan changes, scope adjustments, and vendor decisions get recorded in the vault, not only in code or commits.
 - Milestone completion updates the vault progress section in the same session.
 - Follow the ADRs; if an ADR must change, write a new/superseding ADR in the vault first.
-- Stack (per plan): TypeScript monorepo, Next.js frontend, Node.js API, PostgreSQL + Prisma, Redis + BullMQ, S3 docs, Pi SDK via `@earendil-works/pi-coding-agent`.
+- Stack: TypeScript monorepo (pnpm), Next.js frontend, Fastify API (ADR-0021), PostgreSQL + Prisma, Redis + BullMQ, S3 docs, Pi SDK via `@earendil-works/pi-coding-agent`.
+- Never call `new Date()` or `Date.now()` for a timestamp that gets persisted or aged, and never give such a column a database default — read the injected `TimeSource` (ADR-0022). Aging is tested by advancing a fake, never by sleeping.
+- Tests drive the HTTP API against a real PostgreSQL and assert only on responses and subsequent reads. Build fixtures through the API, not by inserting rows.
 
 ## Agent skills
 

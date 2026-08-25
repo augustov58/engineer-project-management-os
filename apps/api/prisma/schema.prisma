@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Disposable. The walking skeleton (issue #2) needs one value to travel
+/// browser -> API -> PostgreSQL and back; this is it, and nothing else.
+/// It is not a domain record: `projects` (issue #3) is the first of those,
+/// and this model should be dropped once a real entity reads through the
+/// same path.
+///
+/// `createdAt` deliberately has no `@default(now())`. The database must not
+/// be able to supply the time, so that the value can only come from the
+/// injected TimeSource at the API boundary.
+model SkeletonRecord {
+  id        String   @id @default(uuid())
+  label     String
+  createdAt DateTime @map("created_at")
+
+  @@map("skeleton_records")
+}
