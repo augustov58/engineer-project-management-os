@@ -15,17 +15,18 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0019; check each `Status:` line, several are superseded.
+- `docs/adr/` - architecture decision records 0001-0023; check each `Status:` line, several are superseded.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
 
 ## Current status
 
-Slice 1 — the walking skeleton and the test harness (issue #2) — is built. The plan is the
-six-step **Revised MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as
-GitHub issues #2-#22. Step 1, entering T-1's open items against the real project, is next.
-Work one ticket at a time, and only when asked.
+Slice 1 (walking skeleton and test harness, issue #2) and slice 2 (the `Project` record,
+issue #3) are built. The plan is the six-step **Revised MVP sequence** in
+`PRD and Architecture.md`, and the MVP is ticketed as GitHub issues #2-#22. Step 1,
+entering T-1's open items against the real project, is next — and now has a project to
+enter against. Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
 See [README.md](./README.md).
@@ -38,6 +39,9 @@ See [README.md](./README.md).
 - Stack: TypeScript monorepo (pnpm), Next.js frontend, Fastify API (ADR-0021), PostgreSQL + Prisma, Redis + BullMQ, S3 docs, Pi SDK via `@earendil-works/pi-coding-agent`.
 - Never call `new Date()` or `Date.now()` for a timestamp that gets persisted or aged, and never give such a column a database default — read the injected `TimeSource` (ADR-0022). Aging is tested by advancing a fake, never by sleeping.
 - Tests drive the HTTP API against a real PostgreSQL and assert only on responses and subsequent reads. Build fixtures through the API, not by inserting rows.
+- The one sanctioned exception is a schema invariant no route can expose — "no `users` table exists" (ADR-0012). `apps/api/test/schema.test.ts` reads `information_schema` through the harness's `tableNames()` and nothing else; it may not read domain data or write rows.
+- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path.
+- `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills
 
