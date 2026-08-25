@@ -110,6 +110,23 @@ export interface Submission {
   revision: string;
   sheetList: string;
   createdAt: string;
+  /**
+   * That the set went out on unconfirmed inputs. Stamped at issuance and never
+   * recomputed, so resolving everything afterwards does not unsay it.
+   */
+  issuedProvisional: boolean;
+  /**
+   * That something it rests on is unresolved right now. Derived on every read
+   * and stored nowhere — a different fact from the one above, and the one
+   * exposure counts.
+   */
+  currentlyProvisional: boolean;
+}
+
+/** An open item, plus where it stood when the set it backs went out. */
+export interface RestsOn extends OpenItem {
+  /** Null is an item attached after the issuance, so no part of it. */
+  unresolvedAtIssuance: boolean | null;
 }
 
 /** One submission, with the things it hangs off resolved. */
@@ -117,7 +134,13 @@ export interface SubmissionDetail extends Submission {
   phase: Phase;
   project: { id: string; projectNumber: string; name: string };
   /** What the issuance rests on — resolved ones included, deliberately. */
-  openItems: OpenItem[];
+  openItems: RestsOn[];
+}
+
+/** A currently provisional submission, as the exposure view lists it. */
+export interface ExposureRow extends Submission {
+  phase: Phase;
+  project: { id: string; projectNumber: string; name: string };
 }
 
 async function read<T>(path: string): Promise<T> {
@@ -136,6 +159,19 @@ export function listPhases(projectId: string): Promise<Phase[]> {
 /** Oldest first: this screen is a chronicle of what went out. */
 export function listSubmissions(projectId: string): Promise<Submission[]> {
   return read<Submission[]>(`/projects/${projectId}/submissions`);
+}
+
+/**
+ * Exposure: the issued submissions currently carrying unresolved open items,
+ * across every live project or within one (ADR-0016).
+ *
+ * The count is `.length`. There is no separate count call, so the number on a
+ * screen and the rows it links to cannot disagree.
+ */
+export function listExposure(projectId?: string): Promise<ExposureRow[]> {
+  return read<ExposureRow[]>(
+    projectId === undefined ? '/exposure' : `/exposure?projectId=${projectId}`,
+  );
 }
 
 /** Undefined rather than throwing, so the page can render a 404. */

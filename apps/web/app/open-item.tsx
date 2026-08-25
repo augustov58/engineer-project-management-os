@@ -26,6 +26,7 @@ export function OpenItemEntry({
   item,
   projectId,
   detach,
+  restedOnAtIssuance = false,
 }: {
   item: OpenItem;
   projectId: string;
@@ -36,6 +37,12 @@ export function OpenItemEntry({
    * invalid HTML that hydration rejects.
    */
   detach?: () => Promise<void>;
+  /**
+   * That this item was named when the set went out, rather than attached
+   * afterwards. Such an item has no detach button, and saying so is why:
+   * removing it would erase the record of what was issued (ADR-0026).
+   */
+  restedOnAtIssuance?: boolean;
 }) {
   const resolved = item.resolvedAt !== null;
 
@@ -100,6 +107,12 @@ export function OpenItemEntry({
             Resolve
           </Button>
         </form>
+      )}
+
+      {restedOnAtIssuance && (
+        <p className="text-muted-foreground text-right text-sm">
+          Named when the set went out — part of the record, not removable.
+        </p>
       )}
 
       {detach !== undefined && (

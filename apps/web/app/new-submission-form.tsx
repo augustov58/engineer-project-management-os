@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,8 +15,9 @@ import { selectClassName } from './native-select';
  *
  * There is no draft state and nothing edits a submission afterwards: a
  * correction is a reissue that supersedes (ADR-0015). Recording one is
- * therefore the moment of issuance, which is where issue #6 will warn that
- * the set carries unresolved open items.
+ * therefore the moment of issuance — the moment `issued_provisional` is
+ * stamped, and so the moment the engineer has to be told what the set is
+ * about to go out standing on (issue #6).
  */
 export function NewSubmissionForm({
   projectId,
@@ -35,6 +36,22 @@ export function NewSubmissionForm({
     { added: 0 },
   );
 
+  const [restingOn, setRestingOn] = useState(0);
+
+  // Read off the form itself rather than counted as the boxes are clicked.
+  //
+  // A counter drifts: `key` sits on the `<form>`, so recording a set remounts
+  // that subtree and clears the boxes, but this state lives on the component
+  // and would survive — leaving the warning claiming a set is going out on
+  // items nobody has ticked. A reload that restores checked boxes drifts the
+  // other way, hiding the warning entirely. The ref is stable, so it fires
+  // only on a real mount or unmount, and both cases resync there.
+  const sync = useCallback((form: HTMLFormElement | null) => {
+    setRestingOn(
+      form === null ? 0 : new FormData(form).getAll('openItemIds').length,
+    );
+  }, []);
+
   // Keyed on the current phase as well as the number recorded. `defaultValue`
   // on an uncontrolled select is applied at mount and never again, so without
   // the phase in the key, making a phase current left this control still
@@ -43,6 +60,8 @@ export function NewSubmissionForm({
   return (
     <form
       key={`${state.added}:${currentPhaseId ?? ''}`}
+      ref={sync}
+      onChange={(event) => sync(event.currentTarget)}
       action={action}
       className="space-y-4"
     >
@@ -146,10 +165,22 @@ export function NewSubmissionForm({
               </label>
             ))}
           </div>
-          <p className="text-muted-foreground text-sm">
-            Ticking one records that this set went out on an unconfirmed
-            input.
-          </p>
+          {restingOn === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              Ticking one records that this set went out on an unconfirmed
+              input.
+            </p>
+          ) : (
+            <p
+              role="alert"
+              className="border-destructive/50 text-destructive rounded-lg border border-dashed p-3 text-sm"
+            >
+              This set is going out on {restingOn} unresolved open{' '}
+              {restingOn === 1 ? 'item' : 'items'}. Recording it marks the
+              submission issued on unconfirmed inputs permanently — resolving
+              them later takes it out of exposure but does not unsay it.
+            </p>
+          )}
         </fieldset>
       )}
 

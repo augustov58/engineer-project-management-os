@@ -88,6 +88,23 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   because issue #6 stamps whether it went out on unconfirmed inputs *at the moment of
   issuance*; a two-call flow would leave no such moment and force a rewrite of this slice.
 
+- **Provisional is two facts and the record keeps both** (ADR-0027).
+  `submissions.issued_provisional` is stamped at the moment of issuance and never
+  recomputed; *currently provisional* is derived on every read from `resolved_at` and
+  stored nowhere. Resolving everything a set rested on takes it out of exposure and leaves
+  standing the fact that it went out on unconfirmed inputs — one column could not be both,
+  because it would start lying about one of them the moment an item resolved.
+  `submission_open_items.unresolved_at_issuance` is the per-item snapshot, nullable because
+  the null says the item was attached *afterwards*; **detach is narrowed to exactly those
+  rows**, which is how cleanup cannot erase what went out.
+- **Exposure is a list, not a number** (ADR-0027). `GET /v1/exposure` returns the
+  submissions themselves, optionally narrowed by `?projectId=`, so every count on every
+  screen is that list's length — "clicking the count lands on exactly what it counted" is
+  then true by construction rather than by two queries agreeing. A payload that is an array
+  also has nothing to combine a second figure with, which is ADR-0016's prohibition made
+  structural rather than remembered. Archived projects leave the across-every-project count
+  and keep their own.
+
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
   package, so there is no library upgrade to absorb. Radix underneath means focus rings and
@@ -106,6 +123,14 @@ form still showing the old one and the next set would have been recorded at the 
 stage; and an `<li>` nested inside the `<li>` that `OpenItemEntry` already owns, which is
 invalid HTML and failed hydration in the browser console. Both were found by loading the
 page, not by a test.
+
+Slice 5 paid for it a third time. The warning that a set is going out on unresolved open
+items was first a counter incremented as boxes were ticked, and `key` sits on the `<form>`
+while the state sat on the component around it — so recording a submission cleared the
+boxes and left the warning claiming the next set carried items nobody had ticked. A code
+review caught it; `pnpm typecheck` and `pnpm test` were both green throughout. It is now
+read straight off the form, which also fixes the opposite drift (a reload that restores
+checked boxes would have shown no warning at all).
 
 The gap is real, and slice 2 hit it: `apps/web` resolves modules the bundler way while
 `apps/api` uses NodeNext, so relative imports written `./api.js` typechecked clean and

@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0026; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0027; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -23,9 +23,10 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 ## Current status
 
 Slice 1 (walking skeleton and test harness, issue #2), slice 2 (the `Project` record,
-issue #3), slice 3 (open items and the pending items view, issue #4) and slice 4
-(submissions and per-project phases, issue #5) are built. The plan is the six-step
-**Revised MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as GitHub
+issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
+(submissions and per-project phases, issue #5) and slice 5 (provisional state and
+exposure, issue #6) are built. The plan is the six-step **Revised MVP sequence** in
+`PRD and Architecture.md`, and the MVP is ticketed as GitHub
 issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is the
 author's to do. Work one ticket at a time, and only when asked.
 
@@ -55,6 +56,18 @@ See [README.md](./README.md).
   were not part of the issuance (ADR-0026).
 - The record is a **submission**. "Issuance" is the act or the date — "issuance date", "at
   the moment of issuance" — and never the name of the record, in code or in UI copy.
+- Provisional is **two** facts and neither is the other (ADR-0027). `issued_provisional` is
+  stamped at the moment of issuance and never recomputed; *currently provisional* is derived
+  on every read from `resolved_at` and stored nowhere. Resolving everything a set rested on
+  must leave `issued_provisional` standing — that is the fact the record exists to keep.
+- `submission_open_items.unresolved_at_issuance` is nullable and the null means something:
+  the item was attached *after* the issuance and was no part of it. Detach is narrowed to
+  exactly those rows; refusing the others is what stops cleanup erasing what went out
+  (ADR-0027, settling the collision ADR-0026 recorded).
+- Exposure is a **list**, not a number (ADR-0027). `GET /v1/exposure` returns the
+  submissions; every count is that list's length, so a count and the screen it links to
+  cannot disagree, and there is no figure to combine into a score (ADR-0016). Archived
+  projects leave the across-every-project count and keep their own.
 - The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it. The nobody checkbox, the pending sort select, the submission phase select and the attach-an-open-item select are all native for that reason; `apps/web/app/native-select.ts` holds the shared styling.
 - `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend. Run `pnpm --filter web build` and load the pages before calling a frontend change done.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.

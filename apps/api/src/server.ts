@@ -181,9 +181,10 @@ const currentPhaseBodySchema = {
 /**
  * What went out, to whom, when, and at what phase, as one record (issue #5).
  *
- * `issuedProvisional` is deliberately absent: issue #6 stamps it at issuance
- * from the open items attached right then, and a caller that could assert it
- * would be able to claim a set went out clean when it did not.
+ * `issuedProvisional` is deliberately absent: it is stamped here from the open
+ * items named right then, and a caller that could assert it would be able to
+ * claim a set went out clean when it did not. `additionalProperties: false`
+ * is what refuses the attempt.
  *
  * The phase may be left off, in which case the project's current phase is
  * used. Caps follow the open item's: 120 for a party, 32 for a revision an
@@ -268,6 +269,45 @@ async function openItemRefusal(
 /** The one 404 body for submissions, matching the projects one. */
 function noSuchSubmission(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no submission with that id' });
+}
+
+/** Which project's exposure, or every live one's. */
+const exposureQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { projectId: { type: 'string' } },
+} as const;
+
+/**
+ * Just enough of what a submission rests on to say whether it carries an
+ * unconfirmed input right now. Selected rather than included, so a list read
+ * does not drag whole open items across for a boolean.
+ */
+const restsOnState = {
+  openItems: { select: { openItem: { select: { resolvedAt: true } } } },
+} as const;
+
+/**
+ * *Currently provisional*: true exactly when something the set rests on is
+ * unresolved right now (ADR-0024's one column, read live).
+ *
+ * Derived on every read and stored nowhere. `issued_provisional` is the other
+ * fact — that the set went out on unconfirmed inputs — and one column could
+ * not be both: it would have to start lying about one of them the moment an
+ * item resolved.
+ */
+function isCurrentlyProvisional(
+  openItems: { openItem: { resolvedAt: Date | null } }[],
+): boolean {
+  return openItems.some((row) => row.openItem.resolvedAt === null);
+}
+
+/** A submission on the wire carries both facts, never one merged into the other. */
+function withProvisionalState<T extends { openItems: { openItem: { resolvedAt: Date | null } }[] }>(
+  found: T,
+): Omit<T, 'openItems'> & { currentlyProvisional: boolean } {
+  const { openItems, ...submission } = found;
+  return { ...submission, currentlyProvisional: isCurrentlyProvisional(openItems) };
 }
 
 export function buildServer({
@@ -766,8 +806,19 @@ export function buildServer({
           }
 
           // One transaction, so a submission never exists having lost the
-          // record of what it rests on.
+          // record of what it rests on — and so the snapshot is taken at the
+          // same instant as the row. Read here rather than reused from the
+          // check above: a resolve landing in between would otherwise be
+          // stamped into history as though it had happened first.
           const submission = await prisma.$transaction(async (tx) => {
+            const named = await tx.openItem.findMany({
+              where: { id: { in: openItemIds } },
+              select: { id: true, resolvedAt: true },
+            });
+            const unresolvedThen = new Map(
+              named.map((item) => [item.id, item.resolvedAt === null]),
+            );
+
             const created = await tx.submission.create({
               data: {
                 ...rest,
@@ -775,6 +826,11 @@ export function buildServer({
                 phaseId: wanted,
                 issuedAt: instant(issuedAt, timeSource),
                 createdAt: timeSource.now(),
+                // The permanent fact that the set went out on unconfirmed
+                // inputs. Nothing recomputes it afterwards.
+                issuedProvisional: named.some(
+                  (item) => item.resolvedAt === null,
+                ),
               },
             });
             if (openItemIds.length > 0) {
@@ -782,12 +838,23 @@ export function buildServer({
                 data: openItemIds.map((openItemId) => ({
                   submissionId: created.id,
                   openItemId,
+                  // Every id was checked to exist above; the fallback is
+                  // unreachable and here so an `undefined` can never land as
+                  // the null that means "attached afterwards".
+                  unresolvedAtIssuance: unresolvedThen.get(openItemId) ?? false,
                 })),
               });
             }
             return created;
           });
-          return reply.code(201).send(submission);
+          // At the instant of issuance the two facts coincide, which is the
+          // only moment they ever have to.
+          return reply
+            .code(201)
+            .send({
+              ...submission,
+              currentlyProvisional: submission.issuedProvisional,
+            });
         },
       );
 
@@ -807,10 +874,12 @@ export function buildServer({
             return noSuchProject(reply);
           }
 
-          return prisma.submission.findMany({
+          const listed = await prisma.submission.findMany({
             where: { projectId: project.id },
             orderBy: [{ issuedAt: 'asc' }, { createdAt: 'asc' }],
+            include: restsOnState,
           });
+          return listed.map(withProvisionalState);
         },
       );
 
@@ -844,8 +913,63 @@ export function buildServer({
           const { openItems, ...submission } = found;
           return {
             ...submission,
-            openItems: openItems.map((row) => row.openItem),
+            currentlyProvisional: isCurrentlyProvisional(openItems),
+            // Where each item stood when the set went out, carried on the
+            // item itself: null for one attached afterwards.
+            openItems: openItems.map((row) => ({
+              ...row.openItem,
+              unresolvedAtIssuance: row.unresolvedAtIssuance,
+            })),
           };
+        },
+      );
+
+      /**
+       * Exposure: the issued submissions currently carrying unresolved open
+       * items — one of the two uncombined counts that replaced the health
+       * score (ADR-0016). Every project's, or one project's with `projectId`.
+       *
+       * A list, not a number. The count is its length, so clicking a count and
+       * landing on the rows it counted cannot show a different set — and there
+       * is nothing here to combine with a second figure into a score.
+       *
+       * Archived projects drop out of the count across every project, because
+       * exposure is one of the daily counts and a finished job is not part of
+       * today's work (glossary, **Pending items**). Asked about one job
+       * directly, its own record still answers.
+       */
+      v1.get<{ Querystring: { projectId?: string } }>(
+        '/exposure',
+        { schema: { querystring: exposureQuerySchema } },
+        async (request, reply) => {
+          const { projectId } = request.query;
+          if (projectId !== undefined) {
+            const project = await prisma.project.findUnique({
+              where: { id: projectId },
+              select: { id: true },
+            });
+            // Nothing to act on and no such job are not the same answer, and
+            // an empty list would read as the first.
+            if (project === null) {
+              return noSuchProject(reply);
+            }
+          }
+
+          const carrying = await prisma.submission.findMany({
+            where: {
+              openItems: { some: { openItem: { resolvedAt: null } } },
+              ...(projectId === undefined
+                ? { project: { archivedAt: null } }
+                : { projectId }),
+            },
+            orderBy: [{ issuedAt: 'asc' }, { createdAt: 'asc' }],
+            include: {
+              phase: true,
+              project: { select: { id: true, projectNumber: true, name: true } },
+              ...restsOnState,
+            },
+          });
+          return carrying.map(withProvisionalState);
         },
       );
 
@@ -938,6 +1062,11 @@ export function buildServer({
        * Detaching says nothing about the open item, which stays on its
        * project. An item attached to the wrong set is a typo, and the
        * alternative is an unremovable claim about what went out.
+       *
+       * Narrowed to items attached *after* the issuance. The snapshot of what
+       * was unresolved at that moment lives on these rows, so deleting one the
+       * set was issued resting on would erase the record by cleanup — the
+       * collision ADR-0026 recorded for this ticket to settle.
        */
       v1.delete<{ Params: { id: string; openItemId: string } }>(
         '/submissions/:id/open-items/:openItemId',
@@ -951,17 +1080,27 @@ export function buildServer({
             return noSuchSubmission(reply);
           }
 
-          const { count } = await prisma.submissionOpenItem.deleteMany({
-            where: { submissionId: id, openItemId },
+          const key = { submissionId_openItemId: { submissionId: id, openItemId } };
+          const attached = await prisma.submissionOpenItem.findUnique({
+            where: key,
+            select: { unresolvedAtIssuance: true },
           });
           // The submission exists, so a miss here is about the item: saying
           // "no submission with that id" would send the reader looking in
           // entirely the wrong place.
-          return count === 0
-            ? reply
-                .code(404)
-                .send({ message: 'that open item is not on this submission' })
-            : reply.code(204).send();
+          if (attached === null) {
+            return reply
+              .code(404)
+              .send({ message: 'that open item is not on this submission' });
+          }
+          if (attached.unresolvedAtIssuance !== null) {
+            return reply.code(409).send({
+              message: 'this submission was issued resting on that open item',
+            });
+          }
+
+          await prisma.submissionOpenItem.delete({ where: key });
+          return reply.code(204).send();
         },
       );
     },
