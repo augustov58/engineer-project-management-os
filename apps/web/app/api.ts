@@ -35,3 +35,58 @@ export async function getProject(id: string): Promise<Project | undefined> {
   }
   return response.json() as Promise<Project>;
 }
+
+export interface OpenItem {
+  id: string;
+  subjectType: 'PROJECT';
+  subjectId: string;
+  unresolved: string;
+  blocks: string;
+  waitingOn: string | null;
+  waitingSince: string;
+  invalidationTrigger: string | null;
+  counterfactual: string;
+  owner: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+}
+
+/** The pending items view carries the job each item is on. */
+export interface PendingItem extends OpenItem {
+  project: { id: string; projectNumber: string; name: string } | null;
+}
+
+/** `resolved: true` for the answered ones, which stay on the project. */
+export async function listOpenItems(
+  projectId: string,
+  resolved = false,
+): Promise<OpenItem[]> {
+  const path = `/projects/${projectId}/open-items?resolved=${resolved}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<OpenItem[]>;
+}
+
+/**
+ * Every unresolved open item across every project. An empty `waitingOn` is no
+ * filter at all; the reserved word `nobody` is how you ask for the items no
+ * one owes a move on.
+ */
+export async function listPendingItems(options: {
+  waitingOn?: string;
+  sort?: 'oldest' | 'newest';
+}): Promise<PendingItem[]> {
+  const query = new URLSearchParams({ sort: options.sort ?? 'oldest' });
+  if (options.waitingOn !== undefined && options.waitingOn !== '') {
+    query.set('waitingOn', options.waitingOn);
+  }
+
+  const path = `/open-items?${query.toString()}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<PendingItem[]>;
+}

@@ -127,3 +127,68 @@ export async function createProject(
   }
   return (await response.json()) as ProjectResponse;
 }
+
+/** An open item as the API returns it. */
+export interface OpenItemResponse {
+  id: string;
+  subjectType: 'PROJECT';
+  subjectId: string;
+  unresolved: string;
+  blocks: string;
+  waitingOn: string | null;
+  waitingSince: string;
+  invalidationTrigger: string | null;
+  counterfactual: string;
+  owner: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+}
+
+export interface OpenItemBody {
+  unresolved: string;
+  blocks: string;
+  waitingOn: string | null;
+  counterfactual: string;
+  waitingSince?: string;
+  invalidationTrigger?: string;
+  owner?: string;
+}
+
+/**
+ * A valid create body, so a test that is about one field does not have to
+ * restate the other three that are required.
+ */
+export function openItemBody(patch: Partial<OpenItemBody> = {}): OpenItemBody {
+  return {
+    unresolved: 'Grounding electrode type',
+    blocks: 'Issuing the riser at 400 A',
+    waitingOn: 'Contractor',
+    counterfactual: 'If PVC rather than steel, X3 rises to about 41,000 A',
+    ...patch,
+  };
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createOpenItem(
+  api: TestApi,
+  projectId: string,
+  patch: Partial<OpenItemBody> = {},
+): Promise<OpenItemResponse> {
+  const body: Record<string, unknown> = { ...openItemBody(patch) };
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+
+  const path = `/v1/projects/${projectId}/open-items`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as OpenItemResponse;
+}

@@ -14,7 +14,7 @@ Reading only the repo root will find nothing and silently proceed — read the v
 - **`<vault>/docs/glossary.md`** — the glossary. This is the file the "use the glossary's
   vocabulary" rule below refers to.
 - **`<vault>/docs/adr/`** — read ADRs that touch the area you're about to work in. Start
-  from `<vault>/docs/adr/README.md`, which carries the status of all 19.
+  from `<vault>/docs/adr/README.md`, which carries the status of all 24.
 - **`<vault>/PRD and Architecture.md`** — problem, goals, non-goals, MVP workflows,
   architecture, and the current build sequence.
 

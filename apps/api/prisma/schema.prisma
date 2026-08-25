@@ -32,3 +32,66 @@ model Project {
 
   @@map("projects")
 }
+
+/// The set of artifacts an open item can hang off. ADR-0014 says "any
+/// artifact"; only projects exist so far, so this carries one value and
+/// adding a second is a migration rather than a new free-text string.
+enum OpenItemSubject {
+  PROJECT
+
+  @@map("open_item_subject")
+}
+
+/// The central record of the product (ADR-0014, issue #4): an unresolved
+/// dependency attached to an artifact.
+///
+/// "Pending items" is a *view* over these rows, never a second table.
+///
+/// The subject is polymorphic — type plus id — so there is no foreign key to
+/// `projects`; the route checks the subject exists before writing.
+model OpenItem {
+  id String @id @default(uuid())
+
+  subjectType OpenItemSubject @map("subject_type")
+  subjectId   String          @map("subject_id")
+
+  /// What is unresolved. The PRD's data-model sketch has no column for it,
+  /// but ADR-0014 and the glossary both make it the first thing an open item
+  /// records, so it is named here for the spec's own word.
+  unresolved String
+
+  /// What it blocks — the reason this is worth chasing.
+  blocks String
+
+  /// Who owes the next move. Null is nobody, which ADR-0014 calls out as a
+  /// real answer; the API rejects a blank one, so nobody is only ever said on
+  /// purpose and never arrived at by leaving a field empty.
+  waitingOn String? @map("waiting_on")
+
+  /// Since when. Aged by the pending items view, so it comes from the
+  /// injected TimeSource or from the engineer backdating an item that has
+  /// been open for months — never from a database default (ADR-0022).
+  waitingSince DateTime @map("waiting_since")
+
+  /// The event that makes a recorded result false without anything being
+  /// unresolved. A field, not its own record type (glossary, ADR-0014).
+  invalidationTrigger String? @map("invalidation_trigger")
+
+  /// What changes if the assumption turns out wrong. Required: the glossary
+  /// calls it the field that carries the engineering value.
+  counterfactual String
+
+  /// The internal person the item sits with — the author, or an E1 on the
+  /// occasional delegated task. Plain text: there is no `users` table
+  /// (ADR-0012), and this is a different person from `waitingOn`.
+  owner String?
+
+  /// Resolution is these two together: both null while unresolved, both set
+  /// once resolved, and reopening clears both. Exposure and provisional state
+  /// (issues #6, #16) are derived from `resolvedAt` being null.
+  resolvedAt     DateTime? @map("resolved_at")
+  resolutionNote String?   @map("resolution_note")
+
+  @@index([subjectType, subjectId])
+  @@map("open_items")
+}

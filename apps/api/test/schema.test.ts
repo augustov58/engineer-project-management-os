@@ -21,6 +21,7 @@ test('no users, roles, permissions or tenants table is introduced', async () => 
 
   // Guard the guard: a query that returned nothing would pass silently.
   expect(tables).toContain('projects');
+  expect(tables).toContain('open_items');
   expect(tables).not.toContain('users');
   expect(tables).not.toContain('roles');
   expect(tables).not.toContain('permissions');
