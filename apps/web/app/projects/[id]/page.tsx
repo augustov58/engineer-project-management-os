@@ -3,7 +3,11 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { archiveProject, createOpenItem } from '../../actions';
+import {
+  archiveProject,
+  createOpenItem,
+  createSubmission,
+} from '../../actions';
 import {
   getProject,
   listExposure,
@@ -13,7 +17,7 @@ import {
 } from '../../api';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
-import { NewSubmissionForm } from '../../new-submission-form';
+import { SubmissionForm } from '../../submission-form';
 import { day, OpenItemEntry } from '../../open-item';
 import { PhaseList } from '../../phases';
 
@@ -165,8 +169,18 @@ export default async function ProjectRecord({
                   {issued.issuedProvisional && (
                     <Badge variant="secondary">Issued provisional</Badge>
                   )}
-                  {issued.currentlyProvisional && (
-                    <Badge variant="destructive">Provisional</Badge>
+                  {/*
+                    A superseded set is not what is out there, so it reads as
+                    superseded rather than as provisional — and the count of
+                    red marks on this screen stays the exposure count beside
+                    it. What it went out on is untouched and still shown.
+                  */}
+                  {issued.supersededById !== null ? (
+                    <Badge variant="outline">Superseded</Badge>
+                  ) : (
+                    issued.currentlyProvisional && (
+                      <Badge variant="destructive">Provisional</Badge>
+                    )
                   )}
                 </Link>
               </li>
@@ -185,11 +199,14 @@ export default async function ProjectRecord({
               A submission is issued at a phase. Define one below first.
             </p>
           ) : (
-            <NewSubmissionForm
-              projectId={id}
+            <SubmissionForm
+              submit={createSubmission.bind(null, id)}
               phases={phases}
-              currentPhaseId={project.currentPhaseId}
-              unresolved={unresolved}
+              phaseId={project.currentPhaseId}
+              // A first issuance carries nothing forward; every unresolved
+              // item on the job is offered and none starts ticked.
+              offered={unresolved.map((item) => ({ item, carried: false }))}
+              submitLabel="Record the submission"
             />
           )}
         </CardContent>

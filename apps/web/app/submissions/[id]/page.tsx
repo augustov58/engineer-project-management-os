@@ -7,11 +7,13 @@ import {
   attachOpenItem,
   createOpenItemOnSubmission,
   detachOpenItem,
+  reissueSubmission,
 } from '../../actions';
-import { getSubmission, listOpenItems } from '../../api';
+import { getSubmission, listOpenItems, listPhases } from '../../api';
 import { selectClassName } from '../../native-select';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { day, OpenItemEntry } from '../../open-item';
+import { SubmissionForm } from '../../submission-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,10 +30,17 @@ export default async function SubmissionRecord({
 
   const projectId = submission.project.id;
   const attached = new Set(submission.openItems.map((item) => item.id));
+  const [onTheProject, phases] = await Promise.all([
+    listOpenItems(projectId),
+    listPhases(projectId),
+  ]);
   // Only what is still unresolved is worth offering: attaching an answered
   // item to a set going out is not the thing this control is for.
-  const attachable = (await listOpenItems(projectId)).filter(
-    (item) => !attached.has(item.id),
+  const attachable = onTheProject.filter((item) => !attached.has(item.id));
+
+  const superseded = submission.supersededById !== null;
+  const replacement = submission.chain.find(
+    (entry) => entry.id === submission.supersededById,
   );
 
   return (
@@ -52,6 +61,7 @@ export default async function SubmissionRecord({
           <span className="text-muted-foreground text-sm">
             issued {day(submission.issuedAt)}
           </span>
+          {superseded && <Badge variant="outline">Superseded</Badge>}
         </div>
 
         <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
@@ -78,17 +88,43 @@ export default async function SubmissionRecord({
 
           <dt className="text-muted-foreground">Right now</dt>
           <dd>
-            {submission.currentlyProvisional ? (
+            {!submission.currentlyProvisional ? (
+              'Everything it rests on is resolved'
+            ) : superseded ? (
+              // Said in words rather than with the badge. The chronicle marks
+              // a superseded set "Superseded" and not "Provisional", so that
+              // the red marks on it and the exposure count beside them are the
+              // same number; a badge here would have the two screens
+              // disagreeing about a fact neither of them stores.
+              'Still standing on an unresolved open item, though it is the replacement that exposure counts'
+            ) : (
               <span className="inline-flex items-center gap-2">
                 <Badge variant="destructive">Provisional</Badge>
                 still standing on an unresolved open item
               </span>
-            ) : (
-              'Everything it rests on is resolved'
             )}
           </dd>
         </dl>
       </div>
+
+      {/*
+        Neutral, and deliberately so: correcting the record is normal, not a
+        failure state. What this says is where the current issuance is, not
+        that something went wrong here.
+      */}
+      {superseded && replacement !== undefined && (
+        <p className="bg-muted/40 rounded-lg border px-4 py-3 text-sm">
+          Replaced by{' '}
+          <Link
+            href={`/submissions/${replacement.id}`}
+            className="font-medium underline underline-offset-4"
+          >
+            {replacement.revision}
+          </Link>
+          , issued {day(replacement.issuedAt)}. This record stays exactly as it
+          went out; exposure counts the replacement rather than this.
+        </p>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-lg font-medium">The set</h2>
@@ -96,6 +132,58 @@ export default async function SubmissionRecord({
           {submission.sheetList}
         </pre>
       </section>
+
+      {/*
+        The whole lineage, oldest first. "What is the current issuance of
+        this?" is answerable from any link in it without reading email.
+      */}
+      {submission.chain.length > 1 && (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg font-medium">Issued and reissued</h2>
+            <span className="text-muted-foreground text-sm">
+              {submission.chain.length} submissions in this chain
+            </span>
+          </div>
+          <ol className="divide-y rounded-lg border">
+            {submission.chain.map((entry) => {
+              const here = entry.id === submission.id;
+              const row = (
+                <span className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <span className="font-medium">{entry.revision}</span>
+                  <span className="text-muted-foreground text-sm">
+                    issued {day(entry.issuedAt)} &middot; {entry.recipient} (
+                    {entry.recipientRole})
+                  </span>
+                  {entry.issuedProvisional && (
+                    <Badge variant="secondary">Issued provisional</Badge>
+                  )}
+                  {entry.current && <Badge>Current issuance</Badge>}
+                  {here && (
+                    <span className="text-muted-foreground text-sm">
+                      &mdash; you are here
+                    </span>
+                  )}
+                </span>
+              );
+              return (
+                <li key={entry.id} className={here ? 'bg-muted/40' : ''}>
+                  {here ? (
+                    row
+                  ) : (
+                    <Link
+                      href={`/submissions/${entry.id}`}
+                      className="hover:bg-muted/50 block transition-colors"
+                    >
+                      {row}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
@@ -162,6 +250,47 @@ export default async function SubmissionRecord({
           </form>
         )}
       </section>
+
+      {/*
+        Reissue reads as ordinary work, because it is: nothing edits a
+        submission, so this is the way the record gets corrected (ADR-0015).
+        A set already superseded has no form — the chain is linear, and the
+        successor is where the next correction goes.
+      */}
+      {!superseded && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Reissue this submission</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground text-sm">
+              Correcting or reconsidering what went out records a new
+              submission pointing at this one. Nothing here is edited, and what
+              this set rests on comes forward ticked — untick anything the
+              reissue no longer stands on.
+            </p>
+            <SubmissionForm
+              submit={reissueSubmission.bind(null, id, projectId)}
+              phases={phases}
+              phaseId={submission.phaseId}
+              offered={[
+                ...submission.openItems.map((item) => ({
+                  item,
+                  carried: true,
+                })),
+                ...attachable.map((item) => ({ item, carried: false })),
+              ]}
+              defaults={{
+                recipient: submission.recipient,
+                recipientRole: submission.recipientRole,
+                revision: submission.revision,
+                sheetList: submission.sheetList,
+              }}
+              submitLabel="Record the reissue"
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

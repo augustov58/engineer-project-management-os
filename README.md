@@ -83,8 +83,8 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   everything issued at it. That is deliberate: a rename is the same body of work under a
   better name, and a set that went out at a different stage is a different phase.
   **Nothing edits a submission** — the API exposes no route that updates one, which is what
-  makes issue #7's "no path edits an issued submission" true by construction rather than by
-  a guard someone can forget. What a set rests on is named in the same call that records it,
+  makes "no path edits an issued submission" true by construction rather than by a guard
+  someone can forget. What a set rests on is named in the same call that records it,
   because issue #6 stamps whether it went out on unconfirmed inputs *at the moment of
   issuance*; a two-call flow would leave no such moment and force a rewrite of this slice.
 
@@ -97,13 +97,31 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   `submission_open_items.unresolved_at_issuance` is the per-item snapshot, nullable because
   the null says the item was attached *afterwards*; **detach is narrowed to exactly those
   rows**, which is how cleanup cannot erase what went out.
+- **Superseded is a successor existing, not a stored flag** (ADR-0028). A reissue is a new
+  submission carrying `supersedes_id`; nothing is written to the row it points at, because
+  writing to it is the edit the record type exists to prevent. *Superseded* is therefore
+  derived on every read — the shape ADR-0027 gave *currently provisional* — and there is no
+  `superseded_at`, the successor's `issued_at` being when the prior set stopped being
+  current. `supersedes_id` is **unique**, and that alone is "at most one successor; the
+  chain is linear": a second reissue is refused by the database. Cycles cannot arise, since
+  a row is created already pointing at an older one and nothing repoints it, which is what
+  lets the chain be walked link by link and returned whole from any of them.
+- **Carry-forward is the create path with one different default** (ADR-0028). On a reissue,
+  `openItemIds` left off carries forward what the superseded set rested on; supplied is
+  exactly that list, so `[]` is a deliberate drop rather than an omission. The successor
+  stamps its own `unresolved_at_issuance` and `issued_provisional` at its own moment of
+  issuance — an item answered in between reads `false` on the reissue and stays `true` on
+  the ancestor — and the phase defaults to the superseded set's rather than to wherever the
+  job has since got to.
 - **Exposure is a list, not a number** (ADR-0027). `GET /v1/exposure` returns the
   submissions themselves, optionally narrowed by `?projectId=`, so every count on every
   screen is that list's length — "clicking the count lands on exactly what it counted" is
   then true by construction rather than by two queries agreeing. A payload that is an array
   also has nothing to combine a second figure with, which is ADR-0016's prohibition made
   structural rather than remembered. Archived projects leave the across-every-project count
-  and keep their own.
+  and keep their own, and superseded ancestors leave it entirely (ADR-0028) — carry-forward
+  puts the same unresolved item on both, so counting the ancestor too would make the number
+  grow by correcting the record.
 
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
@@ -131,6 +149,16 @@ boxes and left the warning claiming the next set carried items nobody had ticked
 review caught it; `pnpm typecheck` and `pnpm test` were both green throughout. It is now
 read straight off the form, which also fixes the opposite drift (a reload that restores
 checked boxes would have shown no warning at all).
+
+Slice 6 paid for it a fourth time, and this one had been latent since slice 5. The warning
+above is seeded into state and corrected by a ref callback on the form; a state update made
+from a ref during the **hydration** commit is discarded, so the count stayed at its seed.
+With nothing ticked at first paint that seed was right by luck, and a reissue — which
+arrives with every carried item ticked — showed a page claiming the set rested on nothing
+while two checked boxes sat in front of it. The count is now seeded from the props, so the
+warning is in the server's HTML and the ref only corrects it afterwards. One trap while
+looking for this class of bug: browse `http://localhost:3000`, not `127.0.0.1`, or Next's
+dev-origin guard 403s the client chunks and the page renders but never hydrates at all.
 
 The gap is real, and slice 2 hit it: `apps/web` resolves modules the bundler way while
 `apps/api` uses NodeNext, so relative imports written `./api.js` typechecked clean and

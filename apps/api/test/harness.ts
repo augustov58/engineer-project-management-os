@@ -239,6 +239,26 @@ export interface SubmissionResponse {
   issuedProvisional: boolean;
   /** Derived from live open items on every read, never stored (issue #6). */
   currentlyProvisional: boolean;
+  /** The issuance this one replaced, or null if it replaced nothing (issue #7). */
+  supersedesId: string | null;
+  /** The issuance that replaced this one. Derived, never stored (issue #7). */
+  supersededById: string | null;
+}
+
+/**
+ * One issuance as its own supersede chain lists it. Enough to tell the sets
+ * in a lineage apart and to say which one is the current issuance.
+ */
+export interface ChainEntry {
+  id: string;
+  revision: string;
+  issuedAt: string;
+  recipient: string;
+  recipientRole: string;
+  issuedProvisional: boolean;
+  supersedesId: string | null;
+  /** The last link: what is actually out there now. */
+  current: boolean;
 }
 
 /**
@@ -259,6 +279,8 @@ export interface SubmissionDetail extends SubmissionResponse {
   phase: PhaseResponse;
   project: { id: string; projectNumber: string; name: string };
   openItems: RestsOnResponse[];
+  /** The whole lineage, oldest issuance first, read from any set in it. */
+  chain: ChainEntry[];
 }
 
 /** A currently provisional submission as the exposure view returns it. */
@@ -308,6 +330,30 @@ export async function createSubmission(
   patch: Partial<SubmissionBody> = {},
 ): Promise<SubmissionResponse> {
   const path = `/v1/projects/${projectId}/submissions`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(submissionBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as SubmissionResponse;
+}
+
+/**
+ * Fixtures are built through the API, never by writing to the database.
+ *
+ * Leaving `openItemIds` off is not the same as passing an empty array: the
+ * first carries the predecessor's items forward, the second drops them on
+ * purpose (issue #7).
+ */
+export async function reissueSubmission(
+  api: TestApi,
+  submissionId: string,
+  patch: Partial<SubmissionBody> = {},
+): Promise<SubmissionResponse> {
+  const path = `/v1/submissions/${submissionId}/reissue`;
   const response = await api.fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

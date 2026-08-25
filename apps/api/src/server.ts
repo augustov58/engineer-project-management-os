@@ -50,11 +50,34 @@ function noSuchProject(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no project with that id' });
 }
 
-function isUniqueViolation(error: unknown): boolean {
+function isUniqueViolation(
+  error: unknown,
+): error is Prisma.PrismaClientKnownRequestError {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === UNIQUE_VIOLATION
   );
+}
+
+/**
+ * A unique violation, and specifically the one on the named column.
+ * `writeIssuance` also writes join rows with a composite key of their own, so
+ * an unqualified check would answer "that submission has already been
+ * superseded" to a collision that had nothing to do with superseding — a
+ * message that would be a lie at the one moment anybody read it.
+ *
+ * Matched against the whole of `meta` rather than a path into it. The pg
+ * driver adapter reports the column under
+ * `meta.driverAdapterError.cause.constraint.fields` and leaves `meta.target`
+ * — the documented place — undefined, so reading the documented path would
+ * quietly answer "not this constraint" to every violation and turn the race
+ * this guards into a 500. Verified against a real P2002 from this schema.
+ */
+function violates(error: unknown, column: string): boolean {
+  if (!isUniqueViolation(error)) {
+    return false;
+  }
+  return JSON.stringify(error.meta ?? {}).includes(column);
 }
 
 /**
@@ -271,6 +294,17 @@ function noSuchSubmission(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no submission with that id' });
 }
 
+/**
+ * The one already-superseded body. Said twice by the reissue route — once by
+ * the check that reads the successor, once by the index catching a race — and
+ * a reworded message must not become two different sentences.
+ */
+function alreadySuperseded(reply: FastifyReply) {
+  return reply
+    .code(409)
+    .send({ message: 'that submission has already been superseded' });
+}
+
 /** Which project's exposure, or every live one's. */
 const exposureQuerySchema = {
   type: 'object',
@@ -279,12 +313,14 @@ const exposureQuerySchema = {
 } as const;
 
 /**
- * Just enough of what a submission rests on to say whether it carries an
- * unconfirmed input right now. Selected rather than included, so a list read
- * does not drag whole open items across for a boolean.
+ * The relations the facts stored nowhere are read from: what a submission
+ * rests on, and whether anything has replaced it. Selected rather than
+ * included, so a list read does not drag whole records across for two
+ * booleans.
  */
-const restsOnState = {
+const derivedState = {
   openItems: { select: { openItem: { select: { resolvedAt: true } } } },
+  supersededBy: { select: { id: true } },
 } as const;
 
 /**
@@ -302,12 +338,202 @@ function isCurrentlyProvisional(
   return openItems.some((row) => row.openItem.resolvedAt === null);
 }
 
-/** A submission on the wire carries both facts, never one merged into the other. */
-function withProvisionalState<T extends { openItems: { openItem: { resolvedAt: Date | null } }[] }>(
+/**
+ * A submission on the wire carries both provisional facts, never one merged
+ * into the other, and says whether it has been superseded.
+ *
+ * *Superseded* is a successor existing, derived here on every read. Storing it
+ * would be the edit to the prior row that ADR-0015 forbids — the row a reissue
+ * points at is never written to again (ADR-0026).
+ */
+function withDerivedState<
+  T extends {
+    openItems: { openItem: { resolvedAt: Date | null } }[];
+    supersededBy: { id: string } | null;
+  },
+>(
   found: T,
-): Omit<T, 'openItems'> & { currentlyProvisional: boolean } {
-  const { openItems, ...submission } = found;
-  return { ...submission, currentlyProvisional: isCurrentlyProvisional(openItems) };
+): Omit<T, 'openItems' | 'supersededBy'> & {
+  currentlyProvisional: boolean;
+  supersededById: string | null;
+} {
+  const { openItems, supersededBy, ...submission } = found;
+  return {
+    ...submission,
+    currentlyProvisional: isCurrentlyProvisional(openItems),
+    supersededById: supersededBy === null ? null : supersededBy.id,
+  };
+}
+
+/**
+ * A submission the instant it was recorded. The two provisional facts
+ * coincide at issuance, which is the only moment they ever have to, and
+ * nothing can already point at a row created a moment ago.
+ */
+function asRecorded<T extends { issuedProvisional: boolean }>(submission: T) {
+  return {
+    ...submission,
+    currentlyProvisional: submission.issuedProvisional,
+    supersededById: null,
+  };
+}
+
+/**
+ * Enough of each link to tell the sets in a lineage apart on a screen. The
+ * caller already holds the row it is asking about, so the walk is given it
+ * rather than fetching it a second time.
+ */
+const chainSelect = {
+  id: true,
+  revision: true,
+  issuedAt: true,
+  recipient: true,
+  recipientRole: true,
+  issuedProvisional: true,
+  supersedesId: true,
+} as const;
+
+type ChainLink = Prisma.SubmissionGetPayload<{ select: typeof chainSelect }>;
+
+/**
+ * The whole lineage a submission sits in, oldest issuance first, with the
+ * current one marked (issue #7). Read from any link and it is the same list:
+ * this is how "what is the current issuance of this?" is answered without
+ * reading email.
+ *
+ * Walked a row at a time rather than in one recursive query. A chain is a
+ * handful of issuances, and it terminates by construction — `supersedes_id`
+ * is written once, pointing at a row that already existed, and no route ever
+ * repoints it, so the links cannot form a cycle.
+ */
+async function supersedeChain(prisma: PrismaClient, found: ChainLink) {
+  const chain: ChainLink[] = [found];
+
+  // Back to the first issuance, by the column each successor carries.
+  let older: string | null = found.supersedesId;
+  while (older !== null) {
+    const previous = await prisma.submission.findUnique({
+      where: { id: older },
+      select: chainSelect,
+    });
+    // A foreign key with nothing deleting submissions, so this is unreachable.
+    if (previous === null) {
+      break;
+    }
+    chain.unshift(previous);
+    older = previous.supersedesId;
+  }
+
+  // Forward to the current one, by the unique back-reference — which is what
+  // makes the chain linear: at most one row can name any given predecessor.
+  let newer = found.id;
+  for (;;) {
+    const next = await prisma.submission.findUnique({
+      where: { supersedesId: newer },
+      select: chainSelect,
+    });
+    if (next === null) {
+      break;
+    }
+    chain.push(next);
+    newer = next.id;
+  }
+
+  return chain.map((entry, index) => ({
+    ...entry,
+    current: index === chain.length - 1,
+  }));
+}
+
+/**
+ * A submission about to be recorded, whichever route is recording it. Named
+ * for the record and not for the act: "issuance" is the moment, and this is
+ * the thing that goes into the table.
+ */
+interface NewSubmission {
+  projectId: string;
+  phaseId: string;
+  issuedAt?: string;
+  recipient: string;
+  recipientRole: string;
+  revision: string;
+  sheetList: string;
+  openItemIds: string[];
+  /** The submission this one replaces, or null when it replaces nothing. */
+  supersedesId: string | null;
+}
+
+/** The checks a submission goes through before anything is written. */
+async function issuanceRefusal(
+  prisma: PrismaClient,
+  { projectId, phaseId, openItemIds }: NewSubmission,
+): Promise<Refusal | null> {
+  const badPhase = await phaseRefusal(prisma, phaseId, projectId);
+  if (badPhase !== null) {
+    return badPhase;
+  }
+
+  if (new Set(openItemIds).size !== openItemIds.length) {
+    return {
+      code: 409,
+      message: 'an open item can only be named once on a submission',
+    };
+  }
+  for (const openItemId of openItemIds) {
+    const badItem = await openItemRefusal(prisma, openItemId, projectId);
+    if (badItem !== null) {
+      return badItem;
+    }
+  }
+  return null;
+}
+
+/**
+ * One transaction, so a submission never exists having lost the record of
+ * what it rests on — and so the snapshot is taken at the same instant as the
+ * row. The open items are re-read inside it rather than reused from the
+ * checks above: a resolve landing in between would otherwise be stamped into
+ * history as though it had happened first.
+ */
+function writeIssuance(
+  prisma: PrismaClient,
+  timeSource: TimeSource,
+  { openItemIds, issuedAt, ...row }: NewSubmission,
+) {
+  return prisma.$transaction(async (tx) => {
+    const named = await tx.openItem.findMany({
+      where: { id: { in: openItemIds } },
+      select: { id: true, resolvedAt: true },
+    });
+    const unresolvedThen = new Map(
+      named.map((item) => [item.id, item.resolvedAt === null]),
+    );
+
+    const created = await tx.submission.create({
+      data: {
+        ...row,
+        issuedAt: instant(issuedAt, timeSource),
+        createdAt: timeSource.now(),
+        // The permanent fact that the set went out on unconfirmed inputs.
+        // Nothing recomputes it afterwards, and a reissue stamps its own
+        // rather than copying the one it supersedes.
+        issuedProvisional: named.some((item) => item.resolvedAt === null),
+      },
+    });
+    if (openItemIds.length > 0) {
+      await tx.submissionOpenItem.createMany({
+        data: openItemIds.map((openItemId) => ({
+          submissionId: created.id,
+          openItemId,
+          // Every id was checked to exist above; the fallback is unreachable
+          // and here so an `undefined` can never land as the null that means
+          // "attached afterwards".
+          unresolvedAtIssuance: unresolvedThen.get(openItemId) ?? false,
+        })),
+      });
+    }
+    return created;
+  });
 }
 
 export function buildServer({
@@ -784,77 +1010,107 @@ export function buildServer({
             });
           }
 
-          const badPhase = await phaseRefusal(prisma, wanted, project.id);
-          if (badPhase !== null) {
-            return refuse(reply, badPhase);
+          const toIssue: NewSubmission = {
+            ...rest,
+            projectId: project.id,
+            phaseId: wanted,
+            issuedAt,
+            openItemIds,
+            // A first issuance replaces nothing. Correcting one is the
+            // reissue route below, never a second create.
+            supersedesId: null,
+          };
+
+          const bad = await issuanceRefusal(prisma, toIssue);
+          if (bad !== null) {
+            return refuse(reply, bad);
           }
 
-          if (new Set(openItemIds).size !== openItemIds.length) {
-            return reply.code(409).send({
-              message: 'an open item can only be named once on a submission',
-            });
-          }
-          for (const openItemId of openItemIds) {
-            const badItem = await openItemRefusal(
-              prisma,
-              openItemId,
-              project.id,
-            );
-            if (badItem !== null) {
-              return refuse(reply, badItem);
-            }
-          }
+          const submission = await writeIssuance(prisma, timeSource, toIssue);
+          return reply.code(201).send(asRecorded(submission));
+        },
+      );
 
-          // One transaction, so a submission never exists having lost the
-          // record of what it rests on — and so the snapshot is taken at the
-          // same instant as the row. Read here rather than reused from the
-          // check above: a resolve landing in between would otherwise be
-          // stamped into history as though it had happened first.
-          const submission = await prisma.$transaction(async (tx) => {
-            const named = await tx.openItem.findMany({
-              where: { id: { in: openItemIds } },
-              select: { id: true, resolvedAt: true },
-            });
-            const unresolvedThen = new Map(
-              named.map((item) => [item.id, item.resolvedAt === null]),
-            );
-
-            const created = await tx.submission.create({
-              data: {
-                ...rest,
-                projectId: project.id,
-                phaseId: wanted,
-                issuedAt: instant(issuedAt, timeSource),
-                createdAt: timeSource.now(),
-                // The permanent fact that the set went out on unconfirmed
-                // inputs. Nothing recomputes it afterwards.
-                issuedProvisional: named.some(
-                  (item) => item.resolvedAt === null,
-                ),
-              },
-            });
-            if (openItemIds.length > 0) {
-              await tx.submissionOpenItem.createMany({
-                data: openItemIds.map((openItemId) => ({
-                  submissionId: created.id,
-                  openItemId,
-                  // Every id was checked to exist above; the fallback is
-                  // unreachable and here so an `undefined` can never land as
-                  // the null that means "attached afterwards".
-                  unresolvedAtIssuance: unresolvedThen.get(openItemId) ?? false,
-                })),
-              });
-            }
-            return created;
+      /**
+       * Reissue: correcting or reconsidering an issuance is a *new*
+       * submission that points at the one it replaces (ADR-0015, issue #7).
+       *
+       * Nothing about the predecessor is written. It stays exactly as it went
+       * out, and *superseded* is this row existing — derived on every read,
+       * because storing it would be the edit to the prior row that the whole
+       * decision forbids.
+       */
+      v1.post<{
+        Params: { id: string };
+        Body: {
+          phaseId?: string;
+          issuedAt?: string;
+          recipient: string;
+          recipientRole: string;
+          revision: string;
+          sheetList: string;
+          openItemIds?: string[];
+        };
+      }>(
+        '/submissions/:id/reissue',
+        { schema: { body: submissionBodySchema } },
+        async (request, reply) => {
+          const superseded = await prisma.submission.findUnique({
+            where: { id: request.params.id },
+            select: {
+              id: true,
+              projectId: true,
+              phaseId: true,
+              supersededBy: { select: { id: true } },
+              openItems: { select: { openItemId: true } },
+            },
           });
-          // At the instant of issuance the two facts coincide, which is the
-          // only moment they ever have to.
-          return reply
-            .code(201)
-            .send({
-              ...submission,
-              currentlyProvisional: submission.issuedProvisional,
-            });
+          if (superseded === null) {
+            return noSuchSubmission(reply);
+          }
+          // The unique index says this too, and says it under a race. Asked
+          // here so the ordinary answer is the sentence rather than a 500.
+          if (superseded.supersededBy !== null) {
+            return alreadySuperseded(reply);
+          }
+
+          const { phaseId, issuedAt, openItemIds, ...rest } = request.body;
+          const toIssue: NewSubmission = {
+            ...rest,
+            projectId: superseded.projectId,
+            // Another issuance of the same set, at the same stage unless the
+            // reissue says otherwise. Defaulting to the project's current
+            // phase would quietly move a correction to wherever the job has
+            // got to since.
+            phaseId: phaseId ?? superseded.phaseId,
+            issuedAt,
+            // Left off entirely, what the superseded set rested on carries
+            // forward — a reissue must never silently lose the dependencies
+            // the original stood on. A supplied list is exactly that list,
+            // which is how one is dropped before committing, so `[]` is a
+            // deliberate drop rather than an omission.
+            openItemIds:
+              openItemIds ?? superseded.openItems.map((row) => row.openItemId),
+            supersedesId: superseded.id,
+          };
+
+          const bad = await issuanceRefusal(prisma, toIssue);
+          if (bad !== null) {
+            return refuse(reply, bad);
+          }
+
+          try {
+            const reissued = await writeIssuance(prisma, timeSource, toIssue);
+            return reply.code(201).send(asRecorded(reissued));
+          } catch (error) {
+            // Narrowed to the supersede column: anything else colliding here
+            // is a state this route does not understand, and a 500 is the
+            // honest answer to it.
+            if (violates(error, 'supersedes_id')) {
+              return alreadySuperseded(reply);
+            }
+            throw error;
+          }
         },
       );
 
@@ -877,9 +1133,9 @@ export function buildServer({
           const listed = await prisma.submission.findMany({
             where: { projectId: project.id },
             orderBy: [{ issuedAt: 'asc' }, { createdAt: 'asc' }],
-            include: restsOnState,
+            include: derivedState,
           });
-          return listed.map(withProvisionalState);
+          return listed.map(withDerivedState);
         },
       );
 
@@ -900,6 +1156,7 @@ export function buildServer({
               project: {
                 select: { id: true, projectNumber: true, name: true },
               },
+              supersededBy: { select: { id: true } },
               openItems: {
                 include: { openItem: true },
                 orderBy: { openItem: { waitingSince: 'asc' } },
@@ -910,10 +1167,14 @@ export function buildServer({
             return noSuchSubmission(reply);
           }
 
-          const { openItems, ...submission } = found;
+          const { openItems, supersededBy, ...submission } = found;
           return {
             ...submission,
             currentlyProvisional: isCurrentlyProvisional(openItems),
+            supersededById: supersededBy === null ? null : supersededBy.id,
+            // The whole lineage this set sits in, so the current issuance is
+            // answerable from any link in it (issue #7).
+            chain: await supersedeChain(prisma, found),
             // Where each item stood when the set went out, carried on the
             // item itself: null for one attached afterwards.
             openItems: openItems.map((row) => ({
@@ -958,6 +1219,10 @@ export function buildServer({
           const carrying = await prisma.submission.findMany({
             where: {
               openItems: { some: { openItem: { resolvedAt: null } } },
+              // Superseded ancestors are not what is out there. A reissue
+              // carries the same unresolved items forward, so without this
+              // every correction would count its set twice (issue #7).
+              supersededBy: { is: null },
               ...(projectId === undefined
                 ? { project: { archivedAt: null } }
                 : { projectId }),
@@ -966,10 +1231,10 @@ export function buildServer({
             include: {
               phase: true,
               project: { select: { id: true, projectNumber: true, name: true } },
-              ...restsOnState,
+              ...derivedState,
             },
           });
-          return carrying.map(withProvisionalState);
+          return carrying.map(withDerivedState);
         },
       );
 
