@@ -27,7 +27,7 @@ export default async function PendingItems({
           Who owes the next move{' '}
           <input name="waitingOn" defaultValue={waitingOn} size={20} />
         </label>{' '}
-        <small>blank for anyone, or the word nobody</small>{' '}
+        <small>blank for anyone, or &ldquo;Nobody&rdquo;</small>{' '}
         <label>
           Age{' '}
           <select name="sort" defaultValue={order}>

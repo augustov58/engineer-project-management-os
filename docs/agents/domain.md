@@ -38,7 +38,7 @@ changes with it.
 <vault>/                                   ← source of truth (docs)
 ├── PRD and Architecture.md
 └── docs/
-    ├── adr/                               ← 0001-0019 + README.md index
+    ├── adr/                               ← 0001-0024 + README.md index
     └── glossary.md
 ```
 

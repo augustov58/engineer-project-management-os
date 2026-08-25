@@ -43,17 +43,30 @@ export async function archiveProject(id: string): Promise<void> {
 }
 
 /** Empty optional fields are omitted rather than sent blank. */
-function optional(formData: FormData, field: string): string | undefined {
+function omitIfBlank(formData: FormData, field: string): string | undefined {
   const value = String(formData.get(field) ?? '').trim();
   return value === '' ? undefined : value;
 }
 
+/**
+ * `added` counts successful adds. The form keys off it so that a success
+ * remounts every control — including the nobody checkbox, which React would
+ * otherwise leave ticked while it resets the uncontrolled fields around it,
+ * silently giving the next item no one to chase.
+ *
+ * On a rejection `added` does not move, so nothing the author typed is lost.
+ */
+export interface AddOpenItemState {
+  added: number;
+  error?: string;
+}
+
 export async function createOpenItem(
   projectId: string,
-  _previous: string | undefined,
+  previous: AddOpenItemState,
   formData: FormData,
-): Promise<string | undefined> {
-  const sinceDate = optional(formData, 'waitingSince');
+): Promise<AddOpenItemState> {
+  const sinceDate = omitIfBlank(formData, 'waitingSince');
 
   const response = await fetch(
     apiPath(`/projects/${projectId}/open-items`),
@@ -73,9 +86,9 @@ export async function createOpenItem(
         // A date input gives a day; the record keeps an instant.
         waitingSince:
           sinceDate === undefined ? undefined : `${sinceDate}T00:00:00.000Z`,
-        invalidationTrigger: optional(formData, 'invalidationTrigger'),
+        invalidationTrigger: omitIfBlank(formData, 'invalidationTrigger'),
         counterfactual: formData.get('counterfactual'),
-        owner: optional(formData, 'owner'),
+        owner: omitIfBlank(formData, 'owner'),
       }),
     },
   );
@@ -84,11 +97,14 @@ export async function createOpenItem(
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
     };
-    return body.message ?? `the API returned ${response.status}`;
+    return {
+      added: previous.added,
+      error: body.message ?? `the API returned ${response.status}`,
+    };
   }
 
   revalidateOpenItems(projectId);
-  return undefined;
+  return { added: previous.added + 1 };
 }
 
 export async function resolveOpenItem(
@@ -96,8 +112,13 @@ export async function resolveOpenItem(
   id: string,
   formData: FormData,
 ): Promise<void> {
+  // An item answered in April must not read as answered today just because
+  // that is when it was typed in.
+  const on = omitIfBlank(formData, 'resolvedAt');
+
   await post(`/open-items/${id}/resolve`, {
     note: formData.get('note'),
+    ...(on === undefined ? {} : { resolvedAt: `${on}T00:00:00.000Z` }),
   });
   revalidateOpenItems(projectId);
 }
@@ -120,7 +141,10 @@ async function post(path: string, body?: unknown): Promise<void> {
           body: JSON.stringify(body),
         }),
   });
-  if (!response.ok) {
+  // 409 is "already in that state" — the second half of a double click. The
+  // re-render below shows what is actually true, which is what the author
+  // wanted; an error page would not be.
+  if (!response.ok && response.status !== 409) {
     throw new Error(`POST ${apiPath(path)} returned ${response.status}`);
   }
 }

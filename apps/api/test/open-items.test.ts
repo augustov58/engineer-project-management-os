@@ -275,8 +275,15 @@ test('the pending items view filters by who owes the next move', async () => {
     nobody.id,
   ]);
 
+  // The screens render it capitalised, so typing back what is on screen has
+  // to find the same rows rather than searching for a party of that name.
+  expect((await pending(app, '?waitingOn=Nobody')).map((e) => e.id)).toEqual([
+    nobody.id,
+  ]);
+
   // A blank filter is not a filter for nobody.
   expect((await app.fetch('/v1/open-items?waitingOn=')).status).toBe(400);
+  expect((await app.fetch('/v1/open-items?waitingOn=%20%20')).status).toBe(400);
 });
 
 test('an open item on an archived project is still pending', async () => {
@@ -316,21 +323,18 @@ test.each([
   ['an over-long statement', { unresolved: 'x'.repeat(501) }],
   ['an over-long counterfactual', { counterfactual: 'x'.repeat(1001) }],
   ['an over-long party', { waitingOn: 'x'.repeat(121) }],
+  ['a party of only whitespace', { waitingOn: '   ' }],
+  ['a statement of only whitespace', { unresolved: '   ' }],
+  ['a counterfactual of only whitespace', { counterfactual: '  ' }],
+  ['an owner of only whitespace', { owner: ' ' }],
 ])('an open item with %s is rejected and nothing is stored', async (_, patch) => {
   const app = await api();
   const project = await createProject(app, 'T-1', 'Riser replacement');
 
-  const body: Record<string, unknown> = { ...openItemBody(), ...patch };
-  for (const [key, value] of Object.entries(body)) {
-    if (value === undefined) {
-      delete body[key];
-    }
-  }
-
   const response = await app.fetch(`/v1/projects/${project.id}/open-items`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(openItemBody(patch)),
   });
 
   expect(response.status).toBe(400);
@@ -357,6 +361,7 @@ test('resolving without a note is refused', async () => {
 
   expect((await resolve(app, item.id, {})).status).toBe(400);
   expect((await resolve(app, item.id, { note: '' })).status).toBe(400);
+  expect((await resolve(app, item.id, { note: '   ' })).status).toBe(400);
   expect((await projectItems(app, project.id)).map((e) => e.id)).toEqual([
     item.id,
   ]);

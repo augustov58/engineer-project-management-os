@@ -6,10 +6,25 @@ import { createOpenItem } from './actions';
 const row = { display: 'block', marginBottom: '0.5rem' } as const;
 
 export function NewOpenItemForm({ projectId }: { projectId: string }) {
-  const [error, action, pending] = useActionState(
+  const [state, action, pending] = useActionState(
     createOpenItem.bind(null, projectId),
-    undefined,
+    { added: 0 },
   );
+
+  // Keyed on the number of items added, so a success starts a genuinely empty
+  // form and a rejection leaves everything typed exactly where it was.
+  return <Fields key={state.added} action={action} pending={pending} error={state.error} />;
+}
+
+function Fields({
+  action,
+  pending,
+  error,
+}: {
+  action: (formData: FormData) => void;
+  pending: boolean;
+  error: string | undefined;
+}) {
   // Nobody is a real answer, so it is a control of its own rather than the
   // absence of one. Ticking it takes the party field out of play entirely.
   const [nobody, setNobody] = useState(false);

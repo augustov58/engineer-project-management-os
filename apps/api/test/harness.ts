@@ -157,15 +157,27 @@ export interface OpenItemBody {
 /**
  * A valid create body, so a test that is about one field does not have to
  * restate the other three that are required.
+ *
+ * Patching a field to `undefined` leaves it off the wire entirely rather than
+ * sending a null, which is how a test says "this field was not supplied".
  */
-export function openItemBody(patch: Partial<OpenItemBody> = {}): OpenItemBody {
-  return {
+export function openItemBody(
+  patch: Partial<OpenItemBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
     unresolved: 'Grounding electrode type',
     blocks: 'Issuing the riser at 400 A',
     waitingOn: 'Contractor',
     counterfactual: 'If PVC rather than steel, X3 rises to about 41,000 A',
     ...patch,
   };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
 }
 
 /** Fixtures are built through the API, never by writing to the database. */
@@ -174,18 +186,11 @@ export async function createOpenItem(
   projectId: string,
   patch: Partial<OpenItemBody> = {},
 ): Promise<OpenItemResponse> {
-  const body: Record<string, unknown> = { ...openItemBody(patch) };
-  for (const [key, value] of Object.entries(body)) {
-    if (value === undefined) {
-      delete body[key];
-    }
-  }
-
   const path = `/v1/projects/${projectId}/open-items`;
   const response = await api.fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(openItemBody(patch)),
   });
   if (response.status !== 201) {
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);

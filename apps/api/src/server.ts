@@ -58,6 +58,13 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
+ * At least one character that is not whitespace. `minLength: 1` would accept
+ * "   ", which stores as a filled-in field and reads as an empty one — and for
+ * `waitingOn` would be indistinguishable on screen from nobody.
+ */
+const NOT_BLANK = '\\S';
+
+/**
  * Caps are chosen the way the project name's 200 was: the plan states none,
  * and an unbounded column is a way to wedge the record. The counterfactual
  * and the resolution note get more room, being prose about consequences
@@ -68,17 +75,17 @@ const openItemBodySchema = {
   required: ['unresolved', 'blocks', 'waitingOn', 'counterfactual'],
   additionalProperties: false,
   properties: {
-    unresolved: { type: 'string', minLength: 1, maxLength: 500 },
-    blocks: { type: 'string', minLength: 1, maxLength: 500 },
+    unresolved: { type: 'string', pattern: NOT_BLANK, maxLength: 500 },
+    blocks: { type: 'string', pattern: NOT_BLANK, maxLength: 500 },
     // Null is nobody. A blank string is not — an empty field must never be a
     // way of saying that no one owes the next move (ADR-0014).
-    waitingOn: { type: ['string', 'null'], minLength: 1, maxLength: 120 },
+    waitingOn: { type: ['string', 'null'], pattern: NOT_BLANK, maxLength: 120 },
     // Optional so entry stays quick, and settable so a project's existing
     // items can be entered with the date they have actually been open since.
     waitingSince: { type: 'string', format: 'date-time' },
-    invalidationTrigger: { type: 'string', minLength: 1, maxLength: 500 },
-    counterfactual: { type: 'string', minLength: 1, maxLength: 1000 },
-    owner: { type: 'string', minLength: 1, maxLength: 120 },
+    invalidationTrigger: { type: 'string', pattern: NOT_BLANK, maxLength: 500 },
+    counterfactual: { type: 'string', pattern: NOT_BLANK, maxLength: 1000 },
+    owner: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
   },
 } as const;
 
@@ -88,7 +95,7 @@ const resolveBodySchema = {
   required: ['note'],
   additionalProperties: false,
   properties: {
-    note: { type: 'string', minLength: 1, maxLength: 1000 },
+    note: { type: 'string', pattern: NOT_BLANK, maxLength: 1000 },
     resolvedAt: { type: 'string', format: 'date-time' },
   },
 } as const;
@@ -108,16 +115,23 @@ const pendingQuerySchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    waitingOn: { type: 'string', minLength: 1, maxLength: 120 },
+    waitingOn: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
     sort: { type: 'string', enum: ['oldest', 'newest'], default: 'oldest' },
   },
 } as const;
 
 /**
- * The reserved filter value for "no one owes the next move". A blank
- * `waitingOn=` is rejected instead, so the two never collapse into each other.
+ * The reserved filter value for "no one owes the next move". Matched without
+ * regard to case, because the screens render it as "Nobody" and typing back
+ * what the screen shows must not silently become a search for a party of that
+ * name. A blank `waitingOn=` is rejected instead, so a blank filter and this
+ * one never collapse into each other.
  */
 const NOBODY = 'nobody';
+
+function meansNobody(waitingOn: string): boolean {
+  return waitingOn.toLowerCase() === NOBODY;
+}
 
 /** The one 404 body for open items, matching the projects one. */
 function noSuchOpenItem(reply: FastifyReply) {
@@ -326,7 +340,7 @@ export function buildServer({
               resolvedAt: null,
               ...(waitingOn === undefined
                 ? {}
-                : { waitingOn: waitingOn === NOBODY ? null : waitingOn }),
+                : { waitingOn: meansNobody(waitingOn) ? null : waitingOn }),
             },
             orderBy: { waitingSince: sort === 'newest' ? 'desc' : 'asc' },
           });

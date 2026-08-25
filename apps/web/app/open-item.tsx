@@ -51,6 +51,7 @@ export function OpenItemEntry({
       {item.resolvedAt === null ? (
         <form action={resolveOpenItem.bind(null, projectId, item.id)}>
           <input name="note" required size={40} placeholder="How it resolved" />{' '}
+          <input name="resolvedAt" type="date" title="When it was answered" />{' '}
           <button type="submit">Resolve</button>
         </form>
       ) : (
