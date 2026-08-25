@@ -1,3 +1,6 @@
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { reopenOpenItem, resolveOpenItem } from './actions';
 import type { OpenItem } from './api';
 
@@ -9,7 +12,7 @@ export function day(instant: string): string {
 function Field({ label, value }: { label: string; value: string | null }) {
   return value === null ? null : (
     <>
-      <dt>{label}</dt>
+      <dt className="text-muted-foreground">{label}</dt>
       <dd>{value}</dd>
     </>
   );
@@ -26,37 +29,68 @@ export function OpenItemEntry({
   item: OpenItem;
   projectId: string;
 }) {
+  const resolved = item.resolvedAt !== null;
+
   return (
-    <li style={{ marginBottom: '1rem' }}>
-      <strong>{item.unresolved}</strong>
-      <dl style={{ margin: '0.25rem 0 0.25rem 1rem' }}>
+    <li
+      className={`rounded-lg border p-4 ${resolved ? 'bg-muted/30' : ''} space-y-3`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <p className={`font-medium ${resolved ? 'text-muted-foreground' : ''}`}>
+          {item.unresolved}
+        </p>
+        {resolved ? (
+          <Badge variant="secondary">Resolved</Badge>
+        ) : (
+          <Badge variant="outline" className="shrink-0">
+            {item.waitingOn ?? 'Nobody'}
+          </Badge>
+        )}
+      </div>
+
+      <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
         <Field label="Blocks" value={item.blocks} />
         <Field label="If wrong" value={item.counterfactual} />
-        <dt>Next move</dt>
-        <dd>{item.waitingOn ?? 'Nobody'}</dd>
-        <dt>Since</dt>
-        <dd>{day(item.waitingSince)}</dd>
+        {resolved && (
+          <Field label="Next move" value={item.waitingOn ?? 'Nobody'} />
+        )}
+        <Field label="Open since" value={day(item.waitingSince)} />
         <Field label="Invalidated by" value={item.invalidationTrigger} />
         <Field label="Owner" value={item.owner} />
         {item.resolvedAt !== null && (
-          <>
-            <dt>Resolved</dt>
-            <dd>
-              {day(item.resolvedAt)} — {item.resolutionNote}
-            </dd>
-          </>
+          <Field
+            label="Resolved"
+            value={`${day(item.resolvedAt)} — ${item.resolutionNote}`}
+          />
         )}
       </dl>
 
-      {item.resolvedAt === null ? (
-        <form action={resolveOpenItem.bind(null, projectId, item.id)}>
-          <input name="note" required size={40} placeholder="How it resolved" />{' '}
-          <input name="resolvedAt" type="date" title="When it was answered" />{' '}
-          <button type="submit">Resolve</button>
+      {resolved ? (
+        <form action={reopenOpenItem.bind(null, projectId, item.id)}>
+          <Button type="submit" variant="outline" size="sm">
+            Reopen
+          </Button>
         </form>
       ) : (
-        <form action={reopenOpenItem.bind(null, projectId, item.id)}>
-          <button type="submit">Reopen</button>
+        <form
+          action={resolveOpenItem.bind(null, projectId, item.id)}
+          className="flex flex-wrap items-center gap-2 border-t pt-3"
+        >
+          <Input
+            name="note"
+            required
+            placeholder="How it resolved"
+            className="min-w-48 flex-1"
+          />
+          <Input
+            name="resolvedAt"
+            type="date"
+            title="When it was answered"
+            className="w-40"
+          />
+          <Button type="submit" variant="secondary">
+            Resolve
+          </Button>
         </form>
       )}
     </li>

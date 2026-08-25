@@ -71,6 +71,13 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   answer. The subject is polymorphic — `subject_type` is a database enum carrying only
   `PROJECT`, so attaching an open item to a submission is a migration, not a new string.
 
+- **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
+  `apps/web/components/ui` and are edited in place rather than imported from a versioned
+  package, so there is no library upgrade to absorb. Radix underneath means focus rings and
+  keyboard behaviour come with the components. Two controls stay deliberately native and
+  styled by hand — the "nobody owes the next move" checkbox and the pending-items sort
+  select — because a styled component would change how they serialise into a form.
+
 Not covered by tests: the frontend. `apps/web` has no test script, so `pnpm test`
 exercises the API only, and a change that breaks the page would not fail the suite. That
 is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
@@ -81,3 +88,8 @@ The gap is real, and slice 2 hit it: `apps/web` resolves modules the bundler way
 then 500'd in Turbopack. **Web imports carry no file extension; API imports carry `.js`.**
 Until there is a web test, run the app and load the pages before calling a frontend change
 done.
+
+Since ADR-0025 the frontend also compiles a stylesheet, which `pnpm typecheck` does not
+check. `pnpm --filter web build` is the command that catches a Tailwind or PostCSS error;
+it also works when `pnpm dev` will not, which on a machine that has run out of inotify
+watches is the difference between verifying a change and not.

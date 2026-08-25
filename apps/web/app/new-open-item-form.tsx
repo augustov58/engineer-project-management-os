@@ -1,9 +1,10 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { createOpenItem } from './actions';
-
-const row = { display: 'block', marginBottom: '0.5rem' } as const;
 
 export function NewOpenItemForm({ projectId }: { projectId: string }) {
   const [state, action, pending] = useActionState(
@@ -13,7 +14,14 @@ export function NewOpenItemForm({ projectId }: { projectId: string }) {
 
   // Keyed on the number of items added, so a success starts a genuinely empty
   // form and a rejection leaves everything typed exactly where it was.
-  return <Fields key={state.added} action={action} pending={pending} error={state.error} />;
+  return (
+    <Fields
+      key={state.added}
+      action={action}
+      pending={pending}
+      error={state.error}
+    />
+  );
 }
 
 function Fields({
@@ -27,63 +35,87 @@ function Fields({
 }) {
   // Nobody is a real answer, so it is a control of its own rather than the
   // absence of one. Ticking it takes the party field out of play entirely.
+  //
+  // Deliberately a native checkbox rather than the Radix one: the action reads
+  // `formData.get('nobody')`, and this control's exact form semantics are the
+  // subtlest thing on the screen.
   const [nobody, setNobody] = useState(false);
 
   return (
-    <form action={action}>
-      <label style={row}>
-        What is unresolved <br />
-        <input name="unresolved" required size={60} />
-      </label>
+    <form action={action} className="space-y-4">
+      <div className="grid gap-1.5">
+        <Label htmlFor="unresolved">What is unresolved</Label>
+        <Input id="unresolved" name="unresolved" required />
+      </div>
 
-      <label style={row}>
-        What it blocks <br />
-        <input name="blocks" required size={60} />
-      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="blocks">What it blocks</Label>
+          <Input id="blocks" name="blocks" required />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="counterfactual">
+            What changes if the assumption is wrong
+          </Label>
+          <Input id="counterfactual" name="counterfactual" required />
+        </div>
+      </div>
 
-      <label style={row}>
-        What changes if the assumption is wrong <br />
-        <input name="counterfactual" required size={60} />
-      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="waitingOn">Who owes the next move</Label>
+          <Input
+            id="waitingOn"
+            name="waitingOn"
+            required={!nobody}
+            disabled={nobody}
+          />
+          <label className="text-muted-foreground flex items-center gap-2 text-sm">
+            <input
+              name="nobody"
+              type="checkbox"
+              checked={nobody}
+              onChange={(event) => setNobody(event.target.checked)}
+              className="accent-primary size-4"
+            />
+            Nobody owes the next move
+          </label>
+        </div>
 
-      <label style={row}>
-        Who owes the next move{' '}
-        <input
-          name="waitingOn"
-          required={!nobody}
-          disabled={nobody}
-          size={24}
-        />
-      </label>
+        <div className="grid gap-1.5">
+          <Label htmlFor="waitingSince">Open since</Label>
+          <Input id="waitingSince" name="waitingSince" type="date" />
+          <p className="text-muted-foreground text-sm">Blank means today.</p>
+        </div>
+      </div>
 
-      <label style={row}>
-        <input
-          name="nobody"
-          type="checkbox"
-          checked={nobody}
-          onChange={(event) => setNobody(event.target.checked)}
-        />{' '}
-        Nobody owes the next move
-      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="invalidationTrigger">
+            Invalidation trigger{' '}
+            <span className="text-muted-foreground font-normal">optional</span>
+          </Label>
+          <Input id="invalidationTrigger" name="invalidationTrigger" />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="owner">
+            Owner{' '}
+            <span className="text-muted-foreground font-normal">optional</span>
+          </Label>
+          <Input id="owner" name="owner" />
+        </div>
+      </div>
 
-      <label style={row}>
-        Open since <input name="waitingSince" type="date" />{' '}
-        <small>blank means today</small>
-      </label>
-
-      <label style={row}>
-        Invalidation trigger <input name="invalidationTrigger" size={40} />{' '}
-        <small>optional</small>
-      </label>
-
-      <label style={row}>
-        Owner <input name="owner" size={16} /> <small>optional</small>
-      </label>
-
-      <button type="submit" disabled={pending}>
-        Add open item
-      </button>
-      {error !== undefined && <p role="alert">{error}</p>}
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={pending}>
+          Add open item
+        </Button>
+        {error !== undefined && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
+          </p>
+        )}
+      </div>
     </form>
   );
 }
