@@ -51,27 +51,27 @@ function reopen(app: TestApi, id: string) {
 
 test('an open item created against a project is read back with every field', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
 
   const created = await createOpenItem(app, project.id, {
-    unresolved: 'Grounding electrode type',
-    blocks: 'Issuing the riser at 400 A',
+    unresolved: 'Ceiling height at the north stair',
+    blocks: 'Sizing the main run',
     waitingOn: 'Contractor',
     waitingSince: '2026-03-01T12:00:00.000Z',
     invalidationTrigger: 'A transformer swap',
-    counterfactual: 'If PVC rather than steel, X3 rises to about 41,000 A',
+    counterfactual: 'If the height is lower the run has to be rerouted',
     owner: 'AV',
   });
 
   expect(created).toMatchObject({
     subjectType: 'PROJECT',
     subjectId: project.id,
-    unresolved: 'Grounding electrode type',
-    blocks: 'Issuing the riser at 400 A',
+    unresolved: 'Ceiling height at the north stair',
+    blocks: 'Sizing the main run',
     waitingOn: 'Contractor',
     waitingSince: '2026-03-01T12:00:00.000Z',
     invalidationTrigger: 'A transformer swap',
-    counterfactual: 'If PVC rather than steel, X3 rises to about 41,000 A',
+    counterfactual: 'If the height is lower the run has to be rerouted',
     owner: 'AV',
     resolvedAt: null,
     resolutionNote: null,
@@ -81,7 +81,7 @@ test('an open item created against a project is read back with every field', asy
 
 test('the optional fields come back null when they are not supplied', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
 
   const created = await createOpenItem(app, project.id, {
     invalidationTrigger: undefined,
@@ -93,7 +93,7 @@ test('the optional fields come back null when they are not supplied', async () =
 
 test('nobody owing the next move is a real value, distinct from an empty field', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
 
   const nobody = await createOpenItem(app, project.id, { waitingOn: null });
   expect(nobody.waitingOn).toBeNull();
@@ -121,7 +121,7 @@ test('nobody owing the next move is a real value, distinct from an empty field',
 test('waiting since defaults to the injected time source and is otherwise honoured', async () => {
   const time = fakeTimeSource(new Date('2026-08-25T09:00:00.000Z'));
   const app = await api({ timeSource: time });
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
 
   const now = await createOpenItem(app, project.id, {
     waitingSince: undefined,
@@ -139,17 +139,17 @@ test('waiting since defaults to the injected time source and is otherwise honour
 test('resolving stamps a note and a date, and the item stays on its project', async () => {
   const time = fakeTimeSource(new Date('2026-08-25T09:00:00.000Z'));
   const app = await api({ timeSource: time });
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
   const item = await createOpenItem(app, project.id);
 
   time.advance(3 * 24 * 60 * 60 * 1000);
   const response = await resolve(app, item.id, {
-    note: 'Contractor confirmed a driven rod',
+    note: 'The party confirmed it',
   });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({
     resolvedAt: '2026-08-28T09:00:00.000Z',
-    resolutionNote: 'Contractor confirmed a driven rod',
+    resolutionNote: 'The party confirmed it',
   });
 
   expect(await projectItems(app, project.id)).toEqual([]);
@@ -159,7 +159,7 @@ test('resolving stamps a note and a date, and the item stays on its project', as
 
 test('a resolution date may be supplied rather than taken from the clock', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
   const item = await createOpenItem(app, project.id);
 
   const response = await resolve(app, item.id, {
@@ -174,7 +174,7 @@ test('a resolution date may be supplied rather than taken from the clock', async
 
 test('reopening a resolved item clears the resolution and returns it to the view', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
   const item = await createOpenItem(app, project.id);
   await resolve(app, item.id, { note: 'Answer turned out wrong' });
 
@@ -193,7 +193,7 @@ test('reopening a resolved item clears the resolution and returns it to the view
 
 test('resolving twice, or reopening what is already open, is refused', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
   const item = await createOpenItem(app, project.id);
 
   expect((await reopen(app, item.id)).status).toBe(409);
@@ -210,15 +210,15 @@ test('resolving twice, or reopening what is already open, is refused', async () 
 
 test('the pending items view spans projects and shows only what is unresolved', async () => {
   const app = await api();
-  const one = await createProject(app, 'T-1', 'Riser replacement');
+  const one = await createProject(app, 'T-1', 'Example job');
   const two = await createProject(app, 'T-2', 'Service upgrade');
 
   const first = await createOpenItem(app, one.id, {
-    unresolved: 'Grounding electrode type',
+    unresolved: 'Ceiling height at the north stair',
     waitingSince: '2026-03-01T12:00:00.000Z',
   });
   const second = await createOpenItem(app, two.id, {
-    unresolved: 'LP-1 load',
+    unresolved: 'Panel B schedule',
     waitingSince: '2026-06-01T12:00:00.000Z',
   });
   const done = await createOpenItem(app, two.id, { unresolved: 'Answered' });
@@ -231,14 +231,14 @@ test('the pending items view spans projects and shows only what is unresolved', 
   expect(view[0]?.project).toMatchObject({
     id: one.id,
     projectNumber: 'T-1',
-    name: 'Riser replacement',
+    name: 'Example job',
   });
   expect(view[1]?.project).toMatchObject({ projectNumber: 'T-2' });
 });
 
 test('the pending items view sorts by age in either direction', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
   const old = await createOpenItem(app, project.id, {
     waitingSince: '2026-03-01T12:00:00.000Z',
   });
@@ -258,7 +258,7 @@ test('the pending items view sorts by age in either direction', async () => {
 
 test('the pending items view filters by who owes the next move', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
   const contractor = await createOpenItem(app, project.id, {
     waitingOn: 'Contractor',
   });
@@ -329,7 +329,7 @@ test.each([
   ['an owner of only whitespace', { owner: ' ' }],
 ])('an open item with %s is rejected and nothing is stored', async (_, patch) => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
 
   const response = await app.fetch(`/v1/projects/${project.id}/open-items`, {
     method: 'POST',
@@ -343,7 +343,7 @@ test.each([
 
 test('an open item cannot carry a field the record does not have', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
 
   const response = await app.fetch(`/v1/projects/${project.id}/open-items`, {
     method: 'POST',
@@ -356,7 +356,7 @@ test('an open item cannot carry a field the record does not have', async () => {
 
 test('resolving without a note is refused', async () => {
   const app = await api();
-  const project = await createProject(app, 'T-1', 'Riser replacement');
+  const project = await createProject(app, 'T-1', 'Example job');
   const item = await createOpenItem(app, project.id);
 
   expect((await resolve(app, item.id, {})).status).toBe(400);

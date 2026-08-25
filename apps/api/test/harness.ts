@@ -165,10 +165,10 @@ export function openItemBody(
   patch: Partial<OpenItemBody> = {},
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    unresolved: 'Grounding electrode type',
-    blocks: 'Issuing the riser at 400 A',
+    unresolved: 'Ceiling height at the north stair',
+    blocks: 'Sizing the main run',
     waitingOn: 'Contractor',
-    counterfactual: 'If PVC rather than steel, X3 rises to about 41,000 A',
+    counterfactual: 'If the height is lower the run has to be rerouted',
     ...patch,
   };
 
