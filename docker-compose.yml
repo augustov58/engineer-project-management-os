@@ -1,4 +1,9 @@
 # Local dev mirror only. Production is a cloud-managed platform (ADR-0003).
+#
+# Ports are published on 127.0.0.1 deliberately. `5432:5432` would bind every
+# interface and put this password-protected-in-name-only database on the LAN.
+# The credentials below are throwaway and guard nothing: real ones live in the
+# platform's secret manager and never appear in this repository.
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,7 +12,7 @@ services:
       POSTGRES_PASSWORD: epmos
       POSTGRES_DB: epmos
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,7 +24,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 2s
