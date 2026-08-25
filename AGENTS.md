@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0025; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0026; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -23,10 +23,11 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 ## Current status
 
 Slice 1 (walking skeleton and test harness, issue #2), slice 2 (the `Project` record,
-issue #3) and slice 3 (open items and the pending items view, issue #4) are built. The
-plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and the MVP is
-ticketed as GitHub issues #2-#22. Step 1, entering T-1's own open items, needs no further
-code and is the author's to do. Work one ticket at a time, and only when asked.
+issue #3), slice 3 (open items and the pending items view, issue #4) and slice 4
+(submissions and per-project phases, issue #5) are built. The plan is the six-step
+**Revised MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as GitHub
+issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is the
+author's to do. Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
 See [README.md](./README.md).
@@ -42,7 +43,19 @@ See [README.md](./README.md).
 - The one sanctioned exception is a schema invariant no route can expose — "no `users` table exists" (ADR-0012). `apps/api/test/schema.test.ts` reads `information_schema` through the harness's `tableNames()` and nothing else; it may not read domain data or write rows.
 - Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path.
 - An open item is unresolved exactly when `resolved_at` is null (ADR-0024). Exposure, provisional state and the pending items view all read that one column — do not add a status field beside it.
-- The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it — the nobody checkbox and the pending sort select are both native for that reason.
+- What a submission rests on is the `submission_open_items` join, never a second subject on
+  the open item (ADR-0026). An open item's subject stays `PROJECT`; raising one against a
+  submission attaches it and leaves it on its project. Do not add `SUBMISSION` to the
+  subject enum to "simplify" this — it breaks issues #6 and #7.
+- Nothing updates a submission. There is no PATCH, no PUT and no edit route, and adding one
+  is a regression against ADR-0015 even before issue #7 lands.
+- What a set rests on is named in the same call that records it (`openItemIds`), so issue #6
+  has a moment of issuance to stamp against. Attaching afterwards is the correction, not the
+  entry path — and once #6 adds its snapshot column, detach must be narrowed to rows that
+  were not part of the issuance (ADR-0026).
+- The record is a **submission**. "Issuance" is the act or the date — "issuance date", "at
+  the moment of issuance" — and never the name of the record, in code or in UI copy.
+- The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it. The nobody checkbox, the pending sort select, the submission phase select and the attach-an-open-item select are all native for that reason; `apps/web/app/native-select.ts` holds the shared styling.
 - `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend. Run `pnpm --filter web build` and load the pages before calling a frontend change done.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 

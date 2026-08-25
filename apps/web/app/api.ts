@@ -6,6 +6,8 @@ export interface Project {
   name: string;
   createdAt: string;
   archivedAt: string | null;
+  /** The phase a new submission defaults to. Null until one is chosen. */
+  currentPhaseId: string | null;
 }
 
 /** Every call goes through the versioned prefix the API serves. */
@@ -89,4 +91,64 @@ export async function listPendingItems(options: {
     throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
   }
   return response.json() as Promise<PendingItem[]>;
+}
+
+export interface Phase {
+  id: string;
+  projectId: string;
+  name: string;
+  position: number;
+}
+
+export interface Submission {
+  id: string;
+  projectId: string;
+  phaseId: string;
+  issuedAt: string;
+  recipient: string;
+  recipientRole: string;
+  revision: string;
+  sheetList: string;
+  createdAt: string;
+}
+
+/** One submission, with the things it hangs off resolved. */
+export interface SubmissionDetail extends Submission {
+  phase: Phase;
+  project: { id: string; projectNumber: string; name: string };
+  /** What the issuance rests on — resolved ones included, deliberately. */
+  openItems: OpenItem[];
+}
+
+async function read<T>(path: string): Promise<T> {
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+/** A project's phases, in the order the engineer put them in. */
+export function listPhases(projectId: string): Promise<Phase[]> {
+  return read<Phase[]>(`/projects/${projectId}/phases`);
+}
+
+/** Oldest first: this screen is a chronicle of what went out. */
+export function listSubmissions(projectId: string): Promise<Submission[]> {
+  return read<Submission[]>(`/projects/${projectId}/submissions`);
+}
+
+/** Undefined rather than throwing, so the page can render a 404. */
+export async function getSubmission(
+  id: string,
+): Promise<SubmissionDetail | undefined> {
+  const path = `/submissions/${id}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<SubmissionDetail>;
 }

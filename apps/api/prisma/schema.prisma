@@ -30,7 +30,112 @@ model Project {
   /// without being deleted. There is no unarchive.
   archivedAt DateTime? @map("archived_at")
 
+  /// The phase a new submission defaults to (issue #5). This is the first
+  /// column any route updates on a project; the project *number* is what the
+  /// glossary makes immutable, and it still is (ADR-0026).
+  currentPhaseId String?       @map("current_phase_id")
+  currentPhase   ProjectPhase? @relation("CurrentPhase", fields: [currentPhaseId], references: [id])
+
+  phases      ProjectPhase[] @relation("ProjectPhases")
+  submissions Submission[]
+
   @@map("projects")
+}
+
+/// A named stage of design progress, defined per project and editable as free
+/// text — "50% CD", "90% CD", "Building Permit Set" (ADR-0015, glossary).
+///
+/// Rows on a project and never an enum: some jobs run 50% CD and others go
+/// straight to 90% CD, so there is no set to share across them.
+model ProjectPhase {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation("ProjectPhases", fields: [projectId], references: [id])
+
+  name String
+
+  /// Contiguous from zero. Reordering rewrites the whole list in one
+  /// transaction, so the route is the only writer and positions cannot drift
+  /// into gaps or duplicates. Deliberately not a unique constraint: a
+  /// non-deferrable one would reject the reorder mid-flight (ADR-0026).
+  position Int
+
+  submissions Submission[]
+  currentFor  Project[]    @relation("CurrentPhase")
+
+  @@unique([projectId, name])
+  @@index([projectId, position])
+  @@map("project_phases")
+}
+
+/// A dated issuance of a defined set to a named recipient at a phase
+/// (ADR-0015, issue #5).
+///
+/// Never edited. There is no route that updates one, which is what makes
+/// issue #7's "no path edits an issued submission" true by construction
+/// rather than by a guard that can be forgotten. A correction is a reissue
+/// that supersedes, and `supersedes_id` arrives with it.
+model Submission {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// A foreign key, not a copied string: renaming a phase is the same body of
+  /// work under a better name, so it propagates to what was issued at it. A
+  /// different stage is a different phase (ADR-0026).
+  phaseId String       @map("phase_id")
+  phase   ProjectPhase @relation(fields: [phaseId], references: [id])
+
+  /// When the set went out. Settable, because the issuances worth entering
+  /// first went out long before this row existed; otherwise the injected
+  /// TimeSource, and never a database default (ADR-0022).
+  issuedAt DateTime @map("issued_at")
+
+  /// Who it went to, and in what capacity — "the EOR", "the client". Both
+  /// free text: there is no `users` table (ADR-0012), and the corpus names
+  /// two example roles rather than a closed set.
+  recipient     String
+  recipientRole String @map("recipient_role")
+
+  /// What distinguishes successive issuances of the same set: "A", "Rev 2".
+  revision String
+
+  /// The defined set, one sheet per line. Text rather than rows — ADR-0026
+  /// records what that buys and the one thing it defers.
+  sheetList String @map("sheet_list")
+
+  /// Entry order, so two sets issued on the same day do not list at random.
+  createdAt DateTime @map("created_at")
+
+  openItems SubmissionOpenItem[]
+
+  @@index([projectId, issuedAt])
+  @@map("submissions")
+}
+
+/// What an issuance rests on (ADR-0026).
+///
+/// An open item's own `subject_type`/`subject_id` says where it lives; this
+/// says which issuances depended on it. They are different relations, and
+/// this one is many-to-many: one unconfirmed input that several sets went
+/// out on is a single record, not one copy per set that rested on it.
+///
+/// Issue #6 stamps the snapshot of what was unresolved at issuance as a
+/// column here. Issue #7's carry-forward is an insert against the successor,
+/// which leaves the superseded submission's rows untouched — the reason this
+/// is a join table and not a second subject.
+model SubmissionOpenItem {
+  submissionId String     @map("submission_id")
+  submission   Submission @relation(fields: [submissionId], references: [id])
+
+  openItemId String   @map("open_item_id")
+  openItem   OpenItem @relation(fields: [openItemId], references: [id])
+
+  @@id([submissionId, openItemId])
+  @@index([openItemId])
+  @@map("submission_open_items")
 }
 
 /// The set of artifacts an open item can hang off. ADR-0014 says "any
@@ -91,6 +196,9 @@ model OpenItem {
   /// (issues #6, #16) are derived from `resolvedAt` being null.
   resolvedAt     DateTime? @map("resolved_at")
   resolutionNote String?   @map("resolution_note")
+
+  /// The issuances resting on this item. Not the subject — see ADR-0026.
+  submissions SubmissionOpenItem[]
 
   @@index([subjectType, subjectId])
   @@map("open_items")

@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { selectClassName } from '../native-select';
 import { listPendingItems } from '../api';
 import { day } from '../open-item';
 
@@ -21,9 +22,6 @@ export const dynamic = 'force-dynamic';
  * A native select, not the Radix one: this is a GET form, so the control has
  * to serialise into the query string the way the browser does it by default.
  */
-const selectClassName =
-  'h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
-
 export default async function PendingItems({
   searchParams,
 }: {

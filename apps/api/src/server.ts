@@ -147,6 +147,129 @@ function instant(supplied: string | undefined, timeSource: TimeSource): Date {
   return supplied === undefined ? timeSource.now() : new Date(supplied);
 }
 
+/**
+ * A phase is per-project free text — "50% CD", "90% CD", "Building Permit
+ * Set" (ADR-0015). The cap matches a party name: these are labels an engineer
+ * says out loud, not prose.
+ */
+const phaseBodySchema = {
+  type: 'object',
+  required: ['name'],
+  additionalProperties: false,
+  properties: { name: { type: 'string', pattern: NOT_BLANK, maxLength: 120 } },
+} as const;
+
+/**
+ * Reordering submits the whole ordered list rather than one move. It is then
+ * atomic and idempotent, and there is no off-by-one to get wrong in a
+ * `{ phase, toIndex }` call (ADR-0026).
+ */
+const phaseOrderBodySchema = {
+  type: 'object',
+  required: ['phaseIds'],
+  additionalProperties: false,
+  properties: { phaseIds: { type: 'array', items: { type: 'string' } } },
+} as const;
+
+const currentPhaseBodySchema = {
+  type: 'object',
+  required: ['phaseId'],
+  additionalProperties: false,
+  properties: { phaseId: { type: 'string' } },
+} as const;
+
+/**
+ * What went out, to whom, when, and at what phase, as one record (issue #5).
+ *
+ * `issuedProvisional` is deliberately absent: issue #6 stamps it at issuance
+ * from the open items attached right then, and a caller that could assert it
+ * would be able to claim a set went out clean when it did not.
+ *
+ * The phase may be left off, in which case the project's current phase is
+ * used. Caps follow the open item's: 120 for a party, 32 for a revision an
+ * engineer writes by hand, and 2000 for the sheet list, which is the one
+ * field here that holds a list rather than a phrase.
+ */
+const submissionBodySchema = {
+  type: 'object',
+  required: ['recipient', 'recipientRole', 'revision', 'sheetList'],
+  additionalProperties: false,
+  properties: {
+    phaseId: { type: 'string' },
+    issuedAt: { type: 'string', format: 'date-time' },
+    recipient: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
+    recipientRole: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
+    revision: { type: 'string', pattern: NOT_BLANK, maxLength: 32 },
+    sheetList: { type: 'string', pattern: NOT_BLANK, maxLength: 2000 },
+    // What the set rests on, named while recording it. Issue #6 stamps
+    // whether the submission went out on unconfirmed inputs at the moment of
+    // issuance and never recomputes it, so there has to be a moment at which
+    // both the row and what it rests on exist together. Attaching afterwards
+    // stays available; it is the correction, not the entry path.
+    openItemIds: { type: 'array', items: { type: 'string' }, maxItems: 100 },
+  },
+} as const;
+
+/** The one 404 body for phases, matching the projects one. */
+function noSuchPhase(reply: FastifyReply) {
+  return reply.code(404).send({ message: 'no phase with that id' });
+}
+
+/**
+ * Why a record named in a request cannot be used here. Missing is a 404;
+ * belonging to another job is a 409, because it exists and is simply not
+ * this project's to issue at or to rest on.
+ */
+interface Refusal {
+  code: number;
+  message: string;
+}
+
+function refuse(reply: FastifyReply, refusal: Refusal) {
+  return reply.code(refusal.code).send({ message: refusal.message });
+}
+
+async function phaseRefusal(
+  prisma: PrismaClient,
+  phaseId: string,
+  projectId: string,
+): Promise<Refusal | null> {
+  const phase = await prisma.projectPhase.findUnique({
+    where: { id: phaseId },
+    select: { projectId: true },
+  });
+  if (phase === null) {
+    return { code: 404, message: 'no phase with that id' };
+  }
+  if (phase.projectId !== projectId) {
+    return { code: 409, message: 'that phase belongs to another project' };
+  }
+  return null;
+}
+
+async function openItemRefusal(
+  prisma: PrismaClient,
+  openItemId: string,
+  projectId: string,
+): Promise<Refusal | null> {
+  const item = await prisma.openItem.findUnique({
+    where: { id: openItemId },
+    select: { subjectType: true, subjectId: true },
+  });
+  if (item === null) {
+    return { code: 404, message: 'no open item with that id' };
+  }
+  if (item.subjectType !== 'PROJECT' || item.subjectId !== projectId) {
+    return { code: 409, message: 'that open item is on another project' };
+  }
+  return null;
+}
+
+/** The one 404 body for submissions, matching the projects one. */
+function noSuchSubmission(reply: FastifyReply) {
+  return reply.code(404).send({ message: 'no submission with that id' });
+}
+
 export function buildServer({
   prisma,
   queue,
@@ -410,6 +533,435 @@ export function buildServer({
             where: { id },
             data: { resolvedAt: null, resolutionNote: null },
           });
+        },
+      );
+
+      /**
+       * Phases are rows on a project, never an enum: some jobs run 50% CD and
+       * others go straight to 90% CD, so there is no set to share across them
+       * (ADR-0015). A new one lands at the end of the list.
+       */
+      v1.post<{ Params: { id: string }; Body: { name: string } }>(
+        '/projects/:id/phases',
+        { schema: { body: phaseBodySchema } },
+        async (request, reply) => {
+          const project = await prisma.project.findUnique({
+            where: { id: request.params.id },
+            select: { id: true },
+          });
+          if (project === null) {
+            return noSuchProject(reply);
+          }
+
+          try {
+            const phase = await prisma.projectPhase.create({
+              data: {
+                projectId: project.id,
+                name: request.body.name,
+                position: await prisma.projectPhase.count({
+                  where: { projectId: project.id },
+                }),
+              },
+            });
+            return reply.code(201).send(phase);
+          } catch (error) {
+            if (isUniqueViolation(error)) {
+              return reply
+                .code(409)
+                .send({ message: 'that phase name is already on this project' });
+            }
+            throw error;
+          }
+        },
+      );
+
+      v1.get<{ Params: { id: string } }>(
+        '/projects/:id/phases',
+        async (request, reply) => {
+          const project = await prisma.project.findUnique({
+            where: { id: request.params.id },
+            select: { id: true },
+          });
+          if (project === null) {
+            return noSuchProject(reply);
+          }
+
+          return prisma.projectPhase.findMany({
+            where: { projectId: project.id },
+            orderBy: { position: 'asc' },
+          });
+        },
+      );
+
+      /**
+       * Renaming propagates to every submission issued at this phase, because
+       * a rename is the same body of work under a better name. A set that
+       * went out at a different stage is a different phase (ADR-0026).
+       */
+      v1.post<{ Params: { id: string }; Body: { name: string } }>(
+        '/phases/:id/rename',
+        { schema: { body: phaseBodySchema } },
+        async (request, reply) => {
+          const { id } = request.params;
+          const phase = await prisma.projectPhase.findUnique({ where: { id } });
+          if (phase === null) {
+            return noSuchPhase(reply);
+          }
+
+          try {
+            return await prisma.projectPhase.update({
+              where: { id },
+              data: { name: request.body.name },
+            });
+          } catch (error) {
+            if (isUniqueViolation(error)) {
+              return reply
+                .code(409)
+                .send({ message: 'that phase name is already on this project' });
+            }
+            throw error;
+          }
+        },
+      );
+
+      /**
+       * The whole ordered list, or nothing. A partial list would silently
+       * leave a phase at a stale position and a repeated id would give two
+       * phases the same place, so both are refused rather than absorbed.
+       */
+      v1.post<{ Params: { id: string }; Body: { phaseIds: string[] } }>(
+        '/projects/:id/phases/order',
+        { schema: { body: phaseOrderBodySchema } },
+        async (request, reply) => {
+          const project = await prisma.project.findUnique({
+            where: { id: request.params.id },
+            select: { id: true },
+          });
+          if (project === null) {
+            return noSuchProject(reply);
+          }
+
+          const { phaseIds } = request.body;
+          const existing = await prisma.projectPhase.findMany({
+            where: { projectId: project.id },
+            select: { id: true },
+          });
+          const known = new Set(existing.map((phase) => phase.id));
+          const named = new Set(phaseIds);
+          if (
+            named.size !== phaseIds.length ||
+            named.size !== known.size ||
+            phaseIds.some((phaseId) => !known.has(phaseId))
+          ) {
+            return reply.code(409).send({
+              message: "an order must name exactly this project's phases, once each",
+            });
+          }
+
+          await prisma.$transaction(
+            phaseIds.map((phaseId, position) =>
+              prisma.projectPhase.update({
+                where: { id: phaseId },
+                data: { position },
+              }),
+            ),
+          );
+
+          return prisma.projectPhase.findMany({
+            where: { projectId: project.id },
+            orderBy: { position: 'asc' },
+          });
+        },
+      );
+
+      /**
+       * The first route that updates a project. The project *number* is what
+       * the glossary makes immutable, and it still is — this writes the phase
+       * a new submission defaults to (ADR-0026).
+       */
+      v1.post<{ Params: { id: string }; Body: { phaseId: string } }>(
+        '/projects/:id/current-phase',
+        { schema: { body: currentPhaseBodySchema } },
+        async (request, reply) => {
+          const { id } = request.params;
+          const project = await prisma.project.findUnique({
+            where: { id },
+            select: { id: true },
+          });
+          if (project === null) {
+            return noSuchProject(reply);
+          }
+
+          const badPhase = await phaseRefusal(
+            prisma,
+            request.body.phaseId,
+            project.id,
+          );
+          if (badPhase !== null) {
+            return refuse(reply, badPhase);
+          }
+
+          return prisma.project.update({
+            where: { id },
+            data: { currentPhaseId: request.body.phaseId },
+          });
+        },
+      );
+
+      /**
+       * Recording an issuance. There is no draft state and no route that
+       * edits one afterwards: a correction is a reissue that supersedes
+       * (ADR-0015), which is issue #7.
+       */
+      v1.post<{
+        Params: { id: string };
+        Body: {
+          phaseId?: string;
+          issuedAt?: string;
+          recipient: string;
+          recipientRole: string;
+          revision: string;
+          sheetList: string;
+          openItemIds?: string[];
+        };
+      }>(
+        '/projects/:id/submissions',
+        { schema: { body: submissionBodySchema } },
+        async (request, reply) => {
+          const project = await prisma.project.findUnique({
+            where: { id: request.params.id },
+            select: { id: true, currentPhaseId: true },
+          });
+          if (project === null) {
+            return noSuchProject(reply);
+          }
+
+          const { phaseId, issuedAt, openItemIds = [], ...rest } = request.body;
+          const wanted = phaseId ?? project.currentPhaseId;
+          if (wanted === null || wanted === undefined) {
+            return reply.code(409).send({
+              message: 'this project has no phase to issue at yet',
+            });
+          }
+
+          const badPhase = await phaseRefusal(prisma, wanted, project.id);
+          if (badPhase !== null) {
+            return refuse(reply, badPhase);
+          }
+
+          if (new Set(openItemIds).size !== openItemIds.length) {
+            return reply.code(409).send({
+              message: 'an open item can only be named once on a submission',
+            });
+          }
+          for (const openItemId of openItemIds) {
+            const badItem = await openItemRefusal(
+              prisma,
+              openItemId,
+              project.id,
+            );
+            if (badItem !== null) {
+              return refuse(reply, badItem);
+            }
+          }
+
+          // One transaction, so a submission never exists having lost the
+          // record of what it rests on.
+          const submission = await prisma.$transaction(async (tx) => {
+            const created = await tx.submission.create({
+              data: {
+                ...rest,
+                projectId: project.id,
+                phaseId: wanted,
+                issuedAt: instant(issuedAt, timeSource),
+                createdAt: timeSource.now(),
+              },
+            });
+            if (openItemIds.length > 0) {
+              await tx.submissionOpenItem.createMany({
+                data: openItemIds.map((openItemId) => ({
+                  submissionId: created.id,
+                  openItemId,
+                })),
+              });
+            }
+            return created;
+          });
+          return reply.code(201).send(submission);
+        },
+      );
+
+      /**
+       * Issuance order, oldest first: this is a chronicle of what went out.
+       * Entry order breaks a tie, so two sets issued on the same day do not
+       * come back in an arbitrary one.
+       */
+      v1.get<{ Params: { id: string } }>(
+        '/projects/:id/submissions',
+        async (request, reply) => {
+          const project = await prisma.project.findUnique({
+            where: { id: request.params.id },
+            select: { id: true },
+          });
+          if (project === null) {
+            return noSuchProject(reply);
+          }
+
+          return prisma.submission.findMany({
+            where: { projectId: project.id },
+            orderBy: [{ issuedAt: 'asc' }, { createdAt: 'asc' }],
+          });
+        },
+      );
+
+      /**
+       * One submission, with the phase it was issued at, the job it belongs
+       * to, and what it rests on. The open items come through the join rather
+       * than through their subject, which is what lets one item back several
+       * issuances and lets a resolved one stay on the set it went out with
+       * (ADR-0026).
+       */
+      v1.get<{ Params: { id: string } }>(
+        '/submissions/:id',
+        async (request, reply) => {
+          const found = await prisma.submission.findUnique({
+            where: { id: request.params.id },
+            include: {
+              phase: true,
+              project: {
+                select: { id: true, projectNumber: true, name: true },
+              },
+              openItems: {
+                include: { openItem: true },
+                orderBy: { openItem: { waitingSince: 'asc' } },
+              },
+            },
+          });
+          if (found === null) {
+            return noSuchSubmission(reply);
+          }
+
+          const { openItems, ...submission } = found;
+          return {
+            ...submission,
+            openItems: openItems.map((row) => row.openItem),
+          };
+        },
+      );
+
+      /**
+       * An open item raised while recording an issuance. Its subject is the
+       * project, not the submission — an item that vanished from the project
+       * screen the moment it was tied to a set would be the opposite of
+       * "nothing sitting in my court" (ADR-0026).
+       */
+      v1.post<{
+        Params: { id: string };
+        Body: {
+          unresolved: string;
+          blocks: string;
+          waitingOn: string | null;
+          waitingSince?: string;
+          invalidationTrigger?: string;
+          counterfactual: string;
+          owner?: string;
+        };
+      }>(
+        '/submissions/:id/open-items',
+        { schema: { body: openItemBodySchema } },
+        async (request, reply) => {
+          const submission = await prisma.submission.findUnique({
+            where: { id: request.params.id },
+            select: { id: true, projectId: true },
+          });
+          if (submission === null) {
+            return noSuchSubmission(reply);
+          }
+
+          const { waitingSince, ...rest } = request.body;
+          const item = await prisma.openItem.create({
+            data: {
+              ...rest,
+              subjectType: 'PROJECT',
+              subjectId: submission.projectId,
+              waitingSince: instant(waitingSince, timeSource),
+              submissions: { create: { submissionId: submission.id } },
+            },
+          });
+          return reply.code(201).send(item);
+        },
+      );
+
+      /**
+       * Attaching an item that is already on the set is refused rather than
+       * repeated, matching the resolve rule: a silent second attach would
+       * hide a double click behind a claim about what an issuance rested on.
+       */
+      v1.post<{ Params: { id: string; openItemId: string } }>(
+        '/submissions/:id/open-items/:openItemId',
+        async (request, reply) => {
+          const { id, openItemId } = request.params;
+          const submission = await prisma.submission.findUnique({
+            where: { id },
+            select: { id: true, projectId: true },
+          });
+          if (submission === null) {
+            return noSuchSubmission(reply);
+          }
+
+          const badItem = await openItemRefusal(
+            prisma,
+            openItemId,
+            submission.projectId,
+          );
+          if (badItem !== null) {
+            return refuse(reply, badItem);
+          }
+
+          try {
+            await prisma.submissionOpenItem.create({
+              data: { submissionId: submission.id, openItemId },
+            });
+          } catch (error) {
+            if (isUniqueViolation(error)) {
+              return reply.code(409).send({
+                message: 'that open item is already on this submission',
+              });
+            }
+            throw error;
+          }
+          return reply.code(204).send();
+        },
+      );
+
+      /**
+       * Detaching says nothing about the open item, which stays on its
+       * project. An item attached to the wrong set is a typo, and the
+       * alternative is an unremovable claim about what went out.
+       */
+      v1.delete<{ Params: { id: string; openItemId: string } }>(
+        '/submissions/:id/open-items/:openItemId',
+        async (request, reply) => {
+          const { id, openItemId } = request.params;
+          const submission = await prisma.submission.findUnique({
+            where: { id },
+            select: { id: true },
+          });
+          if (submission === null) {
+            return noSuchSubmission(reply);
+          }
+
+          const { count } = await prisma.submissionOpenItem.deleteMany({
+            where: { submissionId: id, openItemId },
+          });
+          // The submission exists, so a miss here is about the item: saying
+          // "no submission with that id" would send the reader looking in
+          // entirely the wrong place.
+          return count === 0
+            ? reply
+                .code(404)
+                .send({ message: 'that open item is not on this submission' })
+            : reply.code(204).send();
         },
       );
     },
