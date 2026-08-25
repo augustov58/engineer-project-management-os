@@ -121,6 +121,27 @@ export interface Submission {
    * exposure counts.
    */
   currentlyProvisional: boolean;
+  /** The issuance this one replaced, or null if it replaced nothing. */
+  supersedesId: string | null;
+  /**
+   * The issuance that replaced this one. Derived from a row pointing back at
+   * it, never stored: marking the prior record would be the edit that reissue
+   * exists to avoid (ADR-0015).
+   */
+  supersededById: string | null;
+}
+
+/** One issuance as its own supersede chain lists it. */
+export interface ChainEntry {
+  id: string;
+  revision: string;
+  issuedAt: string;
+  recipient: string;
+  recipientRole: string;
+  issuedProvisional: boolean;
+  supersedesId: string | null;
+  /** The last link: what is actually out there now. */
+  current: boolean;
 }
 
 /** An open item, plus where it stood when the set it backs went out. */
@@ -135,6 +156,12 @@ export interface SubmissionDetail extends Submission {
   project: { id: string; projectNumber: string; name: string };
   /** What the issuance rests on — resolved ones included, deliberately. */
   openItems: RestsOn[];
+  /**
+   * The whole lineage, oldest issuance first. The same list whichever link it
+   * is read from, which is how "what is the current issuance of this?" is
+   * answered without reading email.
+   */
+  chain: ChainEntry[];
 }
 
 /** A currently provisional submission, as the exposure view lists it. */

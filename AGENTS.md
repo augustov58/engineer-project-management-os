@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0027; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0028; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -24,8 +24,9 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 
 Slice 1 (walking skeleton and test harness, issue #2), slice 2 (the `Project` record,
 issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
-(submissions and per-project phases, issue #5) and slice 5 (provisional state and
-exposure, issue #6) are built. The plan is the six-step **Revised MVP sequence** in
+(submissions and per-project phases, issue #5), slice 5 (provisional state and
+exposure, issue #6) and slice 6 (reissue and supersede, issue #7) are built. The plan is
+the six-step **Revised MVP sequence** in
 `PRD and Architecture.md`, and the MVP is ticketed as GitHub
 issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is the
 author's to do. Work one ticket at a time, and only when asked.
@@ -47,13 +48,13 @@ See [README.md](./README.md).
 - What a submission rests on is the `submission_open_items` join, never a second subject on
   the open item (ADR-0026). An open item's subject stays `PROJECT`; raising one against a
   submission attaches it and leaves it on its project. Do not add `SUBMISSION` to the
-  subject enum to "simplify" this — it breaks issues #6 and #7.
+  subject enum to "simplify" this — it would have broken issues #6 and #7, and still would.
 - Nothing updates a submission. There is no PATCH, no PUT and no edit route, and adding one
-  is a regression against ADR-0015 even before issue #7 lands.
-- What a set rests on is named in the same call that records it (`openItemIds`), so issue #6
-  has a moment of issuance to stamp against. Attaching afterwards is the correction, not the
-  entry path — and once #6 adds its snapshot column, detach must be narrowed to rows that
-  were not part of the issuance (ADR-0026).
+  is a regression against ADR-0015. A correction is `POST /v1/submissions/:id/reissue`,
+  which writes a new row and nothing at all to the one it replaces (ADR-0028).
+- What a set rests on is named in the same call that records it (`openItemIds`), which is
+  what gives the moment of issuance something to stamp against. Attaching afterwards is the
+  correction, not the entry path (ADR-0026).
 - The record is a **submission**. "Issuance" is the act or the date — "issuance date", "at
   the moment of issuance" — and never the name of the record, in code or in UI copy.
 - Provisional is **two** facts and neither is the other (ADR-0027). `issued_provisional` is
@@ -64,12 +65,24 @@ See [README.md](./README.md).
   the item was attached *after* the issuance and was no part of it. Detach is narrowed to
   exactly those rows; refusing the others is what stops cleanup erasing what went out
   (ADR-0027, settling the collision ADR-0026 recorded).
+- *Superseded* is a successor existing, derived on every read and stored nowhere
+  (ADR-0028) — the shape ADR-0027 gave *currently provisional*. There is no `superseded_at`
+  and no flag; `submissions.supersedes_id` is unique, and that is the whole of "at most one
+  successor, and the chain is linear". Do not mark the prior row: writing to it is the edit
+  the record type exists to prevent.
+- On a reissue, `openItemIds` **left off** carries forward what the superseded set rested
+  on and **supplied** is exactly that list, so `[]` is a deliberate drop (ADR-0028). The
+  successor stamps its own `unresolved_at_issuance` and `issued_provisional` at its own
+  moment of issuance; the ancestor's are never rewritten.
 - Exposure is a **list**, not a number (ADR-0027). `GET /v1/exposure` returns the
   submissions; every count is that list's length, so a count and the screen it links to
   cannot disagree, and there is no figure to combine into a score (ADR-0016). Archived
-  projects leave the across-every-project count and keep their own.
+  projects leave the across-every-project count and keep their own, and so do superseded
+  ancestors (ADR-0028) — carry-forward puts the same unresolved item on both, so counting
+  the ancestor too would make the number grow by correcting the record.
 - The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it. The nobody checkbox, the pending sort select, the submission phase select and the attach-an-open-item select are all native for that reason; `apps/web/app/native-select.ts` holds the shared styling.
-- `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend. Run `pnpm --filter web build` and load the pages before calling a frontend change done.
+- `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend. Run `pnpm --filter web build` and load the pages before calling a frontend change done. Browse `http://localhost:3000`, not `127.0.0.1`: Next's dev-origin guard 403s the client chunks on the other host, so the page renders and silently never hydrates.
+- A state update made from a ref callback during the **hydration** commit is discarded — the ref runs, the value is right, and the render keeps the old one. Anything a first paint must show has to be in the server's render: seed the state from props and let the ref only correct it afterwards (ADR-0028).
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

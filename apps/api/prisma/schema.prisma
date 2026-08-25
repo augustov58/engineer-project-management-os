@@ -122,6 +122,23 @@ model Submission {
   /// may supply it, or a caller could claim a set went out clean.
   issuedProvisional Boolean @map("issued_provisional")
 
+  /// The issuance this one replaces (issue #7). Correcting the record is a
+  /// reissue that supersedes, never an edit, so the arrow points backwards
+  /// from the successor and the row it points at is not touched.
+  ///
+  /// Unique, which is the whole of "at most one successor": a second reissue
+  /// of the same predecessor is refused by the database rather than by a
+  /// guard that can be forgotten, and the chain is therefore linear. Cycles
+  /// cannot arise — a row is created already pointing at an older one, and
+  /// nothing ever repoints it.
+  ///
+  /// *Superseded* has no column. It is a successor existing, derived on every
+  /// read, for the reason `currently provisional` is derived (ADR-0027): a
+  /// stored flag would be a second place for the same fact to be wrong.
+  supersedesId String?     @unique @map("supersedes_id")
+  supersedes   Submission? @relation("Supersede", fields: [supersedesId], references: [id])
+  supersededBy Submission? @relation("Supersede")
+
   openItems SubmissionOpenItem[]
 
   @@index([projectId, issuedAt])

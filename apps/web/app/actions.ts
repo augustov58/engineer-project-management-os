@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { apiPath } from './api';
 
 /**
@@ -285,27 +286,35 @@ export async function setCurrentPhase(
 
 // ── Submissions ───────────────────────────────────────────────────────────
 
+/** The submission fields, read the same way wherever a set is issued. */
+function submissionPayload(formData: FormData): Record<string, unknown> {
+  const issued = omitIfBlank(formData, 'issuedAt');
+  return {
+    phaseId: formData.get('phaseId'),
+    // A date input gives a day; the record keeps an instant.
+    issuedAt: issued === undefined ? undefined : `${issued}T00:00:00.000Z`,
+    recipient: formData.get('recipient'),
+    recipientRole: formData.get('recipientRole'),
+    revision: formData.get('revision'),
+    sheetList: formData.get('sheetList'),
+    // Repeated checkbox name: what the set rests on is named while the
+    // issuance is recorded, so issue #6 has a moment at which both the row
+    // and its open items exist to stamp against.
+    //
+    // Always sent, including empty. On a reissue that is the point: the API
+    // carries the superseded set's items forward when the field is absent, so
+    // an engineer who unticks every box has to be able to say so.
+    openItemIds: formData.getAll('openItemIds'),
+  };
+}
+
 export async function createSubmission(
   projectId: string,
   previous: AddState,
   formData: FormData,
 ): Promise<AddState> {
-  const issued = omitIfBlank(formData, 'issuedAt');
-
   const error = await refusal(
-    await send(`/projects/${projectId}/submissions`, {
-      phaseId: formData.get('phaseId'),
-      // A date input gives a day; the record keeps an instant.
-      issuedAt: issued === undefined ? undefined : `${issued}T00:00:00.000Z`,
-      recipient: formData.get('recipient'),
-      recipientRole: formData.get('recipientRole'),
-      revision: formData.get('revision'),
-      sheetList: formData.get('sheetList'),
-      // Repeated checkbox name: what the set rests on is named while the
-      // issuance is recorded, so issue #6 has a moment at which both the row
-      // and its open items exist to stamp against.
-      openItemIds: formData.getAll('openItemIds'),
-    }),
+    await send(`/projects/${projectId}/submissions`, submissionPayload(formData)),
     201,
   );
   if (error !== undefined) {
@@ -314,6 +323,35 @@ export async function createSubmission(
 
   revalidatePath(`/projects/${projectId}`);
   return { added: previous.added + 1 };
+}
+
+/**
+ * Reissue: a correction is a new submission pointing at this one, never an
+ * edit of it (ADR-0015). On success the engineer lands on the record that is
+ * now current, because that is the one they went on to work from.
+ */
+export async function reissueSubmission(
+  submissionId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const response = await send(
+    `/submissions/${submissionId}/reissue`,
+    submissionPayload(formData),
+  );
+  const error = await refusal(response, 201);
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  const reissued = (await response.json()) as { id: string };
+  revalidatePath(`/projects/${projectId}`);
+  // The superseded record now reads as superseded, and exposure counts the
+  // successor rather than it.
+  revalidatePath(`/submissions/${submissionId}`);
+  revalidatePath('/exposure');
+  redirect(`/submissions/${reissued.id}`);
 }
 
 export async function attachOpenItem(
