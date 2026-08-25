@@ -71,6 +71,23 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   answer. The subject is polymorphic — `subject_type` is a database enum carrying only
   `PROJECT`, so attaching an open item to a submission is a migration, not a new string.
 
+- **What an issuance rests on is a join, not a subject** (ADR-0026). An open item's
+  `subject_type`/`subject_id` says where it lives; `submission_open_items` says which
+  issuances depended on it. ADR-0024 expected the other reading — adding `SUBMISSION` to
+  the subject enum — and taken literally it breaks the next two slices: attaching an
+  existing item would re-point it off the project, and issue #7's "carry forward to the
+  reissue" would re-point it off the superseded submission, erasing the record of what the
+  original went out on. One item can back several issuances, and a resolved one stays on
+  the set it went out with.
+- **A phase is a row the submission points at** (ADR-0026), so renaming propagates to
+  everything issued at it. That is deliberate: a rename is the same body of work under a
+  better name, and a set that went out at a different stage is a different phase.
+  **Nothing edits a submission** — the API exposes no route that updates one, which is what
+  makes issue #7's "no path edits an issued submission" true by construction rather than by
+  a guard someone can forget. What a set rests on is named in the same call that records it,
+  because issue #6 stamps whether it went out on unconfirmed inputs *at the moment of
+  issuance*; a two-call flow would leave no such moment and force a rewrite of this slice.
+
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
   package, so there is no library upgrade to absorb. Radix underneath means focus rings and
@@ -82,6 +99,13 @@ Not covered by tests: the frontend. `apps/web` has no test script, so `pnpm test
 exercises the API only, and a change that breaks the page would not fail the suite. That
 is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
 visit capture), on top of record-level coverage, rather than here.
+
+Slice 4 hit the gap twice, both invisible to `pnpm test` and to `tsc`: a `<select>` whose
+`defaultValue` is only applied at mount, so changing a project's current phase left the
+form still showing the old one and the next set would have been recorded at the wrong
+stage; and an `<li>` nested inside the `<li>` that `OpenItemEntry` already owns, which is
+invalid HTML and failed hydration in the browser console. Both were found by loading the
+page, not by a test.
 
 The gap is real, and slice 2 hit it: `apps/web` resolves modules the bundler way while
 `apps/api` uses NodeNext, so relative imports written `./api.js` typechecked clean and

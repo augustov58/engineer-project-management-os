@@ -3,10 +3,18 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { archiveProject } from '../../actions';
-import { getProject, listOpenItems } from '../../api';
+import { archiveProject, createOpenItem } from '../../actions';
+import {
+  getProject,
+  listOpenItems,
+  listPhases,
+  listSubmissions,
+} from '../../api';
 import { NewOpenItemForm } from '../../new-open-item-form';
+import { NewPhaseForm } from '../../new-phase-form';
+import { NewSubmissionForm } from '../../new-submission-form';
 import { day, OpenItemEntry } from '../../open-item';
+import { PhaseList } from '../../phases';
 
 /** Archived projects are readable here; only the list hides them. */
 export const dynamic = 'force-dynamic';
@@ -22,10 +30,14 @@ export default async function ProjectRecord({
     notFound();
   }
 
-  const [unresolved, resolved] = await Promise.all([
+  const [unresolved, resolved, phases, submissions] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
+    listPhases(id),
+    listSubmissions(id),
   ]);
+
+  const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
 
   async function archive() {
     'use server';
@@ -92,7 +104,60 @@ export default async function ProjectRecord({
           <CardTitle>Add an open item</CardTitle>
         </CardHeader>
         <CardContent>
-          <NewOpenItemForm projectId={id} />
+          <NewOpenItemForm submit={createOpenItem.bind(null, id)} />
+        </CardContent>
+      </Card>
+
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Submissions</h2>
+          <span className="text-muted-foreground text-sm">
+            {submissions.length === 0
+              ? 'nothing issued yet'
+              : `${submissions.length} issued`}
+          </span>
+        </div>
+
+        {submissions.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {submissions.map((issued) => (
+              <li key={issued.id}>
+                <Link
+                  href={`/submissions/${issued.id}`}
+                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
+                >
+                  <Badge variant="outline">
+                    {phaseName.get(issued.phaseId) ?? 'Unknown phase'}
+                  </Badge>
+                  <span className="font-medium">{issued.revision}</span>
+                  <span className="text-muted-foreground text-sm">
+                    {day(issued.issuedAt)} &middot; {issued.recipient} (
+                    {issued.recipientRole})
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Record a submission</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {phases.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              A submission is issued at a phase. Define one below first.
+            </p>
+          ) : (
+            <NewSubmissionForm
+              projectId={id}
+              phases={phases}
+              currentPhaseId={project.currentPhaseId}
+              unresolved={unresolved}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -108,6 +173,24 @@ export default async function ProjectRecord({
           </ul>
         </section>
       )}
+
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-muted-foreground text-sm font-medium">Phases</h2>
+          <span className="text-muted-foreground text-sm">
+            free text, in the order this job runs them
+          </span>
+        </div>
+
+        {phases.length > 0 && (
+          <PhaseList
+            phases={phases}
+            projectId={id}
+            currentPhaseId={project.currentPhaseId}
+          />
+        )}
+        <NewPhaseForm projectId={id} />
+      </section>
     </div>
   );
 }

@@ -197,3 +197,105 @@ export async function createOpenItem(
   }
   return (await response.json()) as OpenItemResponse;
 }
+
+/** A phase as the API returns it. */
+export interface PhaseResponse {
+  id: string;
+  projectId: string;
+  name: string;
+  position: number;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createPhase(
+  api: TestApi,
+  projectId: string,
+  name: string,
+): Promise<PhaseResponse> {
+  const path = `/v1/projects/${projectId}/phases`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as PhaseResponse;
+}
+
+/** A submission as the API returns it from a create or a list. */
+export interface SubmissionResponse {
+  id: string;
+  projectId: string;
+  phaseId: string;
+  issuedAt: string;
+  recipient: string;
+  recipientRole: string;
+  revision: string;
+  sheetList: string;
+  createdAt: string;
+}
+
+/**
+ * One submission read on its own, which is the only place the things it hangs
+ * off are resolved: the phase it was issued at, the job it belongs to, and
+ * what it rests on.
+ */
+export interface SubmissionDetail extends SubmissionResponse {
+  phase: PhaseResponse;
+  project: { id: string; projectNumber: string; name: string };
+  openItems: OpenItemResponse[];
+}
+
+export interface SubmissionBody {
+  recipient: string;
+  recipientRole: string;
+  revision: string;
+  sheetList: string;
+  phaseId?: string;
+  issuedAt?: string;
+  openItemIds?: string[];
+}
+
+/**
+ * A valid create body, so a test about one field does not have to restate the
+ * other three. Patching a field to `undefined` leaves it off the wire rather
+ * than sending a null, which is how a test says "not supplied".
+ */
+export function submissionBody(
+  patch: Partial<SubmissionBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    recipient: 'Wren Alcott',
+    recipientRole: 'EOR',
+    revision: 'Rev 1',
+    sheetList: 'E0.01\nE1.01\nE2.01',
+    ...patch,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createSubmission(
+  api: TestApi,
+  projectId: string,
+  patch: Partial<SubmissionBody> = {},
+): Promise<SubmissionResponse> {
+  const path = `/v1/projects/${projectId}/submissions`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(submissionBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as SubmissionResponse;
+}

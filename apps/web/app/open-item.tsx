@@ -25,9 +25,17 @@ function Field({ label, value }: { label: string; value: string | null }) {
 export function OpenItemEntry({
   item,
   projectId,
+  detach,
 }: {
   item: OpenItem;
   projectId: string;
+  /**
+   * Present only where the item is being shown as something an issuance
+   * rests on. The button lives inside the entry rather than beside it
+   * because this component owns the `<li>`, and a second one around it is
+   * invalid HTML that hydration rejects.
+   */
+  detach?: () => Promise<void>;
 }) {
   const resolved = item.resolvedAt !== null;
 
@@ -90,6 +98,14 @@ export function OpenItemEntry({
           />
           <Button type="submit" variant="secondary">
             Resolve
+          </Button>
+        </form>
+      )}
+
+      {detach !== undefined && (
+        <form action={detach} className="flex justify-end">
+          <Button type="submit" variant="ghost" size="sm">
+            Not part of this submission
           </Button>
         </form>
       )}

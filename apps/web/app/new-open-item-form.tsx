@@ -4,13 +4,23 @@ import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createOpenItem } from './actions';
+import type { AddState } from './actions';
 
-export function NewOpenItemForm({ projectId }: { projectId: string }) {
-  const [state, action, pending] = useActionState(
-    createOpenItem.bind(null, projectId),
-    { added: 0 },
-  );
+/**
+ * The form is the same wherever an open item is raised; what differs is where
+ * it lands. The caller binds that in and passes the action, so the project
+ * screen and a submission screen share one set of fields rather than two that
+ * can drift.
+ */
+export function NewOpenItemForm({
+  submit,
+}: {
+  submit: (
+    previous: AddState,
+    formData: FormData,
+  ) => Promise<AddState>;
+}) {
+  const [state, action, pending] = useActionState(submit, { added: 0 });
 
   // Keyed on the number of items added, so a success starts a genuinely empty
   // form and a rejection leaves everything typed exactly where it was.

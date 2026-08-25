@@ -14,7 +14,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ├── PRD and Architecture.md   ← requirements, architecture, milestones, backlog
 ├── docs/
-│   ├── adr/                  ← architecture decisions 0001-0025 (check Status lines)
+│   ├── adr/                  ← architecture decisions 0001-0026 (check Status lines)
 │   └── glossary.md           ← domain terms
 ```
 
@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Twenty-five ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Twenty-six ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, and 0026 while building slice 4). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -52,6 +52,7 @@ in my court past its clock as the daily layer under it.
 | 0023 | API routes carry a `/v1` prefix — settles the spec's "versioned prefix" against slice 1's unversioned routes |
 | 0024 | An open item's `unresolved` column, `resolved_at` + `resolution_note` as the whole of resolution, and `subject_type` as a one-value enum |
 | 0025 | The interface is designed, not incidental — Tailwind + shadcn/ui, owned in-repo; the site visit report is a separate print problem |
+| 0026 | What a submission rests on is a join table, not a second subject on the open item; a phase is a row the submission points at, and renaming it propagates |
 
 ## Stack
 
@@ -66,8 +67,9 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | 0 | Walking skeleton and test harness (issue #2) | **Done** 2026-08-24 |
 | 0b | `Project` record: create, list live, view, archive (issue #3) | **Done** 2026-08-25 |
 | 0c | Open items + the pending items view (issue #4) | **Done** 2026-08-25 |
+| 0d | Submissions, per-project phases, sheet list, revision (issue #5) | **Done** 2026-08-25 |
 | 1 | T-1 open items entered | Unblocked — no code needed |
-| 2 | Open items + submissions (provisional, supersede) | Open items done; submissions not started |
+| 2 | Open items + submissions (provisional, supersede) | Open items and submissions done (issues #4, #5); provisional (#6) and supersede (#7) not started |
 | 3 | Site visit capture (voice, photos, stable issue IDs) | Not started |
 | 4 | Registers: submittals, RFIs, clock, dispositions | Not started |
 | 5 | Ingest: forward-to-email, extraction, human-confirmed | Not started |
@@ -98,3 +100,4 @@ reading Accepted while appearing in neither the MVP workflow list nor the sequen
 | 2026-08-25 | Slice 3 built (issue #4): the **open item** — create against a project, resolve with a note and a date, reopen, and the cross-project **pending items** view, filterable by who owes the next move and sorted by age. ADR-0024 records the three things the PRD's data-model sketch left out: a column for what is unresolved, a resolution model, and `subject_type` as a one-value enum. Glossary gained **Counterfactual**, **Waiting on**, **Owner**, **Resolved** and **Pending items**, none of which had an entry. |
 | 2026-08-25 | Slice 2 built (issue #3): the `Project` record — create, list live, view one, archive one-way — behind a `/v1` prefix (ADR-0023). `skeleton_records` dropped, as slice 1 said it should be. Glossary gained **Project number** and **Archived**, which had no entry anywhere, and the stale **Project** and **Milestone** definitions were corrected. |
 | 2026-08-24 | Full-MVP spec written and published as GitHub issue #1 (`ready-for-agent`), covering all 7 workflows and all 6 sequence steps. Vault updated with what the spec decided: ADR-0020 (Proposed), provisional split into historical + derived, ball-in-court as a history, report renders to PDF, transcription vendor added to the open picks. Two vault contradictions surfaced and recorded, not resolved. |
+| 2026-08-25 | Slice 4 built (issue #5): the **submission** — a dated issuance to a named recipient at a phase, with sheet list and revision — and per-project **phases**, defined, renamed and reordered as free text, with a current phase a new submission defaults to. ADR-0026 records the two things the sketch left out: what an issuance rests on is a `submission_open_items` join rather than a second subject on the open item, because reading ADR-0024's enum expectation literally would have made issue #7's carry-forward destroy the record of what the original rested on; and a phase is a foreign key, so a rename propagates on purpose. No route updates a submission, so issue #7's edit prohibition holds by construction. Glossary gained **Current phase**, **Sheet list**, **Revision** and **Rests on**. |
