@@ -10,6 +10,16 @@ export interface TestApi {
   baseUrl: string;
   /** `fetch` against this API. Tests assert on the response, nothing else. */
   fetch(path: string, init?: RequestInit): Promise<Response>;
+  /**
+   * The tables the migrations actually produced.
+   *
+   * The one sanctioned way past the HTTP boundary, because "no `users` table
+   * exists" (ADR-0012) is a schema invariant no route can ever expose. It
+   * returns names and nothing else, so it cannot be used to read domain data
+   * or to write a row — which is what the "fixtures through the API" rule is
+   * protecting.
+   */
+  tableNames(): Promise<string[]>;
   close(): Promise<void>;
 }
 
@@ -41,7 +51,7 @@ export async function startTestApi(
   const runtime = createRuntime({
     databaseUrl: databaseUrl.toString(),
     redisUrl: inject('redisUrl'),
-    queueName: `skeleton-${database}`,
+    queueName: `test-${database}`,
   });
 
   const app = buildServer({
@@ -60,6 +70,13 @@ export async function startTestApi(
   return {
     baseUrl,
     fetch: (path, init) => fetch(`${baseUrl}${path}`, init),
+    tableNames: async () => {
+      const rows = await runtime.prisma.$queryRaw<{ table_name: string }[]>`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public'
+      `;
+      return rows.map((row) => row.table_name);
+    },
     close: async () => {
       await app.close();
       await runtime.close();
@@ -83,17 +100,30 @@ export function fakeTimeSource(start: Date) {
   };
 }
 
+/** A project as the API returns it. */
+export interface ProjectResponse {
+  id: string;
+  projectNumber: string;
+  name: string;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
 /** Fixtures are built through the API, never by writing to the database. */
-export async function createSkeletonRecord(api: TestApi, label: string) {
-  const response = await api.fetch('/skeleton-records', {
+export async function createProject(
+  api: TestApi,
+  projectNumber: string,
+  name: string,
+): Promise<ProjectResponse> {
+  const response = await api.fetch('/v1/projects', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ label }),
+    body: JSON.stringify({ projectNumber, name }),
   });
   if (response.status !== 201) {
     throw new Error(
-      `fixture failed: POST /skeleton-records returned ${response.status}`,
+      `fixture failed: POST /v1/projects returned ${response.status}`,
     );
   }
-  return (await response.json()) as { id: string; label: string; createdAt: string };
+  return (await response.json()) as ProjectResponse;
 }

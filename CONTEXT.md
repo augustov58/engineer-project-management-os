@@ -1,6 +1,6 @@
 # Project Context: Engineer Project Management OS
 
-*Last updated: 2026-08-24*
+*Last updated: 2026-08-25*
 
 ## What this is
 
@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Twenty-two ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Twenty-three ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -49,6 +49,7 @@ in my court past its clock as the daily layer under it.
 | 0011 | Risk register: manual + agent-proposed |
 | 0021 | Fastify, not NestJS — decided by slice 1, not revisited |
 | 0022 | Time source is a port called `TimeSource`; `Clock` stays a domain word |
+| 0023 | API routes carry a `/v1` prefix — settles the spec's "versioned prefix" against slice 1's unversioned routes |
 
 ## Stack
 
@@ -61,6 +62,7 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | Step | Scope | Status |
 |------|-------|--------|
 | 0 | Walking skeleton and test harness (issue #2) | **Done** 2026-08-24 |
+| 0b | `Project` record: create, list live, view, archive (issue #3) | **Done** 2026-08-25 |
 | 1 | T-1 open items entered | Not started |
 | 2 | Open items + submissions (provisional, supersede) | Not started |
 | 3 | Site visit capture (voice, photos, stable issue IDs) | Not started |
@@ -90,4 +92,5 @@ reading Accepted while appearing in neither the MVP workflow list nor the sequen
 | 2026-08-18 | Code workspace created. Development not yet started. |
 | 2026-08-24 | Grilling session: 8 superseding ADRs (0012-0019), glossary rewritten to real field vocabulary, MVP resequenced. Money model, health score, RBAC, and vector search cut. |
 | 2026-08-24 | Slice 1 built (issue #2): pnpm monorepo, Fastify API, Next.js frontend, PostgreSQL + Prisma migrations, Redis + BullMQ idle, and the test harness every later slice copies. ADR-0021 (Fastify) and ADR-0022 (`TimeSource`) recorded; the PRD stack line no longer says "Fastify or NestJS". |
+| 2026-08-25 | Slice 2 built (issue #3): the `Project` record — create, list live, view one, archive one-way — behind a `/v1` prefix (ADR-0023). `skeleton_records` dropped, as slice 1 said it should be. Glossary gained **Project number** and **Archived**, which had no entry anywhere, and the stale **Project** and **Milestone** definitions were corrected. |
 | 2026-08-24 | Full-MVP spec written and published as GitHub issue #1 (`ready-for-agent`), covering all 7 workflows and all 6 sequence steps. Vault updated with what the spec decided: ADR-0020 (Proposed), provisional split into historical + derived, ball-in-court as a history, report renders to PDF, transcription vendor added to the open picks. Two vault contradictions surfaced and recorded, not resolved. |

@@ -37,7 +37,7 @@ apps/web    Next.js frontend (App Router)
 docs/       Agent-facing notes; the ADRs and glossary live in the vault
 ```
 
-## What slice 1 fixed, so later work does not re-decide it
+## What earlier slices fixed, so later work does not re-decide it
 
 - **Fastify, not NestJS** (ADR-0021). Dependencies are passed into `buildServer()` as
   arguments; nothing is resolved from a container. Both `src/index.ts` and the test
@@ -52,11 +52,17 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   an ephemeral PostgreSQL per test run migrated by `prisma migrate deploy` from the same
   migrations production uses, a fresh database copied from it per test, a real listening
   HTTP server, and fixtures built through the API rather than by inserting rows.
+- **`/v1` on every route** (ADR-0023). The prefix is one `register` call in
+  `apps/api/src/server.ts`, not a string repeated per route. Slice 2 moved `/health` under
+  it and dropped `skeleton_records`, so nothing unversioned survives.
 
-Not covered by tests in this slice: the frontend. `apps/web` has no test script, so
-`pnpm test` exercises the API only, and a change that breaks the page would not fail the
-suite. That is deliberate — the MVP spec's test seam puts the thin browser-driven pass at
-step 3 (site visit capture), on top of record-level coverage, rather than here.
+Not covered by tests: the frontend. `apps/web` has no test script, so `pnpm test`
+exercises the API only, and a change that breaks the page would not fail the suite. That
+is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
+visit capture), on top of record-level coverage, rather than here.
 
-`skeleton_records` is disposable — it exists only to prove the path end to end, and should
-be dropped once a real record reads through the same route.
+The gap is real, and slice 2 hit it: `apps/web` resolves modules the bundler way while
+`apps/api` uses NodeNext, so relative imports written `./api.js` typechecked clean and
+then 500'd in Turbopack. **Web imports carry no file extension; API imports carry `.js`.**
+Until there is a web test, run the app and load the pages before calling a frontend change
+done.

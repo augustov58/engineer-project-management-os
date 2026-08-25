@@ -1,71 +1,48 @@
-const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://127.0.0.1:3001';
+import Link from 'next/link';
+import { listProjects, type Project } from './api';
+import { NewProjectForm } from './new-project-form';
 
-interface SkeletonRecord {
-  id: string;
-  label: string;
-  createdAt: string;
-}
-
-interface Health {
-  queue: { name: string; waiting: number; active: number };
-  now: string;
-}
-
-const createCommand =
-  `curl -X POST ${apiUrl}/skeleton-records ` +
-  `-H 'content-type: application/json' -d '{"label":"hello"}'`;
-
-/** Read on every request: the point is to prove the path, not to cache it. */
+/** Read on every request: this screen is the engineer's live-project count. */
 export const dynamic = 'force-dynamic';
 
+function ProjectList({ projects }: { projects: Project[] }) {
+  return (
+    <ul>
+      {projects.map((project) => (
+        <li key={project.id}>
+          <Link href={`/projects/${project.id}`}>{project.projectNumber}</Link>{' '}
+          {project.name}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default async function Home() {
-  const [records, health] = await Promise.all([
-    fetch(`${apiUrl}/skeleton-records`, { cache: 'no-store' }).then(
-      (response) => response.json() as Promise<SkeletonRecord[]>,
-    ),
-    fetch(`${apiUrl}/health`, { cache: 'no-store' }).then(
-      (response) => response.json() as Promise<Health>,
-    ),
+  const [live, archived] = await Promise.all([
+    listProjects(),
+    listProjects(true),
   ]);
 
   return (
     <main>
-      <h1>Engineer Project Management OS</h1>
-      <p>
-        Walking skeleton. Everything below travelled browser &rarr; API &rarr;
-        PostgreSQL and back.
-      </p>
+      <h1>Projects</h1>
 
-      <h2>Skeleton records</h2>
-      {records.length === 0 ? (
-        <p>
-          None yet. Create one:{' '}
-          <code>{createCommand}</code>
-        </p>
+      {live.length === 0 ? (
+        <p>No live projects.</p>
       ) : (
-        <ul>
-          {records.map((record) => (
-            <li key={record.id}>
-              {record.label} <small>({record.createdAt})</small>
-            </li>
-          ))}
-        </ul>
+        <ProjectList projects={live} />
       )}
 
-      <h2>API health</h2>
-      <p>
-        This section rendered at all, so the API answered and PostgreSQL and
-        Redis were both reachable.
-      </p>
-      <dl>
-        <dt>Queue</dt>
-        <dd>
-          {health.queue.name} &mdash; {health.queue.waiting} waiting,{' '}
-          {health.queue.active} active
-        </dd>
-        <dt>Time source</dt>
-        <dd>{health.now}</dd>
-      </dl>
+      <h2>Add a project</h2>
+      <NewProjectForm />
+
+      {archived.length > 0 && (
+        <>
+          <h2>Archived</h2>
+          <ProjectList projects={archived} />
+        </>
+      )}
     </main>
   );
 }
