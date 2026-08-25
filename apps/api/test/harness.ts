@@ -127,3 +127,73 @@ export async function createProject(
   }
   return (await response.json()) as ProjectResponse;
 }
+
+/** An open item as the API returns it. */
+export interface OpenItemResponse {
+  id: string;
+  subjectType: 'PROJECT';
+  subjectId: string;
+  unresolved: string;
+  blocks: string;
+  waitingOn: string | null;
+  waitingSince: string;
+  invalidationTrigger: string | null;
+  counterfactual: string;
+  owner: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+}
+
+export interface OpenItemBody {
+  unresolved: string;
+  blocks: string;
+  waitingOn: string | null;
+  counterfactual: string;
+  waitingSince?: string;
+  invalidationTrigger?: string;
+  owner?: string;
+}
+
+/**
+ * A valid create body, so a test that is about one field does not have to
+ * restate the other three that are required.
+ *
+ * Patching a field to `undefined` leaves it off the wire entirely rather than
+ * sending a null, which is how a test says "this field was not supplied".
+ */
+export function openItemBody(
+  patch: Partial<OpenItemBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    unresolved: 'Ceiling height at the north stair',
+    blocks: 'Sizing the main run',
+    waitingOn: 'Contractor',
+    counterfactual: 'If the height is lower the run has to be rerouted',
+    ...patch,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createOpenItem(
+  api: TestApi,
+  projectId: string,
+  patch: Partial<OpenItemBody> = {},
+): Promise<OpenItemResponse> {
+  const path = `/v1/projects/${projectId}/open-items`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(openItemBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as OpenItemResponse;
+}

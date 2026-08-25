@@ -28,6 +28,10 @@ export default async function Home() {
     <main>
       <h1>Projects</h1>
 
+      <p>
+        <Link href="/pending">Pending items across every project &rarr;</Link>
+      </p>
+
       {live.length === 0 ? (
         <p>No live projects.</p>
       ) : (

@@ -21,6 +21,15 @@ pnpm dev
 Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, frontend on
 <http://127.0.0.1:3000>.
 
+Use `localhost`, not `127.0.0.1`, in the browser: `next dev` refuses to serve its own
+`/_next/*` assets to an origin it does not recognise, so the page renders and then dies
+with a 403 on every script. `apps/web/next.config.ts` adds this machine's own network
+addresses to that list, which is what makes the app viewable from another device on the
+same network. **Only the frontend is reachable that way** — the API, PostgreSQL and Redis
+stay bound to loopback, and nothing breaks because every call to the API is made by the
+Next server rather than by the browser. A client-side fetch to `NEXT_PUBLIC_API_URL` would
+break that, and would only fail on the second device.
+
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Everything: containers, migrations, API, frontend |
@@ -55,6 +64,12 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
 - **`/v1` on every route** (ADR-0023). The prefix is one `register` call in
   `apps/api/src/server.ts`, not a string repeated per route. Slice 2 moved `/health` under
   it and dropped `skeleton_records`, so nothing unversioned survives.
+- **One column says whether an open item is unresolved** (ADR-0024): `resolved_at` being
+  null, with `resolution_note` moving with it. Exposure, provisional state and the pending
+  items view are all derived from that column, so none of them can disagree about what
+  "unresolved" means. There is no status field, and adding one would create a second
+  answer. The subject is polymorphic — `subject_type` is a database enum carrying only
+  `PROJECT`, so attaching an open item to a submission is a migration, not a new string.
 
 Not covered by tests: the frontend. `apps/web` has no test script, so `pnpm test`
 exercises the API only, and a change that breaks the page would not fail the suite. That
