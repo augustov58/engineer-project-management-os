@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0028; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0029; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -25,7 +25,8 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 Slice 1 (walking skeleton and test harness, issue #2), slice 2 (the `Project` record,
 issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
 (submissions and per-project phases, issue #5), slice 5 (provisional state and
-exposure, issue #6) and slice 6 (reissue and supersede, issue #7) are built. The plan is
+exposure, issue #6), slice 6 (reissue and supersede, issue #7) and slice 7 (assumption
+records, issue #8) are built. The plan is
 the six-step **Revised MVP sequence** in
 `PRD and Architecture.md`, and the MVP is ticketed as GitHub
 issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is the
@@ -83,6 +84,23 @@ See [README.md](./README.md).
 - The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it. The nobody checkbox, the pending sort select, the submission phase select and the attach-an-open-item select are all native for that reason; `apps/web/app/native-select.ts` holds the shared styling.
 - `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend. Run `pnpm --filter web build` and load the pages before calling a frontend change done. Browse `http://localhost:3000`, not `127.0.0.1`: Next's dev-origin guard 403s the client chunks on the other host, so the page renders and silently never hydrates.
 - A state update made from a ref callback during the **hydration** commit is discarded — the ref runs, the value is right, and the render keeps the old one. Anything a first paint must show has to be in the server's render: seed the state from props and let the ref only correct it afterwards (ADR-0028).
+- An **assumption record** captures the `ASSUMPTIONS` and `FLAGS / VERIFY` blocks *verbatim*
+  as two text columns — nothing trims, normalises or re-wraps them, and no route edits or
+  deletes one (ADR-0029). A rerun of the calculation is another record against the same
+  submission, dated its own day.
+- An entry of either block is addressed by its **line number**, and every non-blank line is
+  an entry. Do not parse the `- ` / `! ` sigils the three calculators print: they are those
+  scripts' convention, not a contract, and reading them would make this refuse the next
+  helper skill's output. `assumptionLines` and `flagLines` are split on every read and
+  stored nowhere.
+- Counterfactuals on an assumption record are **rows**, one per assumed input, keyed by the
+  line of `ASSUMPTIONS` they are about (ADR-0029, story 39) — not the single column the
+  PRD sketch names. A second one on the same input is refused, matching resolve.
+- A flag raised as an open item is attached to the submission **after** the issuance, so it
+  makes the set *currently* provisional and puts it into exposure and never touches
+  `issued_provisional` (ADR-0027). Its subject stays `PROJECT`, as every open item's does.
+- The product implements no calculation logic anywhere. Helper skills produce inputs to the
+  record; the product records what one produced and never reimplements its math.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

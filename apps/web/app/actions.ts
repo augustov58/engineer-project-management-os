@@ -394,3 +394,113 @@ function revalidateSubmission(submissionId: string, projectId: string): void {
   revalidatePath(`/projects/${projectId}`);
   revalidatePath('/pending');
 }
+
+// ── Assumption records ────────────────────────────────────────────────────
+
+/**
+ * A textarea's own newlines, not the browser's.
+ *
+ * HTML's "create an entry" algorithm normalises every newline in a form entry
+ * to CRLF, so a block pasted from a terminal — LF, like everything the helper
+ * skills print — arrives here with a `\r` ending every line and would store as
+ * something other than what was captured, leaving a stray carriage return on
+ * each split line. Undone at the boundary that introduced it rather than in
+ * the API, which keeps byte-for-byte whatever it is handed and must go on
+ * doing so for a caller that means CRLF.
+ *
+ * Found by capturing a record through the form and reading the bytes back —
+ * invisible to `pnpm typecheck`, to `pnpm test`, and on the screen.
+ */
+function pasted(formData: FormData, field: string): string {
+  return String(formData.get(field) ?? '').replace(/\r\n/g, '\n');
+}
+
+/**
+ * Capturing what a helper skill produced. The blocks are pasted, never
+ * retyped, and nothing here trims them — "verbatim" is the whole point, so
+ * `omitIfBlank`'s trim is deliberately not used on either.
+ */
+export async function captureAssumptionRecord(
+  submissionId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const on = omitIfBlank(formData, 'calculatedAt');
+  const error = await refusal(
+    await send(`/submissions/${submissionId}/assumption-records`, {
+      assumptions: pasted(formData, 'assumptions'),
+      flags: pasted(formData, 'flags'),
+      codeEdition: formData.get('codeEdition'),
+      // A date input gives a day; the record keeps an instant.
+      calculatedAt: on === undefined ? undefined : `${on}T00:00:00.000Z`,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/submissions/${submissionId}`);
+  revalidatePath(`/projects/${projectId}`);
+  return { added: previous.added + 1 };
+}
+
+/** What changes if one assumed input turns out wrong, against its own line. */
+export async function writeCounterfactual(
+  recordId: string,
+  line: number,
+  submissionId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(
+      `/assumption-records/${recordId}/assumptions/${line}/counterfactual`,
+      { counterfactual: formData.get('counterfactual') },
+    ),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/submissions/${submissionId}`);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * A flag raised as an open item.
+ *
+ * The form arrives with `unresolved` already filled from the flag, so that is
+ * what is sent and nothing is transcribed by hand — the engineer may still
+ * reword a terse flag before committing. The API's own fallback, for a caller
+ * that omits the field entirely, is the same flag text; this keeps the two
+ * from disagreeing by sending nothing when the field comes back empty.
+ */
+export async function raiseFlag(
+  recordId: string,
+  line: number,
+  submissionId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const { unresolved, ...payload } = openItemPayload(formData);
+  const error = await refusal(
+    await send(
+      `/assumption-records/${recordId}/flags/${line}/open-item`,
+      // Supplied only where the engineer overrode the flag's own wording.
+      unresolved === '' || unresolved === null
+        ? payload
+        : { ...payload, unresolved },
+    ),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSubmission(submissionId, projectId);
+  return { added: previous.added + 1 };
+}

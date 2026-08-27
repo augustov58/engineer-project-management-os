@@ -5,11 +5,19 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   attachOpenItem,
+  captureAssumptionRecord,
   createOpenItemOnSubmission,
   detachOpenItem,
   reissueSubmission,
 } from '../../actions';
-import { getSubmission, listOpenItems, listPhases } from '../../api';
+import {
+  getSubmission,
+  listAssumptionRecords,
+  listOpenItems,
+  listPhases,
+} from '../../api';
+import { AssumptionRecordEntry } from '../../assumption-record';
+import { AssumptionRecordForm } from '../../assumption-record-form';
 import { selectClassName } from '../../native-select';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { day, OpenItemEntry } from '../../open-item';
@@ -30,13 +38,25 @@ export default async function SubmissionRecord({
 
   const projectId = submission.project.id;
   const attached = new Set(submission.openItems.map((item) => item.id));
-  const [onTheProject, phases] = await Promise.all([
+  const [onTheProject, phases, assumptionRecords] = await Promise.all([
     listOpenItems(projectId),
     listPhases(projectId),
+    listAssumptionRecords(id),
   ]);
   // Only what is still unresolved is worth offering: attaching an answered
   // item to a set going out is not the thing this control is for.
   const attachable = onTheProject.filter((item) => !attached.has(item.id));
+
+  // Which of them a flag on this submission raised. Read off the records this
+  // page already holds rather than added to the submission payload, so there
+  // is no second place the same fact is written down. The API refuses the
+  // detach either way; this is what stops the button being offered at all.
+  const raisedFromFlag = new Set(
+    assumptionRecords
+      .flatMap((record) => record.flagLines)
+      .map((entry) => entry.openItem?.id)
+      .filter((openItemId) => openItemId !== undefined),
+  );
 
   const superseded = submission.supersededById !== null;
   const replacement = submission.chain.find(
@@ -206,17 +226,19 @@ export default async function SubmissionRecord({
               // detaching a row of the snapshot would erase the record of what
               // was issued (ADR-0026).
               const wasIssuedOn = item.unresolvedAtIssuance !== null;
+              const raised = raisedFromFlag.has(item.id);
               return (
                 <OpenItemEntry
                   key={item.id}
                   item={item}
                   projectId={projectId}
                   detach={
-                    wasIssuedOn
+                    wasIssuedOn || raised
                       ? undefined
                       : detachOpenItem.bind(null, id, projectId, item.id)
                   }
                   restedOnAtIssuance={wasIssuedOn}
+                  raisedFromFlag={raised}
                 />
               );
             })}
@@ -250,6 +272,56 @@ export default async function SubmissionRecord({
           </form>
         )}
       </section>
+
+      {/*
+        The durable artifact of engineering reasoning (issue #8). It sits below
+        what the set rests on because raising a flag puts an open item in that
+        list, and above the reissue form because a rerun of the calculation is
+        the usual reason to correct the record.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Assumption records</h2>
+          <span className="text-muted-foreground text-sm">
+            {assumptionRecords.length === 0
+              ? 'nothing captured yet'
+              : `${assumptionRecords.length} captured`}
+          </span>
+        </div>
+
+        {assumptionRecords.length === 0 ? (
+          <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+            The arithmetic is reproducible without these; the reasoning is not.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {assumptionRecords.map((record) => (
+              <AssumptionRecordEntry
+                key={record.id}
+                record={record}
+                submissionId={id}
+                projectId={projectId}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Capture an assumption record</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Paste what the helper skill printed. It is stored verbatim and
+            never edited — a rerun of the calculation is captured as another
+            record against this submission, dated its own day.
+          </p>
+          <AssumptionRecordForm
+            submit={captureAssumptionRecord.bind(null, id, projectId)}
+          />
+        </CardContent>
+      </Card>
 
       {/*
         Reissue reads as ordinary work, because it is: nothing edits a

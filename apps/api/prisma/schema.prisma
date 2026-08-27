@@ -139,7 +139,8 @@ model Submission {
   supersedes   Submission? @relation("Supersede", fields: [supersedesId], references: [id])
   supersededBy Submission? @relation("Supersede")
 
-  openItems SubmissionOpenItem[]
+  openItems         SubmissionOpenItem[]
+  assumptionRecords AssumptionRecord[]
 
   @@index([projectId, issuedAt])
   @@map("submissions")
@@ -236,6 +237,116 @@ model OpenItem {
   /// The issuances resting on this item. Not the subject — see ADR-0026.
   submissions SubmissionOpenItem[]
 
+  /// The `FLAGS / VERIFY` line this item was raised from, if it was raised
+  /// from one at all (issue #8). Most open items are typed by hand and have
+  /// none.
+  raisedFrom RaisedFlag?
+
   @@index([subjectType, subjectId])
   @@map("open_items")
+}
+
+/// The durable artifact of engineering reasoning (issue #8, glossary): the
+/// `ASSUMPTIONS` block and the `FLAGS / VERIFY` block captured verbatim from a
+/// helper skill's output, bound to the submission they justified, with the
+/// code edition and the date.
+///
+/// The arithmetic is reproducible without this; the reasoning is not. Nothing
+/// here reimplements a helper skill's math — this records what one produced.
+///
+/// Never edited, for the reason a submission is not: it is a capture of what
+/// something else output at a moment. Running the calculation again produces
+/// another record against the submission, dated its own day, and the two sit
+/// side by side.
+model AssumptionRecord {
+  id String @id @default(uuid())
+
+  /// The issuance this reasoning justified. A foreign key and not a
+  /// polymorphic subject: the glossary binds an assumption record to a
+  /// submission and to nothing else. The sketch in the PRD has no such column
+  /// at all, which is one of the things ADR-0029 settles.
+  submissionId String     @map("submission_id")
+  submission   Submission @relation(fields: [submissionId], references: [id])
+
+  /// The two blocks, verbatim. Held as text with nothing trimmed, normalised
+  /// or re-wrapped: "captured verbatim" is the whole point, and a block that
+  /// came back re-indented would no longer be what the helper skill produced.
+  ///
+  /// Each carries one entry per line — an assumed input, or a flag to verify.
+  /// That is not a format this parses for: it is how the entries are
+  /// addressed, and a line that is neither is simply a line nothing points at.
+  assumptions String
+  flags       String
+
+  /// Which editions the reasoning was done against — "NEC 2023", or the five
+  /// standards the generator sizer works to at once. One free-text field
+  /// rather than a set: it is a list an engineer writes, and it cannot be read
+  /// out of the blocks, which never name it.
+  codeEdition String @map("code_edition")
+
+  /// The date of the calculation this captures — the sketch's "dated".
+  /// Settable, because the reasoning worth entering first was done long
+  /// before this row existed; otherwise the injected TimeSource, and never a
+  /// database default (ADR-0022).
+  calculatedAt DateTime @map("calculated_at")
+
+  /// Entry order, so two captures dated the same day do not list at random.
+  createdAt DateTime @map("created_at")
+
+  counterfactuals Counterfactual[]
+  raisedFlags     RaisedFlag[]
+
+  @@index([submissionId, calculatedAt])
+  @@map("assumption_records")
+}
+
+/// What changes if one assumed input turns out wrong (story 39, glossary).
+///
+/// The sketch in the PRD names `counterfactuals` as a column. It is rows,
+/// because the spec asks for one per assumed input and a single field could
+/// not say which input each belongs to.
+///
+/// The input is a *line number*, not a copy of the text. The block is captured
+/// verbatim and never edited, so the line is a stable pointer, and there is
+/// therefore only one place the wording of an assumption can be wrong.
+model Counterfactual {
+  assumptionRecordId String           @map("assumption_record_id")
+  assumptionRecord   AssumptionRecord @relation(fields: [assumptionRecordId], references: [id])
+
+  /// Zero-based index into the lines of `assumption_records.assumptions`.
+  line Int
+
+  /// Capped at 1000 like the open item's, being the same field on the other
+  /// record the glossary requires it on.
+  counterfactual String
+
+  @@id([assumptionRecordId, line])
+  @@map("counterfactuals")
+}
+
+/// A line of a record's `FLAGS / VERIFY` block that has been raised as an open
+/// item (issue #8, story 40), so a flag raised during a calculation cannot be
+/// raised and then forgotten.
+///
+/// Addressed by line for the reason a counterfactual is.
+///
+/// A flag has no state of its own. It is outstanding until it is raised, and
+/// after that the open item's `resolved_at` is the whole of whether it is
+/// still outstanding — ADR-0024's one column, not a second beside it.
+model RaisedFlag {
+  assumptionRecordId String           @map("assumption_record_id")
+  assumptionRecord   AssumptionRecord @relation(fields: [assumptionRecordId], references: [id])
+
+  /// Zero-based index into the lines of `assumption_records.flags`.
+  line Int
+
+  /// The item this flag became. Unique, which is the whole of "one flag, at
+  /// most one open item, and no item is two flags": raising the same flag
+  /// twice is refused by the database rather than by a guard that can be
+  /// forgotten.
+  openItemId String   @unique @map("open_item_id")
+  openItem   OpenItem @relation(fields: [openItemId], references: [id])
+
+  @@id([assumptionRecordId, line])
+  @@map("raised_flags")
 }

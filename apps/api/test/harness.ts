@@ -364,3 +364,93 @@ export async function reissueSubmission(
   }
   return (await response.json()) as SubmissionResponse;
 }
+
+/**
+ * One line of a captured block, as the API returns it: the verbatim text and
+ * the number it is addressed by. Split from the block on every read and stored
+ * nowhere, so a line and the block it came from cannot disagree.
+ */
+export interface AssumptionLine {
+  line: number;
+  text: string;
+  /** What changes if this input turns out wrong. Null until one is written. */
+  counterfactual: string | null;
+}
+
+export interface FlagLine {
+  line: number;
+  text: string;
+  /** The item this flag was raised as, or null while it is still outstanding. */
+  openItem: OpenItemResponse | null;
+}
+
+/** An assumption record as the API returns it. */
+export interface AssumptionRecordResponse {
+  id: string;
+  submissionId: string;
+  /** Verbatim, and byte-for-byte what was captured. */
+  assumptions: string;
+  flags: string;
+  codeEdition: string;
+  calculatedAt: string;
+  createdAt: string;
+  assumptionLines: AssumptionLine[];
+  flagLines: FlagLine[];
+}
+
+export interface AssumptionRecordBody {
+  assumptions: string;
+  flags: string;
+  codeEdition: string;
+  calculatedAt?: string;
+}
+
+/**
+ * A valid capture body. The blocks are real output from the transformer sizer
+ * — two-space indent, `- ` and `! ` sigils, a non-ASCII character — because a
+ * test about capturing something verbatim should capture the thing.
+ */
+export function assumptionRecordBody(
+  patch: Partial<AssumptionRecordBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    assumptions: [
+      'ASSUMPTIONS:',
+      '  - No extra spare (--spare 0): demand 65.0 kVA -> next std 75 kVA',
+      '  - Secondary OCPD present',
+      '  - SDS: Δ-Y carries no supply neutral into the secondary, so it is separately derived (250.30 applies).',
+    ].join('\n'),
+    flags: [
+      'FLAGS / VERIFY:',
+      '  ! 125% sec FLA wants 300A but the downstream panel bus is 225A.',
+      '  ! Electrode type not given (--electrode): the full Table 250.66 GEC is shown.',
+    ].join('\n'),
+    codeEdition: 'NEC 2023',
+    ...patch,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createAssumptionRecord(
+  api: TestApi,
+  submissionId: string,
+  patch: Partial<AssumptionRecordBody> = {},
+): Promise<AssumptionRecordResponse> {
+  const path = `/v1/submissions/${submissionId}/assumption-records`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(assumptionRecordBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as AssumptionRecordResponse;
+}
