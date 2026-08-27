@@ -36,9 +36,19 @@ model Project {
   currentPhaseId String?       @map("current_phase_id")
   currentPhase   ProjectPhase? @relation("CurrentPhase", fields: [currentPhaseId], references: [id])
 
+  /// How many issue identifiers this project has handed out (issue #10).
+  ///
+  /// A high-water mark and never a count of the rows: it only ever increases,
+  /// so a number is handed out once and never again — not after an issue is
+  /// closed, and not after one is deleted, which `MAX(number) + 1` could not
+  /// promise. That is the whole of story 59, and the reason a reference
+  /// printed in an issued report stays valid forever.
+  issuesAllocated Int @default(0) @map("issues_allocated")
+
   phases      ProjectPhase[] @relation("ProjectPhases")
   submissions Submission[]
   siteVisits  SiteVisit[]
+  issues      Issue[]
 
   @@map("projects")
 }
@@ -242,6 +252,10 @@ model OpenItem {
   /// from one at all (issue #8). Most open items are typed by hand and have
   /// none.
   raisedFrom RaisedFlag?
+
+  /// The findings this item is being chased for (issue #10). Not the subject —
+  /// see ADR-0026, and the same reasoning as `submissions` above.
+  issues IssueOpenItem[]
 
   @@index([subjectType, subjectId])
   @@map("open_items")
@@ -489,6 +503,128 @@ model Observation {
   /// Entry order, so two observations at the same minute do not list at random.
   createdAt DateTime @map("created_at")
 
+  /// The findings this observation is one sighting of (issue #10). Nothing
+  /// here says whether there are any: promotion is a row pointing back at this
+  /// one, which is what keeps staying an observation the default path.
+  issues IssueObservation[]
+
   @@index([siteVisitId, observedAt])
   @@map("observations")
+}
+
+/// A project-scoped **finding** with a stable identifier that survives the
+/// report it first appeared in (issue #10, glossary).
+///
+/// This is the record the five findings of 2026-07-23 never had: written up
+/// with recommended actions, and nothing tracking whether any of them closed.
+///
+/// It owns no content of its own. What was seen, when and where is the
+/// observation's, and an issue re-observed on three walks has three of them —
+/// so there is no summary column here and no location, which the PRD's sketch
+/// named. Story 67 prints "the issues with their categories, locations": the
+/// location is read through the observations, the way an assumption record
+/// reads its project through its submission.
+///
+/// *Finding* is the right word for it and for nothing else. The glossary's
+/// `_Avoid_` list reserves the word for an observation that has become an
+/// issue, and strikes *defect*, *deficiency*, *punch item* and *RFI* — only a
+/// minority of issues ever become RFIs.
+model Issue {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// The stable identifier, scoped to the project and allocated from
+  /// `projects.issues_allocated` at creation (stories 58, 59).
+  ///
+  /// The integer and nothing else. How it prints in a report is issue #13's
+  /// and how it appears in a photograph's filename is issue #11's, and neither
+  /// has seen the real filenames yet — inventing `T-1-003` here would be a
+  /// format those tickets then have to match rather than choose.
+  ///
+  /// Unique per project, which is what makes "never renumbered" a fact the
+  /// database keeps rather than a guard that can be forgotten. No route
+  /// updates it: there is no PATCH on an issue at all.
+  number Int
+
+  /// One of exactly five, in the words the glossary writes them:
+  /// `Accessibility`, `Physical / Safety`, `Functional`, `Safety / Code`,
+  /// `Design / Coordination` (story 60).
+  ///
+  /// Text with a CHECK constraint rather than a database enum, because a
+  /// Prisma enum member cannot be named `Physical / Safety` and would put a
+  /// `PHYSICAL_SAFETY` on the wire with the real words in a lookup beside it —
+  /// the second place the same fact lives that ADR-0024 refuses. The closed
+  /// set is enforced by the body schema *and* by the CHECK, the shape
+  /// ADR-0030 gave the one-axis rule; the constraint is written by hand in the
+  /// migration, since Prisma's schema language cannot express one.
+  category String
+
+  /// The lifecycle the five findings never had: both null while the issue is
+  /// open, both set once it is closed, and reopening clears both.
+  ///
+  /// ADR-0024's shape exactly, and for its reasons: a status column would be a
+  /// second place the same fact lives, and there is no history of closings
+  /// because the observations are the history — "still there on the second
+  /// walk" is a re-observation row, not a state transition (story 61).
+  closedAt    DateTime? @map("closed_at")
+  closureNote String?   @map("closure_note")
+
+  /// Entry order, so two issues raised on the same walk do not list at random.
+  createdAt DateTime @map("created_at")
+
+  observations IssueObservation[]
+  openItems    IssueOpenItem[]
+
+  @@unique([projectId, number])
+  @@map("issues")
+}
+
+/// One sighting of a finding: the observation it was raised from, and every
+/// later observation of the same thing (story 61).
+///
+/// A row pointing at the observation and never a column on it. ADR-0030 is
+/// explicit that becoming an issue "will arrive as a row pointing at the
+/// observation, not as a column here", and a test asserts the exact key set an
+/// observation returns — so the shape is `raised_flags`', which is a row for
+/// the same reason.
+model IssueObservation {
+  issueId String @map("issue_id")
+  issue   Issue  @relation(fields: [issueId], references: [id])
+
+  /// Unique, which is the whole of "one observation, at most one issue": the
+  /// database refuses a second promotion of the same sighting rather than a
+  /// guard that can be forgotten, exactly as `raised_flags.open_item_id` and
+  /// `submissions.supersedes_id` do.
+  ///
+  /// It matters more here than there. Identifiers are never reused, so a
+  /// double-tap that promoted twice would burn a number on a duplicate and
+  /// leave the record permanently one issue heavier.
+  ///
+  /// Two problems seen in one place are two observations, not one observation
+  /// on two findings.
+  observationId String      @unique @map("observation_id")
+  observation   Observation @relation(fields: [observationId], references: [id])
+
+  @@id([issueId, observationId])
+  @@map("issue_observations")
+}
+
+/// An open item being chased for a finding (story 69).
+///
+/// A join, not a subject. The item's `subject_type` stays `PROJECT` and its
+/// `subject_id` stays the job, so it is on the project screen and reaches the
+/// pending items view carrying the job it is on — which is what story 69 asks
+/// for and what ADR-0026 recorded the subject reading would cost.
+model IssueOpenItem {
+  issueId String @map("issue_id")
+  issue   Issue  @relation(fields: [issueId], references: [id])
+
+  openItemId String   @map("open_item_id")
+  openItem   OpenItem @relation(fields: [openItemId], references: [id])
+
+  @@id([issueId, openItemId])
+  @@index([openItemId])
+  @@map("issue_open_items")
 }

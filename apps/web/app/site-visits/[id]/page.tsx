@@ -7,10 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   completeFloor,
   endSiteVisit,
+  raiseIssue,
   recordObservation,
+  reobserveIssue,
   startFloor,
 } from '../../actions';
-import { getSiteVisit } from '../../api';
+import { getSiteVisit, listIssues } from '../../api';
+import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { clock, day } from '../../open-item';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
 
@@ -30,6 +33,16 @@ export default async function SiteVisitRecord({
   const projectId = visit.project.id;
 
   const visitedOn = visit.visitedOn;
+
+  // The job's register, so that an observation already on it says so instead
+  // of offering to raise a second finding under a new identifier — and so that
+  // a sighting on this walk can join one raised on an earlier one.
+  const issues = await listIssues(projectId);
+  const raisedFrom = new Map(
+    issues.flatMap((issue) =>
+      issue.observations.map((sighting) => [sighting.id, issue] as const),
+    ),
+  );
 
   async function end() {
     'use server';
@@ -134,7 +147,9 @@ export default async function SiteVisitRecord({
 
       {/*
         The non-issues table is the majority case, so this is the plain list it
-        is, and nothing on this screen promotes one to a finding.
+        is. Becoming an issue is offered under each entry and never as part of
+        recording one: the exception is a second act, and staying an
+        observation is what happens if nothing more is done.
       */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
@@ -150,26 +165,72 @@ export default async function SiteVisitRecord({
           </p>
         ) : (
           <ul className="divide-y rounded-lg border">
-            {visit.observations.map((observation) => (
-              <li key={observation.id} className="space-y-1 px-4 py-3">
-                <div className="text-muted-foreground flex flex-wrap items-baseline gap-3 text-sm">
+            {visit.observations.map((observation) => {
+              const finding = raisedFrom.get(observation.id);
+
+              return (
+                <li key={observation.id} className="space-y-2 px-4 py-3">
+                  <div className="text-muted-foreground flex flex-wrap items-baseline gap-3 text-sm">
+                    {/*
+                      The composed grammar, exactly as the field says it.
+                      Rendered by the API from the components, so this screen
+                      cannot spell it a second way.
+                    */}
+                    <span className="text-foreground font-medium">
+                      {observation.location}
+                    </span>
+                    <span className="tabular-nums">
+                      {clock(observation.observedAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">
+                    {observation.observed}
+                  </p>
+
                   {/*
-                    The composed grammar, exactly as the field says it. Rendered
-                    by the API from the components, so this screen cannot spell
-                    it a second way.
+                    Promoting is the deliberate exception, so it is a small
+                    control under an observation rather than a step in
+                    recording one — the non-issues table is the majority case
+                    and stays the default path.
                   */}
-                  <span className="text-foreground font-medium">
-                    {observation.location}
-                  </span>
-                  <span className="tabular-nums">
-                    {clock(observation.observedAt)}
-                  </span>
-                </div>
-                <p className="text-sm whitespace-pre-wrap">
-                  {observation.observed}
-                </p>
-              </li>
-            ))}
+                  {finding === undefined ? (
+                    <div className="flex flex-wrap items-start gap-2 pt-1">
+                      <RaiseIssueForm
+                        submit={raiseIssue.bind(
+                          null,
+                          observation.id,
+                          id,
+                          projectId,
+                        )}
+                      />
+                      {issues.length > 0 && (
+                        <ReobserveForm
+                          submit={reobserveIssue.bind(
+                            null,
+                            observation.id,
+                            id,
+                            projectId,
+                          )}
+                          issues={issues}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <Link
+                      href={`/projects/${projectId}/issues/${finding.number}`}
+                      className="inline-flex items-center gap-2 pt-1"
+                    >
+                      <Badge variant="destructive">
+                        Issue {finding.number}
+                      </Badge>
+                      <span className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+                        {finding.category}
+                      </span>
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

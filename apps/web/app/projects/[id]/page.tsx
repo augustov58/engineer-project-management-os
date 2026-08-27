@@ -12,6 +12,7 @@ import {
 import {
   getProject,
   listExposure,
+  listIssues,
   listOpenItems,
   listPhases,
   listSiteVisits,
@@ -38,17 +39,25 @@ export default async function ProjectRecord({
     notFound();
   }
 
-  const [unresolved, resolved, phases, submissions, exposure, siteVisits] =
-    await Promise.all([
-      listOpenItems(id),
-      listOpenItems(id, true),
-      listPhases(id),
-      listSubmissions(id),
-      // The same call the count links to, so the number here and the rows it
-      // lands on are one query rather than two expressions that agree today.
-      listExposure(id),
-      listSiteVisits(id),
-    ]);
+  const [
+    unresolved,
+    resolved,
+    phases,
+    submissions,
+    exposure,
+    siteVisits,
+    issues,
+  ] = await Promise.all([
+    listOpenItems(id),
+    listOpenItems(id, true),
+    listPhases(id),
+    listSubmissions(id),
+    // The same call the count links to, so the number here and the rows it
+    // lands on are one query rather than two expressions that agree today.
+    listExposure(id),
+    listSiteVisits(id),
+    listIssues(id),
+  ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
 
@@ -259,6 +268,56 @@ export default async function ProjectRecord({
           <SiteVisitForm submit={createSiteVisit.bind(null, id)} />
         </CardContent>
       </Card>
+
+      {/*
+        The register of what has been found on this job. Closed issues stay in
+        it: the lifecycle is the point of the record, and a list that hid what
+        had closed would be the write-up with no follow-up all over again.
+
+        There is no form here. A finding is raised from the observation it was
+        seen in, on the walk that produced it, and never typed in from nothing.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Issues</h2>
+          <span className="text-muted-foreground text-sm">
+            {issues.length === 0
+              ? 'nothing found yet'
+              : `${issues.filter((issue) => issue.closedAt === null).length} open of ${issues.length}`}
+          </span>
+        </div>
+
+        {issues.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {issues.map((issue) => (
+              <li key={issue.id}>
+                <Link
+                  href={`/projects/${id}/issues/${issue.number}`}
+                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
+                >
+                  {/* The identifier, which is what a report prints. */}
+                  <Badge variant="outline" className="font-mono">
+                    {issue.number}
+                  </Badge>
+                  <span className="font-medium">{issue.category}</span>
+                  <span className="text-muted-foreground text-sm">
+                    {/* The latest sighting: where it was last seen, and when. */}
+                    {issue.observations.at(-1)?.location} &middot; last seen{' '}
+                    {issue.observations.at(-1)?.siteVisit.visitedOn}
+                  </span>
+                  {issue.closedAt === null ? (
+                    <Badge variant="destructive">Open</Badge>
+                  ) : (
+                    <Badge variant="secondary">
+                      Closed {day(issue.closedAt)}
+                    </Badge>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {resolved.length > 0 && (
         <section className="space-y-3">

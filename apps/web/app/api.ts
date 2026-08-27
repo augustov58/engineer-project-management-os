@@ -349,3 +349,64 @@ export async function getSiteVisit(
   }
   return response.json() as Promise<SiteVisitDetail>;
 }
+
+/** One sighting of a finding: the observation, and the walk it was made on. */
+export interface IssueObservation extends Observation {
+  siteVisit: {
+    id: string;
+    startedAt: string;
+    endedAt: string | null;
+    visitedOn: string;
+  };
+}
+
+/**
+ * A project-scoped **finding** with a stable identifier that survives the
+ * report it first appeared in, so a later visit can re-observe, reopen or
+ * close it.
+ *
+ * It owns no content of its own. What was seen, when and where belongs to the
+ * observations, and an issue seen on three walks has three of them.
+ */
+export interface Issue {
+  id: string;
+  projectId: string;
+  /** The identifier. Allocated once, never reused and never renumbered. */
+  number: number;
+  /** One of exactly five, in the words the glossary writes them. */
+  category: string;
+  /** Both null while the issue is open; both set once it is closed. */
+  closedAt: string | null;
+  closureNote: string | null;
+  createdAt: string;
+  /** Every sighting, oldest first. This list is the history. */
+  observations: IssueObservation[];
+  /** What is being chased for this finding, oldest first. */
+  openItems: OpenItem[];
+}
+
+/** By identifier: the register of what has been found on a job. */
+export function listIssues(projectId: string): Promise<Issue[]> {
+  return read<Issue[]>(`/projects/${projectId}/issues`);
+}
+
+/**
+ * Resolving the stable identifier, which is what having one is for: a
+ * reference printed in an issued report is looked up here.
+ *
+ * Undefined rather than throwing, so the page can render a 404.
+ */
+export async function getIssue(
+  projectId: string,
+  number: number,
+): Promise<Issue | undefined> {
+  const path = `/projects/${projectId}/issues/${number}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<Issue>;
+}
