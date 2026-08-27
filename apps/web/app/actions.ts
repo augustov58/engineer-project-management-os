@@ -121,23 +121,34 @@ function send(path: string, body?: unknown): Promise<Response> {
  *
  * 409 is tolerated only where it means "already in that state" — the second
  * half of a double click, where the re-render shows what is actually true.
+ *
+ * `tolerated` names that one message rather than tolerating every 409, because
+ * a route can refuse for more than one reason: ending a visit answers both
+ * "already ended" and "cannot end before it started", and swallowing the
+ * second would turn the button into a silent no-op.
  */
 async function sendOrThrow(
   path: string,
   body?: unknown,
-  options: { tolerateConflict?: boolean } = {},
+  options: { tolerateConflict?: boolean; tolerated?: string } = {},
 ): Promise<void> {
   const response = await send(path, body);
   if (response.ok) {
-    return;
-  }
-  if (response.status === 409 && options.tolerateConflict === true) {
     return;
   }
 
   const problem = (await response.json().catch(() => ({}))) as {
     message?: string;
   };
+  if (response.status === 409) {
+    if (options.tolerateConflict === true) {
+      return;
+    }
+    if (options.tolerated !== undefined && problem.message === options.tolerated) {
+      return;
+    }
+  }
+
   throw new Error(
     problem.message ?? `POST ${apiPath(path)} returned ${response.status}`,
   );
@@ -503,4 +514,200 @@ export async function raiseFlag(
 
   revalidateSubmission(submissionId, projectId);
   return { added: previous.added + 1 };
+}
+
+// ── Site visits and observations ──────────────────────────────────────────
+
+/**
+ * A date input gives a day and a time input gives a clock time; the record
+ * keeps an instant, composed from both.
+ *
+ * Undefined unless **both** are present, so the API's own fallback — the
+ * injected clock — applies to the whole stamp or to none of it. Composing a
+ * day against a missing time would silently stamp midnight, and a time against
+ * a missing day would silently discard what the engineer typed; each screen
+ * therefore either supplies a day or requires one, so "the time was ignored"
+ * is not a state this can reach.
+ *
+ * The clock time is written as though it were UTC, which is the convention
+ * every other date in this product already follows (`T00:00:00.000Z`). It is
+ * self-consistent for anything typed and wrong against anything the injected
+ * clock stamped — see the note in the README; it is a product-wide decision
+ * and not this slice's to take.
+ */
+function composeInstant(
+  formData: FormData,
+  dayField: string,
+  timeField: string,
+): string | undefined {
+  const day = omitIfBlank(formData, dayField);
+  const time = omitIfBlank(formData, timeField);
+  if (day === undefined || time === undefined) {
+    return undefined;
+  }
+  return `${day}T${time}:00.000Z`;
+}
+
+/**
+ * Recording a walk. The end may be left off — the per-floor schedule is
+ * recorded during the visit, so a walk exists before it is over.
+ */
+export async function createSiteVisit(
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/projects/${projectId}/site-visits`, {
+      // Both required by the form, so this is always the pair that was typed.
+      startedAt: composeInstant(formData, 'visitedOn', 'startedAt'),
+      // Left off while the walk is still under way, which is the whole reason
+      // `ended_at` is nullable.
+      endedAt: composeInstant(formData, 'visitedOn', 'endedAt'),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+  return { added: previous.added + 1 };
+}
+
+export async function endSiteVisit(
+  siteVisitId: string,
+  projectId: string,
+): Promise<void> {
+  // Already ended is the second half of a double tap; the re-render shows what
+  // is actually true. Every other refusal this route makes still surfaces.
+  await sendOrThrow(
+    `/site-visits/${siteVisitId}/end`,
+    {},
+    { tolerated: 'that site visit has already ended' },
+  );
+  revalidateSiteVisit(siteVisitId, projectId);
+}
+
+/**
+ * Arriving on a floor. A refusal — this floor is already on the schedule — is
+ * an ordinary mistake and comes back beside the field rather than as an error
+ * page.
+ */
+export async function startFloor(
+  siteVisitId: string,
+  visitedOn: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/site-visits/${siteVisitId}/floors`, {
+      floor: formData.get('floor'),
+      // The day is the visit's; only the clock time is asked for. A walk
+      // entered after the fact must be able to carry its real floor times,
+      // because that pair is the window issue #11 bins photographs against.
+      startedAt: composeInstant(
+        withDay(formData, visitedOn),
+        'day',
+        'startedAt',
+      ),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSiteVisit(siteVisitId, projectId);
+  return { added: previous.added + 1 };
+}
+
+export async function completeFloor(
+  floorId: string,
+  siteVisitId: string,
+  visitedOn: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  await sendOrThrow(
+    `/site-visit-floors/${floorId}/complete`,
+    {
+      completedAt: composeInstant(
+        withDay(formData, visitedOn),
+        'day',
+        'completedAt',
+      ),
+    },
+    // Already completed is the second half of a double tap. "Before it was
+    // started" is not, and still surfaces.
+    { tolerated: 'that floor is already completed' },
+  );
+  revalidateSiteVisit(siteVisitId, projectId);
+}
+
+/**
+ * Recording an observation. It stays an observation: nothing here promotes
+ * one to a finding, because the non-issues table is the majority case.
+ *
+ * Exactly one of side or sector is sent. The form makes them one control, so
+ * the axis and its value arrive together and the grammar cannot be corrupted
+ * by the interface.
+ */
+export async function recordObservation(
+  siteVisitId: string,
+  visitedOn: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const axis = String(formData.get('axis') ?? 'side');
+  const value = omitIfBlank(formData, 'axisValue');
+
+  const error = await refusal(
+    await send(`/site-visits/${siteVisitId}/observations`, {
+      observed: formData.get('observed'),
+      // The day is the visit's, so only a clock time is asked for on the
+      // screen and a typed one can never be dropped for want of a date.
+      observedAt: composeInstant(
+        withDay(formData, visitedOn),
+        'day',
+        'observedAt',
+      ),
+      floor: formData.get('floor'),
+      qualifier: formData.get('qualifier'),
+      // Never both. A blank value is sent as a blank so the API refuses it,
+      // rather than being omitted and refused for the wrong reason.
+      side: axis === 'side' ? (value ?? '') : undefined,
+      sector: axis === 'sector' ? (value ?? '') : undefined,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSiteVisit(siteVisitId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * The form's fields plus the day they happened on, which is the visit's rather
+ * than a field on the screen: everything in a walk happened on the day of the
+ * walk, so asking for it again per floor and per observation would be asking
+ * the engineer to retype something already recorded.
+ */
+function withDay(formData: FormData, day: string): FormData {
+  const withIt = new FormData();
+  for (const [key, value] of formData.entries()) {
+    withIt.append(key, value);
+  }
+  withIt.set('day', day);
+  return withIt;
+}
+
+/** Both screens a visit appears on. */
+function revalidateSiteVisit(siteVisitId: string, projectId: string): void {
+  revalidatePath(`/site-visits/${siteVisitId}`);
+  revalidatePath(`/projects/${projectId}`);
 }

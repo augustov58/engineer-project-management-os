@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   archiveProject,
   createOpenItem,
+  createSiteVisit,
   createSubmission,
 } from '../../actions';
 import {
@@ -13,12 +14,14 @@ import {
   listExposure,
   listOpenItems,
   listPhases,
+  listSiteVisits,
   listSubmissions,
 } from '../../api';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
+import { SiteVisitForm } from '../../site-visit-form';
 import { SubmissionForm } from '../../submission-form';
-import { day, OpenItemEntry } from '../../open-item';
+import { clock, day, OpenItemEntry } from '../../open-item';
 import { PhaseList } from '../../phases';
 
 /** Archived projects are readable here; only the list hides them. */
@@ -35,7 +38,7 @@ export default async function ProjectRecord({
     notFound();
   }
 
-  const [unresolved, resolved, phases, submissions, exposure] =
+  const [unresolved, resolved, phases, submissions, exposure, siteVisits] =
     await Promise.all([
       listOpenItems(id),
       listOpenItems(id, true),
@@ -44,6 +47,7 @@ export default async function ProjectRecord({
       // The same call the count links to, so the number here and the rows it
       // lands on are one query rather than two expressions that agree today.
       listExposure(id),
+      listSiteVisits(id),
     ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -209,6 +213,50 @@ export default async function ProjectRecord({
               submitLabel="Record the submission"
             />
           )}
+        </CardContent>
+      </Card>
+
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Site visits</h2>
+          <span className="text-muted-foreground text-sm">
+            {siteVisits.length === 0
+              ? 'no walks yet'
+              : `${siteVisits.length} recorded`}
+          </span>
+        </div>
+
+        {siteVisits.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {siteVisits.map((visit) => (
+              <li key={visit.id}>
+                <Link
+                  href={`/site-visits/${visit.id}`}
+                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
+                >
+                  <span className="font-medium tabular-nums">
+                    {visit.visitedOn}
+                  </span>
+                  <span className="text-muted-foreground text-sm tabular-nums">
+                    {clock(visit.startedAt)}
+                    {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt)}`}
+                  </span>
+                  {visit.endedAt === null && (
+                    <Badge variant="secondary">Under way</Badge>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Record a site visit</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SiteVisitForm submit={createSiteVisit.bind(null, id)} />
         </CardContent>
       </Card>
 

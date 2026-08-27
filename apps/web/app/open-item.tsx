@@ -9,6 +9,11 @@ export function day(instant: string): string {
   return instant.slice(0, 10);
 }
 
+/** The clock time of an instant, which is how a schedule is read. */
+export function clock(instant: string): string {
+  return instant.slice(11, 16);
+}
+
 function Field({ label, value }: { label: string; value: string | null }) {
   return value === null ? null : (
     <>
