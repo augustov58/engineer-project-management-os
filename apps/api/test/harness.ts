@@ -484,7 +484,8 @@ export interface SiteVisitFloorResponse {
 export interface ObservationResponse {
   id: string;
   siteVisitId: string;
-  note: string;
+  /** What was observed. Not a *note*: this is the thing itself. */
+  observed: string;
   observedAt: string;
   floor: string;
   qualifier: string;
@@ -530,7 +531,7 @@ export async function createSiteVisit(
 }
 
 export interface ObservationBody {
-  note: string;
+  observed: string;
   floor: string;
   qualifier: string;
   observedAt?: string;
@@ -548,7 +549,7 @@ export function observationBody(
   patch: Partial<ObservationBody> = {},
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    note: 'Fire-rated wall penetration left unsealed above the ceiling',
+    observed: 'Fire-rated wall penetration left unsealed above the ceiling',
     floor: '3',
     qualifier: 'Stair B',
     side: 'A',

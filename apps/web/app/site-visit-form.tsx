@@ -28,12 +28,16 @@ export function SiteVisitForm({
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="grid gap-1.5">
           <Label htmlFor="visitedOn">Date</Label>
-          <Input id="visitedOn" name="visitedOn" type="date" />
-          <p className="text-muted-foreground text-sm">Blank means today.</p>
+          <Input id="visitedOn" name="visitedOn" type="date" required />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="startedAt">Started</Label>
-          <Input id="startedAt" name="startedAt" type="time" />
+          {/*
+            Both required, together. A time without a day cannot be composed
+            into an instant, and a form that accepted one would have to either
+            guess the day or drop what was typed.
+          */}
+          <Input id="startedAt" name="startedAt" type="time" required />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="endedAt">
@@ -79,12 +83,24 @@ export function StartFloorForm({
           aria-label="Floor to start"
           className="min-w-32 flex-1"
         />
+        {/*
+          Blank is now, which is the case on the walk itself. Filled in is a
+          visit being entered afterwards, whose real floor times are the
+          window issue #11 bins photographs against.
+        */}
+        <Input
+          name="startedAt"
+          type="time"
+          aria-label="Time this floor was started"
+          className="w-32"
+        />
         <Button type="submit" variant="secondary" disabled={pending}>
           Start floor
         </Button>
       </form>
       <p className="text-muted-foreground text-sm">
-        The designation without the word Floor &mdash; 3, B1, M, PH.
+        The designation without the word Floor &mdash; 3, B1, M, PH. A blank
+        time means now.
       </p>
       {state.error !== undefined && (
         <p role="alert" className="text-destructive text-sm">
@@ -140,8 +156,8 @@ function Fields({
   return (
     <form action={action} className="space-y-4">
       <div className="grid gap-1.5">
-        <Label htmlFor="note">What you observed</Label>
-        <Textarea id="note" name="note" required rows={3} />
+        <Label htmlFor="observed">What you observed</Label>
+        <Textarea id="observed" name="observed" required rows={3} />
         <p className="text-muted-foreground text-sm">
           Most observations are not findings, and this one stays an
           observation.
@@ -197,16 +213,15 @@ function Fields({
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-1.5">
-          <Label htmlFor="observedOn">Observed on</Label>
-          <Input id="observedOn" name="observedOn" type="date" />
-          <p className="text-muted-foreground text-sm">Blank means now.</p>
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="observedAt">At</Label>
-          <Input id="observedAt" name="observedAt" type="time" />
-        </div>
+      <div className="grid gap-1.5">
+        {/*
+          The time only. The day is the visit's, so there is no date field to
+          leave blank and no way for a typed time to be dropped for want of
+          one — and one less control to hit on a phone.
+        */}
+        <Label htmlFor="observedAt">Observed at</Label>
+        <Input id="observedAt" name="observedAt" type="time" />
+        <p className="text-muted-foreground text-sm">Blank means now.</p>
       </div>
 
       <div className="flex items-center gap-3">

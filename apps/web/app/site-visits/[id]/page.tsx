@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   completeFloor,
@@ -10,15 +11,10 @@ import {
   startFloor,
 } from '../../actions';
 import { getSiteVisit } from '../../api';
-import { day } from '../../open-item';
+import { clock, day } from '../../open-item';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
 
 export const dynamic = 'force-dynamic';
-
-/** The clock time of an instant, which is what a schedule is read as. */
-function clock(instant: string): string {
-  return instant.slice(11, 16);
-}
 
 export default async function SiteVisitRecord({
   params,
@@ -32,6 +28,8 @@ export default async function SiteVisitRecord({
   }
 
   const projectId = visit.project.id;
+
+  const visitedOn = visit.visitedOn;
 
   async function end() {
     'use server';
@@ -103,9 +101,22 @@ export default async function SiteVisitRecord({
                 </span>
                 {floor.completedAt === null && (
                   <form
-                    action={completeFloor.bind(null, floor.id, id, projectId)}
-                    className="ml-auto"
+                    action={completeFloor.bind(
+                      null,
+                      floor.id,
+                      id,
+                      visitedOn,
+                      projectId,
+                    )}
+                    className="ml-auto flex items-center gap-2"
                   >
+                    {/* Blank is now; filled in is a walk entered afterwards. */}
+                    <Input
+                      name="completedAt"
+                      type="time"
+                      aria-label={`Time floor ${floor.floor} was completed`}
+                      className="w-32"
+                    />
                     <Button type="submit" variant="ghost" size="sm">
                       Complete
                     </Button>
@@ -116,7 +127,9 @@ export default async function SiteVisitRecord({
           </ul>
         )}
 
-        <StartFloorForm submit={startFloor.bind(null, id, projectId)} />
+        <StartFloorForm
+          submit={startFloor.bind(null, id, visitedOn, projectId)}
+        />
       </section>
 
       {/*
@@ -152,7 +165,9 @@ export default async function SiteVisitRecord({
                     {clock(observation.observedAt)}
                   </span>
                 </div>
-                <p className="text-sm whitespace-pre-wrap">{observation.note}</p>
+                <p className="text-sm whitespace-pre-wrap">
+                  {observation.observed}
+                </p>
               </li>
             ))}
           </ul>
@@ -165,7 +180,7 @@ export default async function SiteVisitRecord({
         </CardHeader>
         <CardContent>
           <ObservationForm
-            submit={recordObservation.bind(null, id, projectId)}
+            submit={recordObservation.bind(null, id, visitedOn, projectId)}
           />
         </CardContent>
       </Card>

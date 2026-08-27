@@ -660,23 +660,24 @@ const completeFloorBodySchema = {
  * `oneOf` is the whole of story 55 — "Side and Sector treated as independent
  * axes that never combine into one string". Both set matches neither branch;
  * neither set matches neither branch either, because the grammar has no
- * optional segment for an interface to leave empty. A null matches no branch
- * at all, since both axes are typed `string` — which is deliberate: a null is
- * what a form sends for a field left blank, and it must not become a way of
- * saying the other axis is the only one.
+ * optional segment for an interface to leave empty. An explicit null is
+ * refused too, by `pattern` rather than by `type`: ajv coerces it to the empty
+ * string first, which `NOT_BLANK` then rejects. Same outcome, and it matters
+ * because a null is what a form sends for a field nobody filled in, which must
+ * never become a way of saying the other axis is the only one.
  *
- * The caps: the note gets the sheet list's 2000, being the other field that
- * holds more than a phrase — a minute of dictated speech is about 900
- * characters, and issue #12 turns exactly that into this field. The qualifier
- * gets the project name's 200, being a phrase you say out loud. Both axes get
- * the floor's 32.
+ * The caps: what was observed gets the sheet list's 2000, being the other
+ * field that holds more than a phrase — a minute of dictated speech is about
+ * 900 characters, and issue #12 turns exactly that into this field. The
+ * qualifier gets the project name's 200, being a phrase you say out loud. Both
+ * axes get the floor's 32.
  */
 const observationBodySchema = {
   type: 'object',
-  required: ['note', 'floor', 'qualifier'],
+  required: ['observed', 'floor', 'qualifier'],
   additionalProperties: false,
   properties: {
-    note: { type: 'string', pattern: NOT_BLANK, maxLength: 2000 },
+    observed: { type: 'string', pattern: NOT_BLANK, maxLength: 2000 },
     // The stamp issue #11 bins photographs against, so it must be the real
     // moment and never the moment the row was written.
     observedAt: { type: 'string', format: 'date-time' },
@@ -2187,7 +2188,7 @@ export function buildServer({
       v1.post<{
         Params: { id: string };
         Body: {
-          note: string;
+          observed: string;
           observedAt?: string;
           floor: string;
           qualifier: string;

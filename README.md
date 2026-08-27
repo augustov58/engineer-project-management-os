@@ -140,17 +140,57 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   stamped — a flag raised today cannot change what a set went out on last month.
   `raised_flags.open_item_id` is unique, which is the whole of "one flag, at most one item".
 
+- **A location is components, and the grammar is rendered** (ADR-0030). An observation
+  stores `floor`, `qualifier`, and exactly one of `side` or `sector` as four columns;
+  `Floor N — <qualifier>, <Side|Sector>` is composed from them on every read and stored
+  nowhere, so the parts and the string cannot come to disagree. Both axes set is refused and
+  so is neither — the grammar has no optional segment — at the body schema *and* by a CHECK
+  constraint, because Side and Sector not combining is a property of the record rather than
+  a habit of the interface, and two more routes (#10, #12) will write this table. `side`
+  holds `A`, never `Side A`: the axis name belongs to the rendered segment.
+- **The floor is free text, on both tables** (ADR-0030). It holds the designation without
+  the word — `3`, `B1`, `M`, `PH` — because the grammar writes `Floor N` but real buildings
+  have basements, mezzanines and penthouses an integer could not record. The schedule's
+  floor and the observation's floor are the same type and deliberately not a foreign key:
+  an observation must be recordable on a floor nobody formally started.
+- **A walk exists before it is over** (ADR-0030). `site_visits.ended_at` is nullable, and
+  `POST /v1/site-visits/:id/end` stamps it once, because the per-floor schedule is recorded
+  *during* the visit. The date is the day of the start, derived. One row per floor per
+  visit, unique on the pair, each with a start and a nullable completion — that pair is the
+  window issue #11 bins a photograph's timestamp against, which is why a visit ending before
+  it started and a floor completed before it was started are both refused.
+- **An observation stays an observation** (ADR-0030). No status column, no category, no
+  promotion route: the "Notable Observations (Non-Issues)" table is the majority case, so
+  that is the default path, and becoming an **issue** is issue #10 arriving as a row that
+  points at the observation. A test asserts the exact key set an observation returns, so a
+  status cannot be added without a failing test saying so.
+- **The glossary's `_Avoid_` lists bind column names, not just UI copy** (ADR-0030). The
+  observation's content column is `observed`, not `note`, because the glossary strikes that
+  word for this record — the first draft named it `note` anyway, with a comment above it
+  quoting the rule it was breaking, and review caught it before it reached a deployed
+  database. Check a new column name against the glossary before writing it.
+
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
   package, so there is no library upgrade to absorb. Radix underneath means focus rings and
-  keyboard behaviour come with the components. Two controls stay deliberately native and
-  styled by hand — the "nobody owes the next move" checkbox and the pending-items sort
-  select — because a styled component would change how they serialise into a form.
+  keyboard behaviour come with the components. Five controls stay deliberately native and
+  styled by hand — the "nobody owes the next move" checkbox, the pending-items sort select,
+  the submission phase select, the attach-an-open-item select and the observation's
+  Side/Sector axis select — because a styled component would change how they serialise into
+  a form. `apps/web/app/native-select.ts` holds the shared styling.
 
 Not covered by tests: the frontend. `apps/web` has no test script, so `pnpm test`
 exercises the API only, and a change that breaks the page would not fail the suite. That
 is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
 visit capture), on top of record-level coverage, rather than here.
+
+**Step 3 has now started (issue #9) and that automated pass is still not written.** Slice 8
+was verified by driving the real pages in a browser by hand, twice, which found nothing the
+suite would have caught but is not a regression test. The spec scopes the pass to the
+*capture flow* — voice, one-handed operation, photo picking, poor-signal reconciliation —
+which is issues #11 and #12, so it belongs with them rather than with the record types
+issue #9 added. Deferred there deliberately; if it is not written by the end of step 3, the
+seam the spec described does not exist.
 
 Slice 4 hit the gap twice, both invisible to `pnpm test` and to `tsc`: a `<select>` whose
 `defaultValue` is only applied at mount, so changing a project's current phase left the

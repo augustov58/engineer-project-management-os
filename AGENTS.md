@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0029; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0030; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -24,13 +24,12 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 
 Slice 1 (walking skeleton and test harness, issue #2), slice 2 (the `Project` record,
 issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
-(submissions and per-project phases, issue #5), slice 5 (provisional state and
-exposure, issue #6), slice 6 (reissue and supersede, issue #7) and slice 7 (assumption
-records, issue #8) are built. The plan is
-the six-step **Revised MVP sequence** in
-`PRD and Architecture.md`, and the MVP is ticketed as GitHub
-issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is the
-author's to do. Work one ticket at a time, and only when asked.
+(submissions and per-project phases, issue #5), slice 5 (provisional state and exposure,
+issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption records,
+issue #8) and slice 8 (site visits and observations, issue #9) are built. The plan is the
+six-step **Revised MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as
+GitHub issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is
+the author's to do. Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
 See [README.md](./README.md).
@@ -101,6 +100,31 @@ See [README.md](./README.md).
   `issued_provisional` (ADR-0027). Its subject stays `PROJECT`, as every open item's does.
 - The product implements no calculation logic anywhere. Helper skills produce inputs to the
   record; the product records what one produced and never reimplements its math.
+- A **site visit** produces observations and does not own their content (ADR-0030). Its end
+  is nullable, because the per-floor schedule is recorded *during* the walk and a visit has
+  to exist before it is over; `POST /v1/site-visits/:id/end` stamps it once. The visit's
+  **date** is the day of its start, derived on read and stored nowhere.
+- The per-floor schedule is one row per floor per visit, unique on the pair, carrying a
+  start and a nullable completion. That pair is the window issue #11 bins a photograph's
+  timestamp against, which is why an end before a start and a completion before a start are
+  both refused — a window that closed before it opened would bin every photo to nothing.
+- An observation's **location** is four columns — `floor`, `qualifier`, `side`, `sector` —
+  and `Floor N — <qualifier>, <Side|Sector>` is rendered from them on every read and stored
+  nowhere (ADR-0030). **Exactly one** of side or sector is set: both is refused and so is
+  neither, because the grammar has no optional segment. Enforced by the body schema *and*
+  by a CHECK constraint, since the axes not combining is a property of the record rather
+  than a habit of the interface. `side` holds `A`, never `Side A`.
+- The floor is free text holding the designation without the word — `3`, `B1`, `M`, `PH` —
+  on both the schedule and the observation, and is not a foreign key between them: an
+  observation must be recordable on a floor nobody formally started.
+- Nothing makes an observation a finding. There is no status column, no category and no
+  promotion route (ADR-0030); becoming an **issue** is issue #10 and arrives as a row
+  pointing at the observation. A test asserts the exact key set an observation returns, so
+  a status cannot be added without a failing test saying so.
+- The glossary's `_Avoid_` lists are **binding vocabulary**, in column names as much as in
+  UI copy. The observation's content column is `observed` and not `note` for that reason;
+  the record is a *site visit*, never an inspection or a walkthrough; and a location has no
+  *area* or *zone*. Check a new column name against the glossary before writing it.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

@@ -448,9 +448,11 @@ model Observation {
   siteVisitId String    @map("site_visit_id")
   siteVisit   SiteVisit @relation(fields: [siteVisitId], references: [id])
 
-  /// What was observed. Not *note*, which the glossary's `_Avoid_` list strikes
-  /// for this record — the column is the observation's own content.
-  note String
+  /// What was observed. Named for the domain word the way an open item's
+  /// `unresolved` is, and deliberately not `note`: the glossary's `_Avoid_`
+  /// list strikes that word for this record, because a note is something you
+  /// jot beside a thing and this *is* the thing.
+  observed String
 
   /// When it was observed. Settable, and otherwise the injected TimeSource:
   /// this is the stamp issue #11 bins photographs against, so it must be the

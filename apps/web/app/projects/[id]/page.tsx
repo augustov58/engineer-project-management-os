@@ -21,7 +21,7 @@ import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
 import { SiteVisitForm } from '../../site-visit-form';
 import { SubmissionForm } from '../../submission-form';
-import { day, OpenItemEntry } from '../../open-item';
+import { clock, day, OpenItemEntry } from '../../open-item';
 import { PhaseList } from '../../phases';
 
 /** Archived projects are readable here; only the list hides them. */
@@ -238,10 +238,8 @@ export default async function ProjectRecord({
                     {visit.visitedOn}
                   </span>
                   <span className="text-muted-foreground text-sm tabular-nums">
-                    {visit.startedAt.slice(11, 16)}
-                    {visit.endedAt === null
-                      ? ''
-                      : ` – ${visit.endedAt.slice(11, 16)}`}
+                    {clock(visit.startedAt)}
+                    {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt)}`}
                   </span>
                   {visit.endedAt === null && (
                     <Badge variant="secondary">Under way</Badge>

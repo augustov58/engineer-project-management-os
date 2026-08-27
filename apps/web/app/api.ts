@@ -304,7 +304,8 @@ export interface SiteVisitFloor {
 export interface Observation {
   id: string;
   siteVisitId: string;
-  note: string;
+  /** What was observed. Not a *note*: this is the thing itself. */
+  observed: string;
   observedAt: string;
   /** The location's components. Exactly one axis is set. */
   floor: string;

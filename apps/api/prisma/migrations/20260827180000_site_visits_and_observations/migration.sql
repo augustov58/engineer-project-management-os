@@ -49,7 +49,7 @@ CREATE TABLE "site_visit_floors" (
 CREATE TABLE "observations" (
     "id" TEXT NOT NULL,
     "site_visit_id" TEXT NOT NULL,
-    "note" TEXT NOT NULL,
+    "observed" TEXT NOT NULL,
     "observed_at" TIMESTAMP(3) NOT NULL,
     "floor" TEXT NOT NULL,
     "qualifier" TEXT NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE "observations" (
 -- no optional segment.
 --
 -- Written by hand because Prisma's schema language cannot express a CHECK.
--- Three more routes will write this table (#10's re-observation, #12's draft
+-- Two more routes will write this table (#10's re-observation, #12's draft
 -- from a transcript), and each of them would otherwise have to remember.
 ALTER TABLE "observations" ADD CONSTRAINT "observations_one_axis"
     CHECK (("side" IS NULL) <> ("sector" IS NULL));

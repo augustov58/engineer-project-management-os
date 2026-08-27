@@ -63,16 +63,11 @@ function completeFloor(app: TestApi, floorId: string, completedAt?: string) {
   );
 }
 
-/** A project, which is all a site visit needs to exist. */
-function job(app: TestApi, number: string, name: string) {
-  return createProject(app, number, name);
-}
-
 // ── One dated observation event against a building (story 49) ──────────────
 
 test('a site visit is created against a project with a start and an end', async () => {
   const app = await api();
-  const project = await job(app, 'V-1', 'Riverside clinic');
+  const project = await createProject(app, 'V-1', 'Riverside clinic');
 
   const response = await post(app, `/v1/projects/${project.id}/site-visits`, {
     startedAt: '2026-07-23T13:00:00.000Z',
@@ -88,7 +83,7 @@ test('a site visit is created against a project with a start and an end', async 
 
 test('the visit’s date is the day it started, derived and stored nowhere', async () => {
   const app = await api();
-  const project = await job(app, 'V-2', 'Dated');
+  const project = await createProject(app, 'V-2', 'Dated');
 
   const created = await createSiteVisit(app, project.id, {
     startedAt: '2026-07-23T13:00:00.000Z',
@@ -104,7 +99,7 @@ test('the visit’s date is the day it started, derived and stored nowhere', asy
 test('the start is the engineer’s, or the injected time source', async () => {
   const time = fakeTimeSource(new Date('2026-03-02T09:00:00.000Z'));
   const app = await api({ timeSource: time });
-  const project = await job(app, 'V-3', 'Backdated');
+  const project = await createProject(app, 'V-3', 'Backdated');
 
   // The visits worth entering first happened long before this row existed.
   const backdated = await createSiteVisit(app, project.id, {
@@ -127,7 +122,7 @@ test('a visit against a project that does not exist is a 404', async () => {
 
 test('site visits list oldest first', async () => {
   const app = await api();
-  const project = await job(app, 'V-4', 'Two walks');
+  const project = await createProject(app, 'V-4', 'Two walks');
 
   const later = await createSiteVisit(app, project.id, {
     startedAt: '2026-07-23T13:00:00.000Z',
@@ -157,7 +152,7 @@ test('reading a visit that does not exist is a 404', async () => {
 test('a visit may be created still under way and ended afterwards', async () => {
   const time = fakeTimeSource(new Date('2026-07-23T13:00:00.000Z'));
   const app = await api({ timeSource: time });
-  const project = await job(app, 'W-1', 'Still walking');
+  const project = await createProject(app, 'W-1', 'Still walking');
 
   const created = await createSiteVisit(app, project.id);
   // The per-floor schedule is recorded *during* the visit (story 50), so a
@@ -178,7 +173,7 @@ test('a visit may be created still under way and ended afterwards', async () => 
 
 test('ending a visit twice is refused rather than restamped', async () => {
   const app = await api();
-  const project = await job(app, 'W-2', 'Ended once');
+  const project = await createProject(app, 'W-2', 'Ended once');
   const created = await createSiteVisit(app, project.id, {
     startedAt: '2026-07-23T13:00:00.000Z',
   });
@@ -197,7 +192,7 @@ test('ending a visit twice is refused rather than restamped', async () => {
 
 test('a visit cannot end before it started', async () => {
   const app = await api();
-  const project = await job(app, 'W-3', 'Backwards');
+  const project = await createProject(app, 'W-3', 'Backwards');
   const created = await createSiteVisit(app, project.id, {
     startedAt: '2026-07-23T13:00:00.000Z',
   });
@@ -212,7 +207,7 @@ test('a visit cannot end before it started', async () => {
 
 test('creating a visit that ends before it starts is refused', async () => {
   const app = await api();
-  const project = await job(app, 'W-4', 'Backwards at creation');
+  const project = await createProject(app, 'W-4', 'Backwards at creation');
 
   const response = await post(app, `/v1/projects/${project.id}/site-visits`, {
     startedAt: '2026-07-23T13:00:00.000Z',
@@ -241,7 +236,7 @@ test('ending a visit that does not exist is a 404', async () => {
 test('a floor records a start and a completion timestamp', async () => {
   const time = fakeTimeSource(new Date('2026-07-23T13:00:00.000Z'));
   const app = await api({ timeSource: time });
-  const project = await job(app, 'F-1', 'Per-floor');
+  const project = await createProject(app, 'F-1', 'Per-floor');
   const walk = await createSiteVisit(app, project.id);
 
   const floor = await startFloor(app, walk.id, '3');
@@ -267,7 +262,7 @@ test.each([['B1'], ['M'], ['PH'], ['3']])(
   'floor %s is a designation the schedule accepts',
   async (designation) => {
     const app = await api();
-    const project = await job(app, `F-${designation}`, 'Real buildings');
+    const project = await createProject(app, `F-${designation}`, 'Real buildings');
     const walk = await createSiteVisit(app, project.id);
 
     // The grammar writes `Floor N`, but a building with a basement, a
@@ -279,7 +274,7 @@ test.each([['B1'], ['M'], ['PH'], ['3']])(
 
 test('starting the same floor twice on one visit is refused', async () => {
   const app = await api();
-  const project = await job(app, 'F-2', 'Once per walk');
+  const project = await createProject(app, 'F-2', 'Once per walk');
   const walk = await createSiteVisit(app, project.id);
 
   await startFloor(app, walk.id, '3');
@@ -297,7 +292,7 @@ test('starting the same floor twice on one visit is refused', async () => {
 
 test('the same floor is startable on a different visit', async () => {
   const app = await api();
-  const project = await job(app, 'F-3', 'Two walks, one floor');
+  const project = await createProject(app, 'F-3', 'Two walks, one floor');
   const first = await createSiteVisit(app, project.id, {
     startedAt: '2026-05-02T09:00:00.000Z',
   });
@@ -314,7 +309,7 @@ test('the same floor is startable on a different visit', async () => {
 
 test('completing a floor twice is refused rather than restamped', async () => {
   const app = await api();
-  const project = await job(app, 'F-4', 'Completed once');
+  const project = await createProject(app, 'F-4', 'Completed once');
   const walk = await createSiteVisit(app, project.id, {
     startedAt: '2026-07-23T13:00:00.000Z',
   });
@@ -335,7 +330,7 @@ test('completing a floor twice is refused rather than restamped', async () => {
 
 test('a floor cannot be completed before it was started', async () => {
   const app = await api();
-  const project = await job(app, 'F-5', 'Backwards floor');
+  const project = await createProject(app, 'F-5', 'Backwards floor');
   const walk = await createSiteVisit(app, project.id, {
     startedAt: '2026-07-23T13:00:00.000Z',
   });
@@ -353,7 +348,7 @@ test('a floor cannot be completed before it was started', async () => {
 
 test('the schedule lists floors in the order they were started', async () => {
   const app = await api();
-  const project = await job(app, 'F-6', 'In order');
+  const project = await createProject(app, 'F-6', 'In order');
   const walk = await createSiteVisit(app, project.id);
 
   await startFloor(app, walk.id, 'PH', '2026-07-23T15:00:00.000Z');
@@ -389,7 +384,7 @@ test('completing a floor that does not exist is a 404', async () => {
 
 test('a blank floor designation is refused rather than stored', async () => {
   const app = await api();
-  const project = await job(app, 'F-7', 'Blank floor');
+  const project = await createProject(app, 'F-7', 'Blank floor');
   const walk = await createSiteVisit(app, project.id);
 
   const response = await post(app, `/v1/site-visits/${walk.id}/floors`, {
@@ -401,13 +396,13 @@ test('a blank floor designation is refused rather than stored', async () => {
 
 // ── An observation: a note, a time and a location (story 53) ───────────────
 
-test('an observation is recorded with a note, a time and a location', async () => {
+test('an observation is recorded with what was observed, a time and a location', async () => {
   const app = await api();
-  const project = await job(app, 'O-1', 'One observation');
+  const project = await createProject(app, 'O-1', 'One observation');
   const walk = await createSiteVisit(app, project.id);
 
   const response = await post(app, `/v1/site-visits/${walk.id}/observations`, {
-    note: 'Fire-rated wall penetration left unsealed above the ceiling',
+    observed: 'Fire-rated wall penetration left unsealed above the ceiling',
     observedAt: '2026-07-23T13:20:00.000Z',
     floor: '3',
     qualifier: 'Stair B',
@@ -417,7 +412,7 @@ test('an observation is recorded with a note, a time and a location', async () =
   expect(response.status).toBe(201);
   const created = (await response.json()) as ObservationResponse;
   expect(created.siteVisitId).toBe(walk.id);
-  expect(created.note).toBe(
+  expect(created.observed).toBe(
     'Fire-rated wall penetration left unsealed above the ceiling',
   );
   expect(created.observedAt).toBe('2026-07-23T13:20:00.000Z');
@@ -431,7 +426,7 @@ test('an observation is recorded with a note, a time and a location', async () =
 test('the observed time is the engineer’s, or the injected time source', async () => {
   const time = fakeTimeSource(new Date('2026-07-23T13:20:00.000Z'));
   const app = await api({ timeSource: time });
-  const project = await job(app, 'O-2', 'Observed when');
+  const project = await createProject(app, 'O-2', 'Observed when');
   const walk = await createSiteVisit(app, project.id);
 
   const now = await createObservation(app, walk.id);
@@ -447,7 +442,7 @@ test('the observed time is the engineer’s, or the injected time source', async
 
 test('a location on a Side renders to the grammar string', async () => {
   const app = await api();
-  const project = await job(app, 'L-1', 'Side');
+  const project = await createProject(app, 'L-1', 'Side');
   const walk = await createSiteVisit(app, project.id);
 
   const observation = await createObservation(app, walk.id, {
@@ -461,7 +456,7 @@ test('a location on a Side renders to the grammar string', async () => {
 
 test('a location in a Sector renders to the grammar string', async () => {
   const app = await api();
-  const project = await job(app, 'L-2', 'Sector');
+  const project = await createProject(app, 'L-2', 'Sector');
   const walk = await createSiteVisit(app, project.id);
 
   const observation = await createObservation(app, walk.id, {
@@ -484,7 +479,7 @@ test.each([
   'floor %s renders as Floor %s in the grammar string',
   async (floor, qualifier, expected) => {
     const app = await api();
-    const project = await job(app, `L-${floor}`, 'Not a number');
+    const project = await createProject(app, `L-${floor}`, 'Not a number');
     const walk = await createSiteVisit(app, project.id);
 
     const observation = await createObservation(app, walk.id, {
@@ -497,7 +492,7 @@ test.each([
 
 test('the rendered string is derived on read and stored nowhere', async () => {
   const app = await api();
-  const project = await job(app, 'L-3', 'Derived');
+  const project = await createProject(app, 'L-3', 'Derived');
   const walk = await createSiteVisit(app, project.id);
 
   const created = await createObservation(app, walk.id);
@@ -513,7 +508,7 @@ test('the rendered string is derived on read and stored nowhere', async () => {
 
 test('an observation with both a side and a sector is refused', async () => {
   const app = await api();
-  const project = await job(app, 'X-1', 'Both axes');
+  const project = await createProject(app, 'X-1', 'Both axes');
   const walk = await createSiteVisit(app, project.id);
 
   const response = await post(
@@ -530,7 +525,7 @@ test('an observation with both a side and a sector is refused', async () => {
 
 test('an observation with neither a side nor a sector is refused', async () => {
   const app = await api();
-  const project = await job(app, 'X-2', 'Neither axis');
+  const project = await createProject(app, 'X-2', 'Neither axis');
   const walk = await createSiteVisit(app, project.id);
 
   const response = await post(
@@ -549,7 +544,7 @@ test.each([
   ['sector', { side: 'A', sector: null }],
 ])('an explicit null %s is refused too', async (_axis, body) => {
   const app = await api();
-  const project = await job(app, `X-${_axis}`, 'Null axis');
+  const project = await createProject(app, `X-${_axis}`, 'Null axis');
   const walk = await createSiteVisit(app, project.id);
 
   // A null is what an interface sends when a field was left empty; it must
@@ -573,7 +568,7 @@ test.each([
   ['equipment-tag', 'AHU-2'],
 ])('the qualifier accepts a %s', async (kind, qualifier) => {
   const app = await api();
-  const project = await job(app, `Q-${kind}`, 'Qualifiers');
+  const project = await createProject(app, `Q-${kind}`, 'Qualifiers');
   const walk = await createSiteVisit(app, project.id);
 
   const observation = await createObservation(app, walk.id, { qualifier });
@@ -588,12 +583,12 @@ test.each([
 
 test('observations are listable per visit and carry nothing that makes one a finding', async () => {
   const app = await api();
-  const project = await job(app, 'N-1', 'Non-issues');
+  const project = await createProject(app, 'N-1', 'Non-issues');
   const walk = await createSiteVisit(app, project.id);
 
-  await createObservation(app, walk.id, { note: 'Ceiling tile displaced' });
+  await createObservation(app, walk.id, { observed: 'Ceiling tile displaced' });
   await createObservation(app, walk.id, {
-    note: 'Panel schedule matches the drawings',
+    observed: 'Panel schedule matches the drawings',
     qualifier: 'Room 304 (electrical closet)',
   });
 
@@ -608,7 +603,7 @@ test('observations are listable per visit and carry nothing that makes one a fin
     'floor',
     'id',
     'location',
-    'note',
+    'observed',
     'observedAt',
     'qualifier',
     'sector',
@@ -619,7 +614,7 @@ test('observations are listable per visit and carry nothing that makes one a fin
 
 test('observations list oldest observed first', async () => {
   const app = await api();
-  const project = await job(app, 'N-2', 'In order');
+  const project = await createProject(app, 'N-2', 'In order');
   const walk = await createSiteVisit(app, project.id);
 
   const later = await createObservation(app, walk.id, {
@@ -636,7 +631,7 @@ test('observations list oldest observed first', async () => {
 
 test('an observation belongs to one visit and reads only from it', async () => {
   const app = await api();
-  const project = await job(app, 'N-3', 'Bound to a walk');
+  const project = await createProject(app, 'N-3', 'Bound to a walk');
   const mine = await createSiteVisit(app, project.id, {
     startedAt: '2026-05-02T09:00:00.000Z',
   });
@@ -652,7 +647,7 @@ test('an observation belongs to one visit and reads only from it', async () => {
 
 test('a visit read on its own names the job it was against', async () => {
   const app = await api();
-  const project = await job(app, 'N-4', 'Riverside clinic');
+  const project = await createProject(app, 'N-4', 'Riverside clinic');
   const walk = await createSiteVisit(app, project.id);
 
   expect((await visit(app, walk.id)).project).toEqual({
@@ -677,13 +672,13 @@ test('an observation against a visit that does not exist is a 404', async () => 
 });
 
 test.each([
-  ['note', '   '],
+  ['observed', '   '],
   ['floor', '\n\t '],
   ['qualifier', ' '],
   ['side', ' '],
 ])('a blank %s is refused rather than stored', async (field, blank) => {
   const app = await api();
-  const project = await job(app, `Z-${field}`, 'Blank fields');
+  const project = await createProject(app, `Z-${field}`, 'Blank fields');
   const walk = await createSiteVisit(app, project.id);
 
   const response = await post(
