@@ -27,6 +27,7 @@ export function OpenItemEntry({
   projectId,
   detach,
   restedOnAtIssuance = false,
+  raisedFromFlag = false,
 }: {
   item: OpenItem;
   projectId: string;
@@ -43,6 +44,13 @@ export function OpenItemEntry({
    * removing it would erase the record of what was issued (ADR-0026).
    */
   restedOnAtIssuance?: boolean;
+  /**
+   * That this item was raised from a `FLAGS / VERIFY` entry on this
+   * submission (issue #8). It has no detach button either: it was never
+   * attached by hand, so it cannot be on the wrong set, and dropping it is
+   * the flag being raised and then forgotten.
+   */
+  raisedFromFlag?: boolean;
 }) {
   const resolved = item.resolvedAt !== null;
 
@@ -112,6 +120,13 @@ export function OpenItemEntry({
       {restedOnAtIssuance && (
         <p className="text-muted-foreground text-right text-sm">
           Named when the set went out — part of the record, not removable.
+        </p>
+      )}
+
+      {raisedFromFlag && (
+        <p className="text-muted-foreground text-right text-sm">
+          Raised from a flag on this submission — not removable. Answer it with
+          a resolution note instead.
         </p>
       )}
 

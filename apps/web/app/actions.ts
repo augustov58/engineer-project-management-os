@@ -398,6 +398,24 @@ function revalidateSubmission(submissionId: string, projectId: string): void {
 // ── Assumption records ────────────────────────────────────────────────────
 
 /**
+ * A textarea's own newlines, not the browser's.
+ *
+ * HTML's "create an entry" algorithm normalises every newline in a form entry
+ * to CRLF, so a block pasted from a terminal — LF, like everything the helper
+ * skills print — arrives here with a `\r` ending every line and would store as
+ * something other than what was captured, leaving a stray carriage return on
+ * each split line. Undone at the boundary that introduced it rather than in
+ * the API, which keeps byte-for-byte whatever it is handed and must go on
+ * doing so for a caller that means CRLF.
+ *
+ * Found by capturing a record through the form and reading the bytes back —
+ * invisible to `pnpm typecheck`, to `pnpm test`, and on the screen.
+ */
+function pasted(formData: FormData, field: string): string {
+  return String(formData.get(field) ?? '').replace(/\r\n/g, '\n');
+}
+
+/**
  * Capturing what a helper skill produced. The blocks are pasted, never
  * retyped, and nothing here trims them — "verbatim" is the whole point, so
  * `omitIfBlank`'s trim is deliberately not used on either.
@@ -411,8 +429,8 @@ export async function captureAssumptionRecord(
   const on = omitIfBlank(formData, 'calculatedAt');
   const error = await refusal(
     await send(`/submissions/${submissionId}/assumption-records`, {
-      assumptions: formData.get('assumptions'),
-      flags: formData.get('flags'),
+      assumptions: pasted(formData, 'assumptions'),
+      flags: pasted(formData, 'flags'),
       codeEdition: formData.get('codeEdition'),
       // A date input gives a day; the record keeps an instant.
       calculatedAt: on === undefined ? undefined : `${on}T00:00:00.000Z`,
@@ -452,8 +470,13 @@ export async function writeCounterfactual(
 }
 
 /**
- * A flag raised as an open item. `unresolved` is left off, so the flag's own
- * wording is what lands on the item — nothing is transcribed by hand.
+ * A flag raised as an open item.
+ *
+ * The form arrives with `unresolved` already filled from the flag, so that is
+ * what is sent and nothing is transcribed by hand — the engineer may still
+ * reword a terse flag before committing. The API's own fallback, for a caller
+ * that omits the field entirely, is the same flag text; this keeps the two
+ * from disagreeing by sending nothing when the field comes back empty.
  */
 export async function raiseFlag(
   recordId: string,

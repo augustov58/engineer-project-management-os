@@ -47,6 +47,17 @@ export default async function SubmissionRecord({
   // item to a set going out is not the thing this control is for.
   const attachable = onTheProject.filter((item) => !attached.has(item.id));
 
+  // Which of them a flag on this submission raised. Read off the records this
+  // page already holds rather than added to the submission payload, so there
+  // is no second place the same fact is written down. The API refuses the
+  // detach either way; this is what stops the button being offered at all.
+  const raisedFromFlag = new Set(
+    assumptionRecords
+      .flatMap((record) => record.flagLines)
+      .map((entry) => entry.openItem?.id)
+      .filter((openItemId) => openItemId !== undefined),
+  );
+
   const superseded = submission.supersededById !== null;
   const replacement = submission.chain.find(
     (entry) => entry.id === submission.supersededById,
@@ -215,17 +226,19 @@ export default async function SubmissionRecord({
               // detaching a row of the snapshot would erase the record of what
               // was issued (ADR-0026).
               const wasIssuedOn = item.unresolvedAtIssuance !== null;
+              const raised = raisedFromFlag.has(item.id);
               return (
                 <OpenItemEntry
                   key={item.id}
                   item={item}
                   projectId={projectId}
                   detach={
-                    wasIssuedOn
+                    wasIssuedOn || raised
                       ? undefined
                       : detachOpenItem.bind(null, id, projectId, item.id)
                   }
                   restedOnAtIssuance={wasIssuedOn}
+                  raisedFromFlag={raised}
                 />
               );
             })}

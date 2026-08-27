@@ -39,6 +39,13 @@ function post(app: TestApi, path: string, body?: unknown) {
   });
 }
 
+/** A project with a phase, which is all a submission needs to exist. */
+async function job(app: TestApi, number: string, name: string) {
+  const project = await createProject(app, number, name);
+  const phase = await createPhase(app, project.id, '90% CD');
+  return { project, phase };
+}
+
 /** A project with a phase and one issuance, which is all a record needs. */
 async function issued(app: TestApi, number: string, name: string) {
   const project = await createProject(app, number, name);
@@ -561,4 +568,63 @@ test('a reissue does not inherit the superseded set’s assumption records', asy
   // is captured against the reissue, and the two sit side by side.
   expect(await records(app, first.id)).toHaveLength(1);
   expect(await records(app, second.id)).toHaveLength(0);
+});
+
+test('an item raised from a flag cannot be detached from the submission', async () => {
+  const app = await api();
+  const { project, submission: set } = await issued(app, 'H-1', 'Not droppable');
+  const record = await createAssumptionRecord(app, set.id);
+
+  const raised = await raise(app, record.id, 1, fromFlag());
+  const item = (await raised.json()) as OpenItemResponse;
+
+  // Attached after the issuance, so ADR-0027's own rule would let it come off
+  // — and letting it would be a flag raised and then dropped.
+  const response = await app.fetch(
+    `/v1/submissions/${set.id}/open-items/${item.id}`,
+    { method: 'DELETE' },
+  );
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({
+    message: 'that open item was raised from a flag on this submission',
+  });
+
+  // Refused, and nothing moved: the set still rests on it and still counts.
+  const detail = await submission(app, set.id);
+  expect(detail.openItems.map((row) => row.id)).toEqual([item.id]);
+  expect(detail.currentlyProvisional).toBe(true);
+  expect((await exposure(app, project.id)).map((row) => row.id)).toEqual([
+    set.id,
+  ]);
+});
+
+test('a raised item attached by hand to another set detaches from that one', async () => {
+  const app = await api();
+  const { project, phase } = await job(app, 'H-2', 'Two sets');
+  const first = await createSubmission(app, project.id, { phaseId: phase.id });
+  const second = await createSubmission(app, project.id, {
+    phaseId: phase.id,
+    revision: 'Rev 2',
+  });
+
+  const record = await createAssumptionRecord(app, first.id);
+  const item = (await (await raise(app, record.id, 1, fromFlag())).json()) as
+    OpenItemResponse;
+
+  // On the second set it *was* attached by hand, so it is a typo like any
+  // other and comes off. The refusal is about the set the flag was raised on.
+  const attached = await post(
+    app,
+    `/v1/submissions/${second.id}/open-items/${item.id}`,
+  );
+  expect(attached.status).toBe(204);
+
+  const response = await app.fetch(
+    `/v1/submissions/${second.id}/open-items/${item.id}`,
+    { method: 'DELETE' },
+  );
+  expect(response.status).toBe(204);
+
+  expect((await submission(app, second.id)).openItems).toHaveLength(0);
+  expect((await submission(app, first.id)).openItems).toHaveLength(1);
 });

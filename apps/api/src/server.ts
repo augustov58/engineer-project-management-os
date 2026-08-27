@@ -606,6 +606,43 @@ const blockLineParamsSchema = {
   },
 } as const;
 
+/**
+ * The row an open item raised against an issuance becomes, wherever it is
+ * raised from — by hand on the submission screen, or from a `FLAGS / VERIFY`
+ * entry (issue #8).
+ *
+ * Its subject is the **project**, not the submission: an item that vanished
+ * from the project screen the moment it was tied to a set would be the
+ * opposite of "nothing sitting in my court" (ADR-0026). The join row is what
+ * says which issuance rests on it.
+ *
+ * `unresolved` is passed rather than read out of the body, because a flag
+ * supplies its own when the caller leaves it off.
+ */
+function itemOnSubmission(
+  body: {
+    blocks: string;
+    waitingOn: string | null;
+    waitingSince?: string;
+    invalidationTrigger?: string;
+    counterfactual: string;
+    owner?: string;
+  },
+  submission: { id: string; projectId: string },
+  unresolved: string,
+  timeSource: TimeSource,
+) {
+  const { waitingSince, ...rest } = body;
+  return {
+    ...rest,
+    unresolved,
+    subjectType: 'PROJECT',
+    subjectId: submission.projectId,
+    waitingSince: instant(waitingSince, timeSource),
+    submissions: { create: { submissionId: submission.id } },
+  } satisfies Prisma.OpenItemCreateInput | Prisma.OpenItemUncheckedCreateInput;
+}
+
 /** The one 404 body for assumption records, matching the others. */
 function noSuchAssumptionRecord(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no assumption record with that id' });
@@ -641,9 +678,8 @@ function entryAt(
   return { text };
 }
 
-/** What a record hangs off: its issuance, and the entries pointing into it. */
+/** The entries pointing into a record's blocks. */
 const recordInclude = {
-  submission: { select: { id: true, projectId: true } },
   counterfactuals: { select: { line: true, counterfactual: true } },
   raisedFlags: { select: { line: true, openItem: true } },
 } as const;
@@ -658,11 +694,11 @@ type CapturedRecord = Prisma.AssumptionRecordGetPayload<{
  *
  * The lines are derived on every read and stored nowhere, for the reason
  * *currently provisional* and *superseded* are (ADR-0027, ADR-0028). The
- * submission comes off again because the record already names it by id, and
+ * issuance is not joined: the record already names it by `submissionId`, and
  * two ways to read the same binding is the second place it can be wrong.
  */
 function withLines(found: CapturedRecord) {
-  const { submission, counterfactuals, raisedFlags, ...record } = found;
+  const { counterfactuals, raisedFlags, ...record } = found;
   const written = new Map(
     counterfactuals.map((row) => [row.line, row.counterfactual]),
   );
@@ -1414,15 +1450,9 @@ export function buildServer({
             return noSuchSubmission(reply);
           }
 
-          const { waitingSince, ...rest } = request.body;
+          const { unresolved, ...rest } = request.body;
           const item = await prisma.openItem.create({
-            data: {
-              ...rest,
-              subjectType: 'PROJECT',
-              subjectId: submission.projectId,
-              waitingSince: instant(waitingSince, timeSource),
-              submissions: { create: { submissionId: submission.id } },
-            },
+            data: itemOnSubmission(rest, submission, unresolved, timeSource),
           });
           return reply.code(201).send(item);
         },
@@ -1508,6 +1538,24 @@ export function buildServer({
           if (attached.unresolvedAtIssuance !== null) {
             return reply.code(409).send({
               message: 'this submission was issued resting on that open item',
+            });
+          }
+
+          // An item raised from a flag was never attached by hand, so it
+          // cannot be on the wrong set — it was created against this very
+          // submission by the record that raised it (issue #8). Detaching it
+          // would let a flag be raised and then dropped, which is the one
+          // thing story 40 exists to prevent, and would leave the record
+          // saying the flag was raised against a set it no longer sits on.
+          // Raised in error is answered by resolving the item with a note,
+          // which is how every other open item is retired.
+          const raised = await prisma.raisedFlag.findUnique({
+            where: { openItemId },
+            select: { assumptionRecord: { select: { submissionId: true } } },
+          });
+          if (raised?.assumptionRecord.submissionId === id) {
+            return reply.code(409).send({
+              message: 'that open item was raised from a flag on this submission',
             });
           }
 
@@ -1677,7 +1725,10 @@ export function buildServer({
           const { id, line } = request.params;
           const record = await prisma.assumptionRecord.findUnique({
             where: { id },
-            select: { flags: true, submission: { select: { id: true, projectId: true } } },
+            select: {
+              flags: true,
+              submission: { select: { id: true, projectId: true } },
+            },
           });
           if (record === null) {
             return noSuchAssumptionRecord(reply);
@@ -1688,7 +1739,7 @@ export function buildServer({
             return refuse(reply, entry);
           }
 
-          const { waitingSince, unresolved, ...rest } = request.body;
+          const { unresolved, ...rest } = request.body;
           // Left off, the flag says what is unresolved in its own words —
           // which is the whole of "generate an open item directly from a
           // FLAGS / VERIFY entry". Only the surrounding whitespace goes: the
@@ -1705,16 +1756,12 @@ export function buildServer({
           try {
             const item = await prisma.$transaction(async (tx) => {
               const created = await tx.openItem.create({
-                data: {
-                  ...rest,
-                  unresolved: wording,
-                  subjectType: 'PROJECT',
-                  subjectId: record.submission.projectId,
-                  waitingSince: instant(waitingSince, timeSource),
-                  submissions: {
-                    create: { submissionId: record.submission.id },
-                  },
-                },
+                data: itemOnSubmission(
+                  rest,
+                  record.submission,
+                  wording,
+                  timeSource,
+                ),
               });
               await tx.raisedFlag.create({
                 data: { assumptionRecordId: id, line, openItemId: created.id },
