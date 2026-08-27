@@ -394,3 +394,90 @@ function revalidateSubmission(submissionId: string, projectId: string): void {
   revalidatePath(`/projects/${projectId}`);
   revalidatePath('/pending');
 }
+
+// ── Assumption records ────────────────────────────────────────────────────
+
+/**
+ * Capturing what a helper skill produced. The blocks are pasted, never
+ * retyped, and nothing here trims them — "verbatim" is the whole point, so
+ * `omitIfBlank`'s trim is deliberately not used on either.
+ */
+export async function captureAssumptionRecord(
+  submissionId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const on = omitIfBlank(formData, 'calculatedAt');
+  const error = await refusal(
+    await send(`/submissions/${submissionId}/assumption-records`, {
+      assumptions: formData.get('assumptions'),
+      flags: formData.get('flags'),
+      codeEdition: formData.get('codeEdition'),
+      // A date input gives a day; the record keeps an instant.
+      calculatedAt: on === undefined ? undefined : `${on}T00:00:00.000Z`,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/submissions/${submissionId}`);
+  revalidatePath(`/projects/${projectId}`);
+  return { added: previous.added + 1 };
+}
+
+/** What changes if one assumed input turns out wrong, against its own line. */
+export async function writeCounterfactual(
+  recordId: string,
+  line: number,
+  submissionId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(
+      `/assumption-records/${recordId}/assumptions/${line}/counterfactual`,
+      { counterfactual: formData.get('counterfactual') },
+    ),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/submissions/${submissionId}`);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * A flag raised as an open item. `unresolved` is left off, so the flag's own
+ * wording is what lands on the item — nothing is transcribed by hand.
+ */
+export async function raiseFlag(
+  recordId: string,
+  line: number,
+  submissionId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const { unresolved, ...payload } = openItemPayload(formData);
+  const error = await refusal(
+    await send(
+      `/assumption-records/${recordId}/flags/${line}/open-item`,
+      // Supplied only where the engineer overrode the flag's own wording.
+      unresolved === '' || unresolved === null
+        ? payload
+        : { ...payload, unresolved },
+    ),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSubmission(submissionId, projectId);
+  return { added: previous.added + 1 };
+}

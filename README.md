@@ -123,6 +123,23 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   puts the same unresolved item on both, so counting the ancestor too would make the number
   grow by correcting the record.
 
+- **A captured block is verbatim, and a line of it is an entry** (ADR-0029). An assumption
+  record holds the `ASSUMPTIONS` and `FLAGS / VERIFY` blocks as two text columns containing
+  exactly what was pasted — nothing trims or re-wraps them, and no route edits or deletes a
+  record, so a rerun of the calculation is another record dated its own day. An entry is
+  addressed by its **line number**, and every non-blank line is one: the `- ` and `! `
+  sigils the three calculators print are their convention rather than a contract, and
+  splitting the blocks into rows at capture would be the transcription by hand the record
+  type exists to avoid. `assumptionLines` and `flagLines` are split on every read and stored
+  nowhere, so the block and the things pointing into it cannot disagree.
+- **A flag becomes an open item, and that item is attached after the issuance** (ADR-0029).
+  `POST /v1/assumption-records/:id/flags/:line/open-item` takes the flag's own wording when
+  `unresolved` is left off, lands the item on the project, and attaches it to the submission
+  the record justified. Because it is attached afterwards, it makes the set *currently*
+  provisional and puts it into exposure while leaving `issued_provisional` exactly as it was
+  stamped — a flag raised today cannot change what a set went out on last month.
+  `raised_flags.open_item_id` is unique, which is the whole of "one flag, at most one item".
+
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
   package, so there is no library upgrade to absorb. Radix underneath means focus rings and

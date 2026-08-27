@@ -14,11 +14,21 @@ import type { AddState } from './actions';
  */
 export function NewOpenItemForm({
   submit,
+  unresolved,
+  submitLabel = 'Add open item',
 }: {
   submit: (
     previous: AddState,
     formData: FormData,
   ) => Promise<AddState>;
+  /**
+   * What is unresolved, already filled in. Present only where the item is
+   * being raised from something that already says it — a `FLAGS / VERIFY`
+   * entry (issue #8) — so that its wording is not retyped. Editable, because
+   * a terse flag is sometimes worth saying at length.
+   */
+  unresolved?: string;
+  submitLabel?: string;
 }) {
   const [state, action, pending] = useActionState(submit, { added: 0 });
 
@@ -30,6 +40,8 @@ export function NewOpenItemForm({
       action={action}
       pending={pending}
       error={state.error}
+      unresolved={unresolved}
+      submitLabel={submitLabel}
     />
   );
 }
@@ -38,10 +50,14 @@ function Fields({
   action,
   pending,
   error,
+  unresolved,
+  submitLabel,
 }: {
   action: (formData: FormData) => void;
   pending: boolean;
   error: string | undefined;
+  unresolved: string | undefined;
+  submitLabel: string;
 }) {
   // Nobody is a real answer, so it is a control of its own rather than the
   // absence of one. Ticking it takes the party field out of play entirely.
@@ -55,7 +71,12 @@ function Fields({
     <form action={action} className="space-y-4">
       <div className="grid gap-1.5">
         <Label htmlFor="unresolved">What is unresolved</Label>
-        <Input id="unresolved" name="unresolved" required />
+        <Input
+          id="unresolved"
+          name="unresolved"
+          required
+          defaultValue={unresolved}
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -118,7 +139,7 @@ function Fields({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          Add open item
+          {submitLabel}
         </Button>
         {error !== undefined && (
           <p role="alert" className="text-destructive text-sm">

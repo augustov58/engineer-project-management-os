@@ -215,3 +215,48 @@ export async function getSubmission(
   }
   return response.json() as Promise<SubmissionDetail>;
 }
+
+/**
+ * One line of a captured block, addressed by its number. Split from the block
+ * on every read and stored nowhere, so a line and the block it came from
+ * cannot disagree.
+ */
+export interface AssumptionLine {
+  line: number;
+  text: string;
+  /** What changes if this input turns out wrong. Null until one is written. */
+  counterfactual: string | null;
+}
+
+export interface FlagLine {
+  line: number;
+  text: string;
+  /** The item this flag was raised as, or null while it is still outstanding. */
+  openItem: OpenItem | null;
+}
+
+/**
+ * The durable artifact of engineering reasoning: what a helper skill produced,
+ * verbatim, bound to the submission it justified. The arithmetic is
+ * reproducible without it; the reasoning is not.
+ */
+export interface AssumptionRecord {
+  id: string;
+  submissionId: string;
+  assumptions: string;
+  flags: string;
+  codeEdition: string;
+  calculatedAt: string;
+  createdAt: string;
+  assumptionLines: AssumptionLine[];
+  flagLines: FlagLine[];
+}
+
+/** What was assumed when this went out, oldest calculation first. */
+export function listAssumptionRecords(
+  submissionId: string,
+): Promise<AssumptionRecord[]> {
+  return read<AssumptionRecord[]>(
+    `/submissions/${submissionId}/assumption-records`,
+  );
+}

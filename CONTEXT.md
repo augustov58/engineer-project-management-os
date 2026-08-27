@@ -1,6 +1,6 @@
 # Project Context: Engineer Project Management OS
 
-*Last updated: 2026-08-25*
+*Last updated: 2026-08-27*
 
 ## What this is
 
@@ -14,7 +14,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ├── PRD and Architecture.md   ← requirements, architecture, milestones, backlog
 ├── docs/
-│   ├── adr/                  ← architecture decisions 0001-0028 (check Status lines)
+│   ├── adr/                  ← architecture decisions 0001-0029 (check Status lines)
 │   └── glossary.md           ← domain terms
 ```
 
@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Twenty-eight ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, and 0028 while building slice 6). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Twenty-nine ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, and 0029 while building slice 7). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -55,6 +55,7 @@ in my court past its clock as the daily layer under it.
 | 0026 | What a submission rests on is a join table, not a second subject on the open item; a phase is a row the submission points at, and renaming it propagates |
 | 0027 | Provisional is two columns and no more; detaching is narrowed to what was attached after the issuance; exposure is a list whose length is the count |
 | 0028 | Superseded is a successor existing, derived and never stored; `supersedes_id` is unique, which is the whole of "at most one successor"; exposure counts only the current issuance |
+| 0029 | A captured block goes in verbatim and a line of it is how an entry is addressed; counterfactuals are rows, one per assumed input; a record is bound to one submission and nothing edits it |
 
 ## Stack
 
@@ -72,6 +73,7 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | 0d | Submissions, per-project phases, sheet list, revision (issue #5) | **Done** 2026-08-25 |
 | 0e | Provisional state and exposure (issue #6) | **Done** 2026-08-25 |
 | 0f | Reissue and supersede (issue #7) | **Done** 2026-08-25 |
+| 0g | Assumption records (issue #8) | **Done** 2026-08-27 |
 | 1 | T-1 open items entered | Unblocked — no code needed |
 | 2 | Open items + submissions (provisional, supersede) | **Done** — issues #4, #5, #6, #7 |
 | 3 | Site visit capture (voice, photos, stable issue IDs) | Not started |
@@ -107,3 +109,4 @@ reading Accepted while appearing in neither the MVP workflow list nor the sequen
 | 2026-08-25 | Slice 6 built (issue #7): **reissue and supersede**. Correcting an issuance records a new submission carrying `supersedes_id` and writes nothing at all to the one it replaces, so "no path edits an issued submission" holds because no such route exists — a test asserts `PATCH`, `PUT` and `DELETE` on a submission are refused with the record unchanged after. ADR-0028 records the three things left open: *superseded* is derived from a successor existing rather than stored, which settles the spec's "never edited beyond being marked superseded" against ADR-0026 in the vault's favour; "at most one successor, and the chain is linear" is a unique constraint on the column rather than a guard; and exposure excludes superseded ancestors, a filter ADR-0027 did not authorise and which carry-forward makes necessary. What the superseded set rested on comes forward by default and is editable before committing, with the successor's own snapshot stamped fresh. Glossary **Reissue** gained what was built; **Submission** and **Exposure** were amended. A frontend bug found by loading the page: a state update made from a ref during the hydration commit is discarded, so the "going out on N unresolved items" warning claimed nothing while two boxes sat ticked. |
 | 2026-08-25 | Slice 5 built (issue #6): **provisional state** and **exposure**. Provisional is two facts and the record now keeps both — `issued_provisional` stamped at the moment of issuance and never recomputed, and *currently provisional* derived on every read and stored nowhere — so resolving everything a set rested on takes it out of exposure without unsaying that it went out on unconfirmed inputs. ADR-0027 records the three things neither the sketch nor ADR-0026 settled: the snapshot is one nullable boolean on `submission_open_items` carrying three real states, not two columns admitting a meaningless fourth; detaching is narrowed to items attached after the issuance, which settles the collision ADR-0026 flagged for this ticket rather than moving the snapshot off the table; and exposure is a list whose length is the count, so clicking a count lands on exactly the records it counted and there is no figure in the payload to combine into a score (ADR-0016). Archived projects leave the across-every-project count and keep their own, following the glossary's line under **Pending items**. Glossary **Provisional** and **Exposure** both gained what was built. |
 | 2026-08-25 | Slice 4 built (issue #5): the **submission** — a dated issuance to a named recipient at a phase, with sheet list and revision — and per-project **phases**, defined, renamed and reordered as free text, with a current phase a new submission defaults to. ADR-0026 records the two things the sketch left out: what an issuance rests on is a `submission_open_items` join rather than a second subject on the open item, because reading ADR-0024's enum expectation literally would have made issue #7's carry-forward destroy the record of what the original rested on; and a phase is a foreign key, so a rename propagates on purpose. No route updates a submission, so issue #7's edit prohibition holds by construction. Glossary gained **Current phase**, **Sheet list**, **Revision** and **Rests on**. |
+| 2026-08-27 | Slice 7 built (issue #8): **assumption records** — the `ASSUMPTIONS` and `FLAGS / VERIFY` blocks captured verbatim from a helper skill, with the code edition and the date, bound to the submission they justified. The first record type no ADR said anything about: the whole prior authority was two glossary sentences and the five-word sketch `assumption_records (assumptions, flags, counterfactuals, code_edition, dated)`, which has no submission foreign key at all. ADR-0029 records the four things it left open: the blocks are text columns holding exactly what was pasted and an entry of either is addressed by its **line number**, because splitting them into rows at capture is the transcription by hand the record type exists to avoid and the sigils the three calculators print are their convention rather than a contract; `counterfactuals` is rows keyed by the line they are about, because the spec asks for one per assumed input and one field cannot say which input each belongs to; a record is bound to one submission and nothing edits or deletes one, so a rerun is another record dated its own day; and a flag raised as an open item is attached *after* the issuance, which makes the set currently provisional and puts it into exposure while leaving `issued_provisional` exactly as it was stamped. Glossary **Assumption record** gained what was built and had "from a calculation" reconciled to the PRD's "from a helper skill"; **Counterfactual** gained its cardinality on this record. Verified in the browser end to end, because neither `pnpm typecheck` nor `pnpm test` sees the frontend. |
