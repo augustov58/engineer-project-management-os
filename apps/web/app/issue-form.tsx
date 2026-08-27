@@ -23,6 +23,71 @@ const CATEGORIES = [
 ];
 
 /**
+ * Pick one thing and do one thing: the shape both controls under an
+ * observation have.
+ *
+ * One component rather than two nearly identical ones, for the reason
+ * `NewOpenItemForm` is shared between the project and submission screens —
+ * they sit side by side on the same row, so a change to one that missed the
+ * other would be visible immediately.
+ */
+function ChooseAndSubmit({
+  submit,
+  name,
+  label,
+  placeholder,
+  options,
+  action,
+  variant,
+}: {
+  submit: (previous: AddState, formData: FormData) => Promise<AddState>;
+  name: string;
+  label: string;
+  placeholder: string;
+  options: { value: string; text: string }[];
+  action: string;
+  variant: 'secondary' | 'ghost';
+}) {
+  const [state, formAction, pending] = useActionState(submit, { added: 0 });
+
+  return (
+    <div className="space-y-1">
+      <form
+        key={state.added}
+        action={formAction}
+        className="flex flex-wrap gap-2"
+      >
+        {/* Native, because the action reads this out of FormData (ADR-0025). */}
+        <select
+          name={name}
+          required
+          aria-label={label}
+          defaultValue=""
+          className={`${selectClassName} min-w-48 flex-1`}
+        >
+          <option value="" disabled>
+            {placeholder}
+          </option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.text}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" variant={variant} size="sm" disabled={pending}>
+          {action}
+        </Button>
+      </form>
+      {state.error !== undefined && (
+        <p role="alert" className="text-destructive text-sm">
+          {state.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * Recording an observation as a finding.
  *
  * The category is the only field: what was seen, when and where is already the
@@ -38,38 +103,19 @@ export function RaiseIssueForm({
 }: {
   submit: (previous: AddState, formData: FormData) => Promise<AddState>;
 }) {
-  const [state, action, pending] = useActionState(submit, { added: 0 });
-
   return (
-    <div className="space-y-1">
-      <form key={state.added} action={action} className="flex flex-wrap gap-2">
-        {/* Native, because the action reads this out of FormData (ADR-0025). */}
-        <select
-          name="category"
-          required
-          aria-label="Category of this finding"
-          defaultValue=""
-          className={`${selectClassName} min-w-48 flex-1`}
-        >
-          <option value="" disabled>
-            Category&hellip;
-          </option>
-          {CATEGORIES.map((category) => (
-            <option key={category} value={category}>
-              {category}
-            </option>
-          ))}
-        </select>
-        <Button type="submit" variant="secondary" size="sm" disabled={pending}>
-          Record as an issue
-        </Button>
-      </form>
-      {state.error !== undefined && (
-        <p role="alert" className="text-destructive text-sm">
-          {state.error}
-        </p>
-      )}
-    </div>
+    <ChooseAndSubmit
+      submit={submit}
+      name="category"
+      label="Category of this finding"
+      placeholder="Category…"
+      options={CATEGORIES.map((category) => ({
+        value: category,
+        text: category,
+      }))}
+      action="Record as an issue"
+      variant="secondary"
+    />
   );
 }
 
@@ -88,36 +134,18 @@ export function ReobserveForm({
   submit: (previous: AddState, formData: FormData) => Promise<AddState>;
   issues: Issue[];
 }) {
-  const [state, action, pending] = useActionState(submit, { added: 0 });
-
   return (
-    <div className="space-y-1">
-      <form key={state.added} action={action} className="flex flex-wrap gap-2">
-        <select
-          name="issueId"
-          required
-          aria-label="The issue this is another sighting of"
-          defaultValue=""
-          className={`${selectClassName} min-w-48 flex-1`}
-        >
-          <option value="" disabled>
-            &hellip;or another sighting of
-          </option>
-          {issues.map((issue) => (
-            <option key={issue.id} value={issue.id}>
-              Issue {issue.number} &mdash; {issue.category}
-            </option>
-          ))}
-        </select>
-        <Button type="submit" variant="ghost" size="sm" disabled={pending}>
-          Re-observe
-        </Button>
-      </form>
-      {state.error !== undefined && (
-        <p role="alert" className="text-destructive text-sm">
-          {state.error}
-        </p>
-      )}
-    </div>
+    <ChooseAndSubmit
+      submit={submit}
+      name="issueId"
+      label="The issue this is another sighting of"
+      placeholder="…or another sighting of"
+      options={issues.map((issue) => ({
+        value: issue.id,
+        text: `Issue ${issue.number} — ${issue.category}`,
+      }))}
+      action="Re-observe"
+      variant="ghost"
+    />
   );
 }

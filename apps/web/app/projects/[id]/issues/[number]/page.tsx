@@ -28,8 +28,17 @@ export default async function IssueRecord({
 }) {
   const { id, number } = await params;
 
+  // An identifier is a whole number from one, which is what the API's params
+  // schema says too. A segment that is not one addresses no issue, and asking
+  // anyway would come back a 400 that `getIssue` does not map — an error page
+  // where every other bad URL in this product renders a 404.
+  const wanted = Number(number);
+  if (!Number.isInteger(wanted) || wanted < 1) {
+    notFound();
+  }
+
   const [found, project] = await Promise.all([
-    getIssue(id, Number(number)),
+    getIssue(id, wanted),
     getProject(id),
   ]);
   if (found === undefined || project === undefined) {
@@ -44,7 +53,10 @@ export default async function IssueRecord({
     (item) => !onIt.has(item.id),
   );
 
-  const closed = found.closedAt !== null;
+  // Read out so the two branches below narrow on it. `found.closedAt` inside a
+  // `closed ?` test does not, and papering over that with `?? ''` would put an
+  // empty date on the screen if it were ever reached.
+  const closedAt = found.closedAt;
 
   // Read out before the action closes over it: narrowing from `notFound()`
   // above does not reach inside a nested function.
@@ -70,10 +82,10 @@ export default async function IssueRecord({
             Issue {found.number}
           </h1>
           <Badge variant="outline">{found.category}</Badge>
-          {closed ? (
-            <Badge variant="secondary">Closed {day(found.closedAt ?? '')}</Badge>
-          ) : (
+          {closedAt === null ? (
             <Badge variant="destructive">Open</Badge>
+          ) : (
+            <Badge variant="secondary">Closed {day(closedAt)}</Badge>
           )}
         </div>
 
@@ -130,11 +142,11 @@ export default async function IssueRecord({
       <section className="space-y-3">
         <h2 className="text-lg font-medium">Lifecycle</h2>
 
-        {closed ? (
+        {closedAt !== null ? (
           <div className="space-y-3 rounded-lg border p-4">
             <p className="text-sm">
               <span className="text-muted-foreground">
-                Closed {day(found.closedAt ?? '')} &mdash;{' '}
+                Closed {day(closedAt)} &mdash;{' '}
               </span>
               {found.closureNote}
             </p>

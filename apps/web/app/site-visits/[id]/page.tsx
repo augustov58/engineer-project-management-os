@@ -220,11 +220,23 @@ export default async function SiteVisitRecord({
                       href={`/projects/${projectId}/issues/${finding.number}`}
                       className="inline-flex items-center gap-2 pt-1"
                     >
-                      <Badge variant="destructive">
+                      {/*
+                        The state, not just the fact: a finding closed since
+                        this walk must not read here as though it were still
+                        open, which is what the other two screens say too.
+                      */}
+                      <Badge
+                        variant={
+                          finding.closedAt === null ? 'destructive' : 'secondary'
+                        }
+                      >
                         Issue {finding.number}
                       </Badge>
                       <span className="text-muted-foreground hover:text-foreground text-sm transition-colors">
                         {finding.category}
+                        {finding.closedAt === null
+                          ? ''
+                          : ` · closed ${day(finding.closedAt)}`}
                       </span>
                     </Link>
                   )}

@@ -51,18 +51,27 @@ function noSuchProject(reply: FastifyReply) {
 }
 
 /**
- * A project on the wire.
+ * A project as it goes out, which is the whole row **minus**
+ * `issuesAllocated`.
  *
- * `issuesAllocated` is bookkeeping for the issue identifier sequence (issue
- * #10) and stays inside the API. It is a high-water mark, not a count of
- * anything: a refused promotion rolls it back, but nothing else ever does, so
- * a screen that read it as "issues on this job" would be wrong the first time
- * the two diverged. What a project's issues are is `GET /projects/:id/issues`,
- * whose length is the count — the shape ADR-0027 gave exposure.
+ * Named for the wire rather than for the transformation, and the only helper
+ * here that removes a field where `withDate`, `withLocation` and
+ * `withSightings` all add one — so that a route returning a project without
+ * calling it reads as the omission it is.
+ *
+ * The column is bookkeeping for the issue identifier sequence (issue #10,
+ * ADR-0031). It is a high-water mark and not a count: a refused promotion
+ * rolls it back, but nothing else ever does, so a screen reading it as "issues
+ * on this job" would be wrong the first time the two diverged. What a
+ * project's issues are is `GET /projects/:id/issues`, whose length is the
+ * count — the shape ADR-0027 gave exposure.
+ *
+ * Every route that returns a project calls it, and one test asserts the exact
+ * key set of all five.
  */
-function asProject<T extends { issuesAllocated: number }>(project: T) {
-  const { issuesAllocated: _allocated, ...rest } = project;
-  return rest;
+function projectOnTheWire<T extends { issuesAllocated: number }>(project: T) {
+  const { issuesAllocated: _sequence, ...onTheWire } = project;
+  return onTheWire;
 }
 
 function isUniqueViolation(
@@ -931,6 +940,13 @@ const ISSUE_CATEGORIES = [
 ] as const;
 
 /**
+ * The set is closed in the type as well as in the schema and the CHECK, so a
+ * sixth cannot be written into a route by hand and reach the database to be
+ * refused there.
+ */
+type IssueCategory = (typeof ISSUE_CATEGORIES)[number];
+
+/**
  * Raising a finding. The category and nothing else: what was seen, when and
  * where is already the observation's, and the identifier is allocated here
  * rather than supplied — a caller that could name its own number could reuse
@@ -1078,7 +1094,7 @@ function writeIssue(
   prisma: PrismaClient,
   timeSource: TimeSource,
   observation: { id: string; projectId: string },
-  category: string,
+  category: IssueCategory,
 ) {
   return prisma.$transaction(async (tx) => {
     // The high-water mark, and never `MAX(number) + 1`: this only ever
@@ -1148,7 +1164,7 @@ export function buildServer({
             const project = await prisma.project.create({
               data: { ...request.body, createdAt: timeSource.now() },
             });
-            return reply.code(201).send(asProject(project));
+            return reply.code(201).send(projectOnTheWire(project));
           } catch (error) {
             if (isUniqueViolation(error)) {
               return reply
@@ -1178,7 +1194,7 @@ export function buildServer({
                 : { archivedAt: null },
               orderBy: { createdAt: 'asc' },
             })
-          ).map(asProject),
+          ).map(projectOnTheWire),
       );
 
       /** Archived projects are readable here; only the list hides them. */
@@ -1188,7 +1204,9 @@ export function buildServer({
           const project = await prisma.project.findUnique({
             where: { id: request.params.id },
           });
-          return project === null ? noSuchProject(reply) : asProject(project);
+          return project === null
+            ? noSuchProject(reply)
+            : projectOnTheWire(project);
         },
       );
 
@@ -1207,7 +1225,9 @@ export function buildServer({
           });
 
           const project = await prisma.project.findUnique({ where: { id } });
-          return project === null ? noSuchProject(reply) : asProject(project);
+          return project === null
+            ? noSuchProject(reply)
+            : projectOnTheWire(project);
         },
       );
 
@@ -1538,10 +1558,12 @@ export function buildServer({
             return refuse(reply, badPhase);
           }
 
-          return prisma.project.update({
-            where: { id },
-            data: { currentPhaseId: request.body.phaseId },
-          });
+          return projectOnTheWire(
+            await prisma.project.update({
+              where: { id },
+              data: { currentPhaseId: request.body.phaseId },
+            }),
+          );
         },
       );
 
@@ -2452,7 +2474,7 @@ export function buildServer({
        * pointing at it (ADR-0030), so the majority case that never becomes one
        * carries no trace of the exception.
        */
-      v1.post<{ Params: { id: string }; Body: { category: string } }>(
+      v1.post<{ Params: { id: string }; Body: { category: IssueCategory } }>(
         '/observations/:id/issue',
         { schema: { body: issueBodySchema } },
         async (request, reply) => {

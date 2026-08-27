@@ -3,6 +3,7 @@ import {
   createIssue,
   createObservation,
   createOpenItem,
+  createPhase,
   createProject,
   createSiteVisit,
   fakeTimeSource,
@@ -164,15 +165,21 @@ test('an issue owns no content of its own — the sighting is the observation', 
   expect(raised.projectId).toBe(project.id);
 });
 
-test.each(CATEGORIES)('%s is one of the five', async (category) => {
-  const app = await api();
-  const { observation } = await seen(app, `C-${category.length}`, 'Five');
+test.each(CATEGORIES.map((category, nth) => [category, nth] as const))(
+  '%s is one of the five',
+  async (category, nth) => {
+    const app = await api();
+    // Numbered by position, not by length: `Accessibility` and `Safety / Code`
+    // are both thirteen characters, and two tests that named the same project
+    // would only pass because each gets a fresh database.
+    const { observation } = await seen(app, `C-${nth}`, 'Five');
 
-  const response = await raise(app, observation.id, category);
+    const response = await raise(app, observation.id, category);
 
-  expect(response.status).toBe(201);
-  expect(((await response.json()) as IssueResponse).category).toBe(category);
-});
+    expect(response.status).toBe(201);
+    expect(((await response.json()) as IssueResponse).category).toBe(category);
+  },
+);
 
 test.each([
   ['a sixth value', 'Electrical'],
@@ -662,4 +669,17 @@ test('the identifier sequence is bookkeeping and never reaches the wire', async 
   expect(
     Object.keys(((await listed.json()) as object[])[0] ?? {}).sort(),
   ).toEqual(keys);
+
+  // Every route that returns a project, not only the three that read one.
+  // `asProject` is the whole guard, so a route that forgets to call it is the
+  // way the counter reaches a screen.
+  const archived = await post(app, `/v1/projects/${project.id}/archive`);
+  expect(Object.keys((await archived.json()) as object).sort()).toEqual(keys);
+
+  const withPhase = await createProject(app, 'I-24', 'Current phase');
+  const phase = await createPhase(app, withPhase.id, '90% CD');
+  const current = await post(app, `/v1/projects/${withPhase.id}/current-phase`, {
+    phaseId: phase.id,
+  });
+  expect(Object.keys((await current.json()) as object).sort()).toEqual(keys);
 });
