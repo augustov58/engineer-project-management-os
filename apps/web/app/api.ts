@@ -260,3 +260,91 @@ export function listAssumptionRecords(
     `/submissions/${submissionId}/assumption-records`,
   );
 }
+
+/**
+ * One dated observation event against a building: a walk, with a start, an
+ * end, and a per-floor schedule of when each floor was started and completed.
+ *
+ * It produces observations; it does not own their content.
+ */
+export interface SiteVisit {
+  id: string;
+  projectId: string;
+  startedAt: string;
+  /** Null while the walk is still under way. */
+  endedAt: string | null;
+  createdAt: string;
+  /**
+   * The day the walk started. Derived on every read and stored nowhere, so a
+   * visit cannot be dated one day and started on another.
+   */
+  visitedOn: string;
+}
+
+/**
+ * One floor's window in time. What a photograph's timestamp is binned against
+ * (issue #11), which is the whole of its job — a window, not a location.
+ */
+export interface SiteVisitFloor {
+  id: string;
+  siteVisitId: string;
+  floor: string;
+  startedAt: string;
+  /** Null while the floor is still being walked. */
+  completedAt: string | null;
+}
+
+/**
+ * Something recorded at a specific location and time.
+ *
+ * Most observations are not findings — the "Notable Observations (Non-Issues)"
+ * table is the majority case — so there is no status here and nothing that
+ * makes one a finding.
+ */
+export interface Observation {
+  id: string;
+  siteVisitId: string;
+  note: string;
+  observedAt: string;
+  /** The location's components. Exactly one axis is set. */
+  floor: string;
+  qualifier: string;
+  side: string | null;
+  sector: string | null;
+  createdAt: string;
+  /**
+   * `Floor N — <qualifier>, <Side|Sector>`, composed from the components on
+   * every read and stored nowhere, so the parts and the string cannot
+   * disagree.
+   */
+  location: string;
+}
+
+/** One visit, with the job it was against and what it produced. */
+export interface SiteVisitDetail extends SiteVisit {
+  project: { id: string; projectNumber: string; name: string };
+  /** In the order the floors were walked. */
+  floors: SiteVisitFloor[];
+  /** In the order they were made. */
+  observations: Observation[];
+}
+
+/** Oldest first: this list is a chronicle of the walks on a job. */
+export function listSiteVisits(projectId: string): Promise<SiteVisit[]> {
+  return read<SiteVisit[]>(`/projects/${projectId}/site-visits`);
+}
+
+/** Undefined rather than throwing, so the page can render a 404. */
+export async function getSiteVisit(
+  id: string,
+): Promise<SiteVisitDetail | undefined> {
+  const path = `/site-visits/${id}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<SiteVisitDetail>;
+}

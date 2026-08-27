@@ -38,6 +38,7 @@ model Project {
 
   phases      ProjectPhase[] @relation("ProjectPhases")
   submissions Submission[]
+  siteVisits  SiteVisit[]
 
   @@map("projects")
 }
@@ -349,4 +350,143 @@ model RaisedFlag {
 
   @@id([assumptionRecordId, line])
   @@map("raised_flags")
+}
+
+/// One dated observation event against a building (issue #9, glossary): a walk,
+/// with a start, an end, and a per-floor schedule of when each floor was
+/// started and completed.
+///
+/// It produces observations; it does not own their content. Where an
+/// observation was made is the observation's own location, and this record
+/// says only when the engineer was where.
+///
+/// Not an *inspection*: the glossary's `_Avoid_` list strikes that word because
+/// it implies an authority-having-jurisdiction role that is not ours, and
+/// strikes *walkthrough* with it. "Walk" is what the act is called in prose;
+/// the record is a site visit.
+model SiteVisit {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// When the walk began. Settable, because the visits worth entering first
+  /// happened long before this row existed; otherwise the injected TimeSource,
+  /// and never a database default (ADR-0022).
+  startedAt DateTime @map("started_at")
+
+  /// When it ended, or null while it is still under way. Nullable because the
+  /// per-floor schedule is recorded *during* the visit (story 50), so a walk
+  /// has to be able to exist before it is over — `POST /v1/site-visits/:id/end`
+  /// stamps it once and refuses a second time.
+  ///
+  /// The visit's **date** is the day of `started_at`, derived on every read and
+  /// stored nowhere. A `visited_on` column would be a second place for the same
+  /// fact to be wrong (ADR-0027's shape, applied here).
+  endedAt DateTime? @map("ended_at")
+
+  /// Entry order, so two visits started the same day do not list at random.
+  createdAt DateTime @map("created_at")
+
+  floors       SiteVisitFloor[]
+  observations Observation[]
+
+  @@index([projectId, startedAt])
+  @@map("site_visits")
+}
+
+/// One floor's entry in a visit's schedule: when it was started and when it was
+/// completed (story 50).
+///
+/// This exists so that every photo taken between those two stamps can be
+/// attributed to that floor without each one being labelled by hand (issue #11).
+/// That is the whole of its job — it is a window in time, not a location.
+///
+/// One row per floor per visit. Starting the same floor twice on one walk is
+/// refused by the unique constraint rather than by a guard that can be
+/// forgotten, which is the shape `supersedes_id` and `raised_flags.open_item_id`
+/// already have.
+model SiteVisitFloor {
+  id String @id @default(uuid())
+
+  siteVisitId String    @map("site_visit_id")
+  siteVisit   SiteVisit @relation(fields: [siteVisitId], references: [id])
+
+  /// The floor designation, without the word "Floor" — "3", "B1", "M", "PH".
+  /// Free text and not an integer: the grammar writes `Floor N`, but real
+  /// buildings have basements, mezzanines and penthouses, and an integer column
+  /// could not record an observation made in any of them (ADR-0030).
+  ///
+  /// The same type as `observations.floor`, deliberately, so a later slice can
+  /// bin a photo to a floor and find the observations made on it.
+  floor String
+
+  /// When the engineer arrived on this floor, and when they left it. The
+  /// completion is null while the floor is still being walked.
+  startedAt   DateTime  @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@unique([siteVisitId, floor])
+  @@map("site_visit_floors")
+}
+
+/// Something recorded during a site visit at a specific location and time
+/// (issue #9, glossary).
+///
+/// **Most observations are not findings.** The "Notable Observations
+/// (Non-Issues)" table is the majority case, so staying an observation is the
+/// default path and there is nothing on this row that makes one a finding.
+/// Becoming an **issue** is ticket #10's deliberate exception, and it arrives as
+/// a row pointing at this one rather than as a status column here.
+///
+/// Bound to the visit that produced it and to nothing else. The project is the
+/// visit's, read through it, for the reason an assumption record reads its
+/// project through its submission.
+model Observation {
+  id String @id @default(uuid())
+
+  siteVisitId String    @map("site_visit_id")
+  siteVisit   SiteVisit @relation(fields: [siteVisitId], references: [id])
+
+  /// What was observed. Not *note*, which the glossary's `_Avoid_` list strikes
+  /// for this record — the column is the observation's own content.
+  note String
+
+  /// When it was observed. Settable, and otherwise the injected TimeSource:
+  /// this is the stamp issue #11 bins photographs against, so it must be the
+  /// real moment and never the moment the row was written.
+  observedAt DateTime @map("observed_at")
+
+  /// The location, stored as the components of the grammar rather than as the
+  /// composed string: `Floor N — <qualifier>, <Side|Sector>` (glossary).
+  ///
+  /// The rendered string is derived on every read and stored nowhere, so the
+  /// components and the string cannot come to disagree — the shape ADR-0027 and
+  /// ADR-0028 gave *currently provisional* and *superseded*.
+  ///
+  /// The qualifier is free text on purpose: the glossary admits five kinds of
+  /// reference — a landmark, a room number with a type gloss, a circulation
+  /// element, a program space, or an equipment tag — and a column that could
+  /// hold only one of them would force the field to match the tool.
+  floor     String
+  qualifier String
+
+  /// Side (A/B, the building halves) and Sector (a finer zone) are independent
+  /// axes and **never combine in one string**. Exactly one is set: both is
+  /// refused, and neither is refused too, because the grammar has no optional
+  /// segment for the interface to leave empty (story 55, ADR-0030).
+  ///
+  /// Enforced by a CHECK constraint in the migration as well as by the route.
+  /// Prisma's schema language cannot express one, so it is written by hand
+  /// there and named here; three more routes will write this table (#10's
+  /// re-observation, #12's draft from a transcript) and each of them would
+  /// otherwise have to remember.
+  side   String?
+  sector String?
+
+  /// Entry order, so two observations at the same minute do not list at random.
+  createdAt DateTime @map("created_at")
+
+  @@index([siteVisitId, observedAt])
+  @@map("observations")
 }

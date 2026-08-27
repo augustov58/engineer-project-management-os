@@ -454,3 +454,148 @@ export async function createAssumptionRecord(
   }
   return (await response.json()) as AssumptionRecordResponse;
 }
+
+/** A site visit as the API returns it. */
+export interface SiteVisitResponse {
+  id: string;
+  projectId: string;
+  startedAt: string;
+  /** Null while the walk is still under way. */
+  endedAt: string | null;
+  createdAt: string;
+  /**
+   * The day of `startedAt`, derived on every read and stored nowhere. A visit
+   * is "one dated observation event", and this is that date.
+   */
+  visitedOn: string;
+}
+
+/** One floor's window in time, as the API returns it. */
+export interface SiteVisitFloorResponse {
+  id: string;
+  siteVisitId: string;
+  floor: string;
+  startedAt: string;
+  /** Null while the floor is still being walked. */
+  completedAt: string | null;
+}
+
+/** An observation as the API returns it. */
+export interface ObservationResponse {
+  id: string;
+  siteVisitId: string;
+  note: string;
+  observedAt: string;
+  floor: string;
+  qualifier: string;
+  /** Exactly one of these is set; the other is null. */
+  side: string | null;
+  sector: string | null;
+  createdAt: string;
+  /**
+   * The composed grammar string, rendered from the components on every read
+   * and stored nowhere: `Floor N — <qualifier>, <Side|Sector>`.
+   */
+  location: string;
+}
+
+/** One site visit read on its own, with its schedule and what it produced. */
+export interface SiteVisitDetail extends SiteVisitResponse {
+  project: { id: string; projectNumber: string; name: string };
+  floors: SiteVisitFloorResponse[];
+  observations: ObservationResponse[];
+}
+
+export interface SiteVisitBody {
+  startedAt?: string;
+  endedAt?: string;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createSiteVisit(
+  api: TestApi,
+  projectId: string,
+  patch: Partial<SiteVisitBody> = {},
+): Promise<SiteVisitResponse> {
+  const path = `/v1/projects/${projectId}/site-visits`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as SiteVisitResponse;
+}
+
+export interface ObservationBody {
+  note: string;
+  floor: string;
+  qualifier: string;
+  observedAt?: string;
+  side?: string;
+  sector?: string;
+}
+
+/**
+ * A valid create body, so a test about one field does not have to restate the
+ * other three. Patching a field to `undefined` leaves it off the wire rather
+ * than sending a null, which is how a test says "not supplied" — and for the
+ * two axes that is the whole distinction being tested.
+ */
+export function observationBody(
+  patch: Partial<ObservationBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    note: 'Fire-rated wall penetration left unsealed above the ceiling',
+    floor: '3',
+    qualifier: 'Stair B',
+    side: 'A',
+    ...patch,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createObservation(
+  api: TestApi,
+  siteVisitId: string,
+  patch: Partial<ObservationBody> = {},
+): Promise<ObservationResponse> {
+  const path = `/v1/site-visits/${siteVisitId}/observations`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(observationBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as ObservationResponse;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function startFloor(
+  api: TestApi,
+  siteVisitId: string,
+  floor: string,
+  startedAt?: string,
+): Promise<SiteVisitFloorResponse> {
+  const path = `/v1/site-visits/${siteVisitId}/floors`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(startedAt === undefined ? { floor } : { floor, startedAt }),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as SiteVisitFloorResponse;
+}

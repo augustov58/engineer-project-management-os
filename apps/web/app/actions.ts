@@ -504,3 +504,146 @@ export async function raiseFlag(
   revalidateSubmission(submissionId, projectId);
   return { added: previous.added + 1 };
 }
+
+// ── Site visits and observations ──────────────────────────────────────────
+
+/**
+ * A date input gives a day and a time input gives a clock time; the record
+ * keeps an instant. Both blank is not a time at all, and the API's own
+ * fallback — the injected clock — is what should apply, so nothing is sent.
+ *
+ * The day is required for a time to mean anything: a time without one would
+ * compose against nothing, so it is dropped rather than guessed at.
+ */
+function moment(
+  formData: FormData,
+  dayField: string,
+  timeField: string,
+): string | undefined {
+  const day = omitIfBlank(formData, dayField);
+  const time = omitIfBlank(formData, timeField);
+  if (day === undefined) {
+    return undefined;
+  }
+  return `${day}T${time ?? '00:00'}:00.000Z`;
+}
+
+/**
+ * Recording a walk. The end may be left off — the per-floor schedule is
+ * recorded during the visit, so a walk exists before it is over.
+ */
+export async function createSiteVisit(
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const startedAt = moment(formData, 'visitedOn', 'startedAt');
+  const endedAt = moment(formData, 'visitedOn', 'endedAt');
+  const error = await refusal(
+    await send(`/projects/${projectId}/site-visits`, {
+      startedAt,
+      // Only when a time was actually given: `moment` composes midnight from
+      // the day alone, which would end every walk the moment it began.
+      endedAt: omitIfBlank(formData, 'endedAt') === undefined ? undefined : endedAt,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+  return { added: previous.added + 1 };
+}
+
+export async function endSiteVisit(
+  siteVisitId: string,
+  projectId: string,
+): Promise<void> {
+  // Already ended is the second half of a double tap; the re-render shows
+  // what is actually true.
+  await sendOrThrow(`/site-visits/${siteVisitId}/end`, {}, {
+    tolerateConflict: true,
+  });
+  revalidateSiteVisit(siteVisitId, projectId);
+}
+
+/**
+ * Arriving on a floor. A refusal — this floor is already on the schedule — is
+ * an ordinary mistake and comes back beside the field rather than as an error
+ * page.
+ */
+export async function startFloor(
+  siteVisitId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/site-visits/${siteVisitId}/floors`, {
+      floor: formData.get('floor'),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSiteVisit(siteVisitId, projectId);
+  return { added: previous.added + 1 };
+}
+
+export async function completeFloor(
+  floorId: string,
+  siteVisitId: string,
+  projectId: string,
+): Promise<void> {
+  await sendOrThrow(`/site-visit-floors/${floorId}/complete`, {}, {
+    tolerateConflict: true,
+  });
+  revalidateSiteVisit(siteVisitId, projectId);
+}
+
+/**
+ * Recording an observation. It stays an observation: nothing here promotes
+ * one to a finding, because the non-issues table is the majority case.
+ *
+ * Exactly one of side or sector is sent. The form makes them one control, so
+ * the axis and its value arrive together and the grammar cannot be corrupted
+ * by the interface.
+ */
+export async function recordObservation(
+  siteVisitId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const axis = String(formData.get('axis') ?? 'side');
+  const value = omitIfBlank(formData, 'axisValue');
+
+  const error = await refusal(
+    await send(`/site-visits/${siteVisitId}/observations`, {
+      note: formData.get('note'),
+      observedAt: moment(formData, 'observedOn', 'observedAt'),
+      floor: formData.get('floor'),
+      qualifier: formData.get('qualifier'),
+      // Never both. A blank value is sent as a blank so the API refuses it,
+      // rather than being omitted and refused for the wrong reason.
+      side: axis === 'side' ? (value ?? '') : undefined,
+      sector: axis === 'sector' ? (value ?? '') : undefined,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSiteVisit(siteVisitId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/** Both screens a visit appears on. */
+function revalidateSiteVisit(siteVisitId: string, projectId: string): void {
+  revalidatePath(`/site-visits/${siteVisitId}`);
+  revalidatePath(`/projects/${projectId}`);
+}

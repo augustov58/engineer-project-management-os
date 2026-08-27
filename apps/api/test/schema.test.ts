@@ -28,6 +28,9 @@ test('no users, roles, permissions or tenants table is introduced', async () => 
   expect(tables).toContain('assumption_records');
   expect(tables).toContain('counterfactuals');
   expect(tables).toContain('raised_flags');
+  expect(tables).toContain('site_visits');
+  expect(tables).toContain('site_visit_floors');
+  expect(tables).toContain('observations');
   expect(tables).not.toContain('users');
   expect(tables).not.toContain('roles');
   expect(tables).not.toContain('permissions');
