@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0030; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0031; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -26,8 +26,9 @@ Slice 1 (walking skeleton and test harness, issue #2), slice 2 (the `Project` re
 issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
 (submissions and per-project phases, issue #5), slice 5 (provisional state and exposure,
 issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption records,
-issue #8) and slice 8 (site visits and observations, issue #9) are built. The plan is the
-six-step **Revised MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as
+issue #8), slice 8 (site visits and observations, issue #9) and slice 9 (issues with
+stable per-project identifiers, issue #10) are built. The plan is the six-step **Revised
+MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as
 GitHub issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is
 the author's to do. Work one ticket at a time, and only when asked.
 
@@ -80,7 +81,7 @@ See [README.md](./README.md).
   projects leave the across-every-project count and keep their own, and so do superseded
   ancestors (ADR-0028) — carry-forward puts the same unresolved item on both, so counting
   the ancestor too would make the number grow by correcting the record.
-- The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it. The nobody checkbox, the pending sort select, the submission phase select and the attach-an-open-item select are all native for that reason; `apps/web/app/native-select.ts` holds the shared styling.
+- The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it. The nobody checkbox, the pending sort select, the submission phase select, the attach-an-open-item select (on a submission and on an issue), the observation's Side/Sector axis select, the finding's category select and the select that makes a sighting another sighting of a finding already on the register are all native for that reason; `apps/web/app/native-select.ts` holds the shared styling.
 - `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend. Run `pnpm --filter web build` and load the pages before calling a frontend change done. Browse `http://localhost:3000`, not `127.0.0.1`: Next's dev-origin guard 403s the client chunks on the other host, so the page renders and silently never hydrates.
 - A state update made from a ref callback during the **hydration** commit is discarded — the ref runs, the value is right, and the render keeps the old one. Anything a first paint must show has to be in the server's render: seed the state from props and let the ref only correct it afterwards (ADR-0028).
 - An **assumption record** captures the `ASSUMPTIONS` and `FLAGS / VERIFY` blocks *verbatim*
@@ -118,9 +119,49 @@ See [README.md](./README.md).
   on both the schedule and the observation, and is not a foreign key between them: an
   observation must be recordable on a floor nobody formally started.
 - Nothing makes an observation a finding. There is no status column, no category and no
-  promotion route (ADR-0030); becoming an **issue** is issue #10 and arrives as a row
-  pointing at the observation. A test asserts the exact key set an observation returns, so
-  a status cannot be added without a failing test saying so.
+  promotion route (ADR-0030); becoming an **issue** (issue #10) is a row pointing at the
+  observation and wrote nothing to it. A test asserts the exact key set an observation
+  returns, so a status cannot be added without a failing test saying so.
+- An issue's identifier is an integer off `projects.issues_allocated`, a **high-water mark
+  and not a count** (ADR-0031), read and incremented in the transaction that writes the
+  issue. Do not compute the next one from `MAX(number) + 1` or `COUNT(*) + 1`: both hand the
+  same number out twice the moment a row goes away, and "never reused or renumbered" is the
+  property being promised. `issues_allocated` never reaches the wire: every route that
+  returns a project strips it, and a test asserts the exact key set a project comes back
+  with, because a screen reading it as "issues on this job" would be wrong the first time a
+  promotion was refused. What a project's issues *are* is `GET /v1/projects/:id/issues`,
+  whose length is the count.
+- An **issue owns no content**. No summary column and no location, whatever the PRD sketch
+  names (ADR-0031): an issue re-observed on three walks has three locations, and one column
+  would have to pick a walk and be silently wrong about the other two. What was seen, when
+  and where is read through the sightings, and issue #13 has the whole list to choose from.
+- A sighting is a row in `issue_observations`, and `observation_id` is **unique** — one
+  observation, at most one issue (ADR-0031). A double tap that promoted twice would burn an
+  identifier that can never be given back, since a number is never reused; two problems seen
+  in one place are two observations, not one observation on two findings. Those rows are also
+  the whole of the history: no per-visit status and no transition log, which would be the
+  `tasks` record the data model excludes arriving by the back door.
+- Closing an issue is `closed_at` plus `closure_note`, both null or both set — ADR-0024's
+  shape and for its reasons (ADR-0031). Reopening clears both, and closing an already-closed
+  issue is refused rather than repeated, because a second note would silently overwrite the
+  reason the finding was closed. Do not add a status column beside them.
+- An open item raised on an issue is the `issue_open_items` join and the item's subject stays
+  `PROJECT` (ADR-0031). ADR-0030 predicted story 69 would need a second value in
+  `OpenItemSubject`; **ADR-0031 overrules it** — the pending items view resolves a subject
+  against `projects`, so an item subjected to an issue would arrive there with no job beside
+  it, which is the opposite of what the story asks for. The subject says where an item lives;
+  a join says which artifact it is being chased for.
+- An issue's `category` is **text with a CHECK**, never a database enum (ADR-0031). The five,
+  byte-exact: `Accessibility`, `Physical / Safety`, `Functional`, `Safety / Code`,
+  `Design / Coordination`. A Prisma enum member cannot be named `Physical / Safety`, so an
+  enum would put `PHYSICAL_SAFETY` on the wire with the real words in a lookup in the API and
+  again in the frontend — the second place the same fact lives. Refused by the body schema at
+  the boundary and by the CHECK underneath.
+- Nothing deletes an issue and no route renumbers one (ADR-0031). There is no PATCH, no PUT
+  and no DELETE, and a test asserts all three are 404, so "never renumbered" is true by
+  construction rather than by a guard, as it is for a submission. An issue's URL carries the
+  number and not the row's id — `/projects/:id/issues/:number` — because the identifier is
+  the thing anybody has written down.
 - The glossary's `_Avoid_` lists are **binding vocabulary**, in column names as much as in
   UI copy. The observation's content column is `observed` and not `note` for that reason;
   the record is a *site visit*, never an inspection or a walkthrough; and a location has no

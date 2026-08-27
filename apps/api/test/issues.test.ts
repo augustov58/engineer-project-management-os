@@ -671,8 +671,8 @@ test('the identifier sequence is bookkeeping and never reaches the wire', async 
   ).toEqual(keys);
 
   // Every route that returns a project, not only the three that read one.
-  // `asProject` is the whole guard, so a route that forgets to call it is the
-  // way the counter reaches a screen.
+  // `projectOnTheWire` is the whole guard, so a route that forgets to call it
+  // is the way the counter reaches a screen.
   const archived = await post(app, `/v1/projects/${project.id}/archive`);
   expect(Object.keys((await archived.json()) as object).sort()).toEqual(keys);
 
