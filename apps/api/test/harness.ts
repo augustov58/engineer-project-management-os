@@ -600,3 +600,57 @@ export async function startFloor(
   }
   return (await response.json()) as SiteVisitFloorResponse;
 }
+
+/** One sighting of a finding, as an issue lists it: the observation and its walk. */
+export interface IssueObservationResponse extends ObservationResponse {
+  siteVisit: {
+    id: string;
+    startedAt: string;
+    endedAt: string | null;
+    visitedOn: string;
+  };
+}
+
+/** An issue as the API returns it. */
+export interface IssueResponse {
+  id: string;
+  projectId: string;
+  /**
+   * The stable identifier, scoped to the project. Allocated once, never
+   * reused and never renumbered, so a reference printed in an issued report
+   * stays valid forever.
+   */
+  number: number;
+  /** One of exactly five, in the words the glossary writes them. */
+  category: string;
+  /** Both null while the issue is open; both set once it is closed. */
+  closedAt: string | null;
+  closureNote: string | null;
+  createdAt: string;
+  /**
+   * Every sighting, oldest first — the observation it was raised from and
+   * every re-observation since. This list is the history; there is no
+   * per-visit state beside it.
+   */
+  observations: IssueObservationResponse[];
+  /** What is being chased for this finding, oldest first. */
+  openItems: OpenItemResponse[];
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createIssue(
+  api: TestApi,
+  observationId: string,
+  category = 'Physical / Safety',
+): Promise<IssueResponse> {
+  const path = `/v1/observations/${observationId}/issue`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ category }),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as IssueResponse;
+}

@@ -228,8 +228,10 @@ export async function reopenOpenItem(
 function revalidateOpenItems(projectId: string): void {
   revalidatePath(`/projects/${projectId}`);
   revalidatePath('/pending');
-  // An item resolving changes what every submission resting on it shows.
+  // An item resolving changes what every submission resting on it shows, and
+  // what every finding it is being chased for shows.
   revalidatePath('/submissions/[id]', 'page');
+  revalidatePath('/projects/[id]/issues/[number]', 'page');
 }
 
 
@@ -710,4 +712,151 @@ function withDay(formData: FormData, day: string): FormData {
 function revalidateSiteVisit(siteVisitId: string, projectId: string): void {
   revalidatePath(`/site-visits/${siteVisitId}`);
   revalidatePath(`/projects/${projectId}`);
+}
+
+// ── Issues ────────────────────────────────────────────────────────────────
+
+/**
+ * A sighting becomes a finding. The category is the whole of the form: what
+ * was seen, when and where is already the observation's, and the identifier is
+ * the API's to allocate.
+ */
+export async function raiseIssue(
+  observationId: string,
+  siteVisitId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/observations/${observationId}/issue`, {
+      category: formData.get('category'),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateIssues(projectId, siteVisitId);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * Still there on the second walk: this observation is another sighting of a
+ * finding already on the register, so it joins that issue rather than raising
+ * a second one under a new identifier.
+ */
+export async function reobserveIssue(
+  observationId: string,
+  siteVisitId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const issueId = omitIfBlank(formData, 'issueId');
+  if (issueId === undefined) {
+    return { added: previous.added, error: 'choose the issue this is another sighting of' };
+  }
+
+  const error = await refusal(
+    await send(`/issues/${issueId}/observations/${observationId}`),
+    204,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateIssues(projectId, siteVisitId);
+  return { added: previous.added + 1 };
+}
+
+export async function closeIssue(
+  issueId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  // A finding closed in August must not read as closed today just because
+  // that is when it was typed in.
+  const on = omitIfBlank(formData, 'closedAt');
+
+  await sendOrThrow(
+    `/issues/${issueId}/close`,
+    {
+      note: formData.get('note'),
+      ...(on === undefined ? {} : { closedAt: `${on}T00:00:00.000Z` }),
+    },
+    // Already closed is the second half of a double click; the re-render shows
+    // what is actually true. Nothing else this route refuses is tolerated.
+    { tolerated: 'that issue is already closed' },
+  );
+  revalidateIssues(projectId);
+}
+
+export async function reopenIssue(
+  issueId: string,
+  projectId: string,
+): Promise<void> {
+  await sendOrThrow(`/issues/${issueId}/reopen`, undefined, {
+    tolerated: 'that issue is not closed',
+  });
+  revalidateIssues(projectId);
+}
+
+/**
+ * An open item raised while looking at a finding. It is attached to the issue
+ * and still lives on the project, so it does not disappear from the project
+ * screen the moment it is tied to one — and it reaches the pending items view
+ * carrying the job it is on, which is the whole of story 69.
+ */
+export async function createOpenItemOnIssue(
+  issueId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/issues/${issueId}/open-items`, openItemPayload(formData)),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateIssues(projectId);
+  revalidatePath('/pending');
+  return { added: previous.added + 1 };
+}
+
+export async function attachOpenItemToIssue(
+  issueId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  const openItemId = formData.get('openItemId');
+  if (openItemId === null || openItemId === '') {
+    return;
+  }
+
+  await sendOrThrow(
+    `/issues/${issueId}/open-items/${openItemId}`,
+    undefined,
+    // Already on this finding is the second half of a double click.
+    { tolerated: 'that open item is already on this issue' },
+  );
+  revalidateIssues(projectId);
+  revalidatePath('/pending');
+}
+
+/**
+ * Every screen a finding appears on. The walk is passed where the change was
+ * made from one, because the site visit screen says which of its observations
+ * have become issues.
+ */
+function revalidateIssues(projectId: string, siteVisitId?: string): void {
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/projects/[id]/issues/[number]', 'page');
+  if (siteVisitId !== undefined) {
+    revalidatePath(`/site-visits/${siteVisitId}`);
+  }
 }

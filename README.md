@@ -170,13 +170,49 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   quoting the rule it was breaking, and review caught it before it reached a deployed
   database. Check a new column name against the glossary before writing it.
 
+- **An identifier is a high-water mark, not a count** (ADR-0031). An issue's number comes
+  off `projects.issues_allocated`, read and incremented inside the transaction that writes
+  the issue, so it only ever increases and a number is handed out once and never again — not
+  after a close and not after a deletion, which `MAX(number) + 1` and `COUNT(*) + 1` could
+  not promise, since both hand the same number out twice the moment a row goes away. The
+  increment takes the project's row lock, so two promotions at once serialise rather than
+  race, and the unique index on `(project_id, number)` is what actually holds "never
+  renumbered". The counter never reaches the wire: every route that returns a project strips
+  it, and a test asserts the exact key set each of them comes back with, because a screen
+  reading it as "issues on this job" would be wrong the first time a promotion was refused.
+  What a project's issues *are* is `GET /v1/projects/:id/issues`, whose length is the count
+  — the shape ADR-0027 gave exposure. Nothing deletes an issue and no route renumbers one;
+  `PATCH`, `PUT` and `DELETE` on one are all 404, and a test says so.
+- **An issue owns no content, and the sightings are its history** (ADR-0031). No summary
+  column and no location: the PRD's sketch named a `location` on the issue, but one
+  re-observed on three walks has three of them, so a column would have to pick a walk and be
+  silently wrong about the other two. What was seen, when and where is read through
+  `issue_observations`, one row per sighting, with `observation_id` **unique** — one
+  observation, at most one issue, because a double tap that promoted twice would burn an
+  identifier that can never be given back. Those rows also carry "still there on the second
+  walk", which is why there is no per-visit status and no transition log. Closing is
+  `closed_at` plus `closure_note` moving together (ADR-0024's shape), reopening clears both,
+  and a second close is refused rather than repeated.
+- **An open item on a finding is a join, and its subject stays the project** (ADR-0031).
+  ADR-0030 predicted story 69 would need a second value in `OpenItemSubject`; it does not.
+  The pending items view resolves a subject by looking the id up in `projects`, so an item
+  subjected to an issue would arrive there with no job beside it — the opposite of what the
+  story asks for. `issue_open_items` says which finding an item is being chased for; the
+  subject still says where it lives. Nothing in the pending items view changed to make it
+  work, which is the sign the shape is right. The `category` is text with a CHECK naming the
+  five rather than a database enum, because a Prisma enum member cannot be named
+  `Physical / Safety` and the real words would then live in a lookup in the API and again in
+  the frontend.
+
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
   package, so there is no library upgrade to absorb. Radix underneath means focus rings and
-  keyboard behaviour come with the components. Five controls stay deliberately native and
+  keyboard behaviour come with the components. Seven controls stay deliberately native and
   styled by hand — the "nobody owes the next move" checkbox, the pending-items sort select,
-  the submission phase select, the attach-an-open-item select and the observation's
-  Side/Sector axis select — because a styled component would change how they serialise into
+  the submission phase select, the attach-an-open-item select (on a submission and on an
+  issue), the observation's Side/Sector axis select, the category select that records an
+  observation as an issue and the select that makes a sighting another sighting of a finding
+  already on the register — because a styled component would change how they serialise into
   a form. `apps/web/app/native-select.ts` holds the shared styling.
 
 Not covered by tests: the frontend. `apps/web` has no test script, so `pnpm test`
@@ -184,13 +220,18 @@ exercises the API only, and a change that breaks the page would not fail the sui
 is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
 visit capture), on top of record-level coverage, rather than here.
 
-**Step 3 has now started (issue #9) and that automated pass is still not written.** Slice 8
-was verified by driving the real pages in a browser by hand, twice, which found nothing the
-suite would have caught but is not a regression test. The spec scopes the pass to the
-*capture flow* — voice, one-handed operation, photo picking, poor-signal reconciliation —
-which is issues #11 and #12, so it belongs with them rather than with the record types
-issue #9 added. Deferred there deliberately; if it is not written by the end of step 3, the
-seam the spec described does not exist.
+**Step 3 is now two slices in (issues #9 and #10) and that automated pass is still not
+written.** Slices 8 and 9 were each verified by driving the real pages in a browser by hand,
+which found nothing the suite would have caught but is not a regression test — and slice 9
+showed what that costs. The hand pass walked the paths the ticket describes and passed;
+review then found two the pass had not thought to walk, both frontend-visible: a bad issue
+number in a URL rendered an error page where every other bad URL renders a 404, and a
+finding closed since a walk still read as open on that walk. A written pass walks the same
+paths every time, including the ones nobody feels like walking. The spec
+scopes the pass to the *capture flow* — voice, one-handed operation, photo picking,
+poor-signal reconciliation — which is issues #11 and #12, so it belongs with them rather
+than with the record types issues #9 and #10 added. Deferred there deliberately; if it is
+not written by the end of step 3, the seam the spec described does not exist.
 
 Slice 4 hit the gap twice, both invisible to `pnpm test` and to `tsc`: a `<select>` whose
 `defaultValue` is only applied at mount, so changing a project's current phase left the
