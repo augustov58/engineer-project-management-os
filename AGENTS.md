@@ -28,7 +28,8 @@ issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
 issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption records,
 issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues with
 stable per-project identifiers, issue #10) and slice 10 (photo binning, issue #11) are
-built. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+built. `apps/api/src/server.ts` was split across thirteen files afterwards, as its own
+change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is
 the author's to do. Work one ticket at a time, and only when asked.
 
@@ -44,7 +45,9 @@ See [README.md](./README.md).
 - Never call `new Date()` or `Date.now()` for a timestamp that gets persisted or aged, and never give such a column a database default — read the injected `TimeSource` (ADR-0022). Aging is tested by advancing a fake, never by sleeping.
 - Tests drive the HTTP API against a real PostgreSQL and assert only on responses and subsequent reads. Build fixtures through the API, not by inserting rows.
 - The one sanctioned exception is a schema invariant no route can expose — "no `users` table exists" (ADR-0012). `apps/api/test/schema.test.ts` reads `information_schema` through the harness's `tableNames()` and nothing else; it may not read domain data or write rows.
-- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path.
+- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the nine route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
+- A record type is a file under `apps/api/src/routes/`, named for the record and matching the test file that drives it (ADR-0033). Its schemas, its refusals that nothing else uses and its derive-on-read helpers live beside its routes. `server.ts` is the boundary and nothing else: the ajv setting, the prefix, and the list of record types.
+- `http.ts`, `refusals.ts` and `wire.ts` are **leaves** — they import Prisma and Fastify types and nothing from a route module, which is what stops `site-visits`, `photos` and `issues` importing each other in a cycle (ADR-0033). A thing used by exactly one record lives with that record and moves into a leaf only when a second record reaches for it. `wire.ts` holds only the read shapes two or more records return; `withDerivedState` and `withLines` are used by one each and stayed put.
 - An open item is unresolved exactly when `resolved_at` is null (ADR-0024). Exposure, provisional state and the pending items view all read that one column — do not add a status field beside it.
 - What a submission rests on is the `submission_open_items` join, never a second subject on
   the open item (ADR-0026). An open item's subject stays `PROJECT`; raising one against a
