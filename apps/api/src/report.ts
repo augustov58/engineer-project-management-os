@@ -13,6 +13,7 @@
  */
 
 import type { ObjectStore } from './object-store.js';
+import { renderLocation } from './wire.js';
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 
 /**
@@ -241,21 +242,8 @@ function findingsSightedOn(prisma: PrismaClient, siteVisitId: string) {
   });
 }
 
-/** `Floor N — <qualifier>, <Side|Sector>`, the glossary's grammar. */
-function location(observation: {
-  floor: string;
-  qualifier: string;
-  side: string | null;
-  sector: string | null;
-}): string {
-  const axis =
-    observation.side === null
-      ? `Sector ${observation.sector}`
-      : `Side ${observation.side}`;
-  return `Floor ${observation.floor} — ${observation.qualifier}, ${axis}`;
-}
-
-function rows(html: string[]): string {
+/** The pieces of a repeated section, concatenated. */
+function all(html: string[]): string {
   return html.join('');
 }
 
@@ -306,14 +294,13 @@ export async function composeReport(
   }
 
   const { project } = visit;
-  const ended =
-    visit.endedAt === null
-      ? 'still under way'
-      : `${clock(visit.startedAt)}–${clock(visit.endedAt)}`;
+  // A walk that is still under way is a real state to render a report from:
+  // ADR-0030 made `ended_at` nullable precisely so a visit exists before it is
+  // over, and the schedule below says the same thing about a floor.
   const when =
     visit.endedAt === null
       ? `${day(visit.startedAt)} · from ${clock(visit.startedAt)}, still under way`
-      : `${day(visit.startedAt)} · ${ended}`;
+      : `${day(visit.startedAt)} · ${clock(visit.startedAt)}–${clock(visit.endedAt)}`;
 
   // The majority case, and the reason it comes first (story 56). An
   // observation is a non-issue exactly when nothing points at it.
@@ -342,7 +329,7 @@ export async function composeReport(
       ? '<p class="nothing">No floors were recorded on the schedule.</p>'
       : `<table>
     <thead><tr><th class="at">Arrived</th><th class="at">Left</th><th>Floor</th></tr></thead>
-    <tbody>${rows(
+    <tbody>${all(
       visit.floors.map(
         (floor) => `
       <tr>
@@ -364,12 +351,12 @@ export async function composeReport(
       ? '<p class="nothing">Every observation made on this visit became an issue.</p>'
       : `<table>
     <thead><tr><th class="at">Time</th><th class="where">Location</th><th>Observed</th></tr></thead>
-    <tbody>${rows(
+    <tbody>${all(
       nonIssues.map(
         (observation) => `
       <tr>
         <td class="at">${clock(observation.observedAt)}</td>
-        <td class="where">${escape(location(observation))}</td>
+        <td class="where">${escape(renderLocation(observation))}</td>
         <td>${escape(observation.observed)}</td>
       </tr>`,
       ),
@@ -384,18 +371,18 @@ export async function composeReport(
   ${
     findings.length === 0
       ? '<p class="nothing">No issues were raised on this visit.</p>'
-      : rows(
+      : all(
           findings.map(
             (finding) => `
   <article class="finding">
     <h3>${escape(issueIdentifier(finding.number))} <span class="category">${escape(finding.category)}</span>${
       finding.closedAt === null ? '' : '<span class="closed">Closed</span>'
     }</h3>
-    ${rows(
+    ${all(
       finding.observations.map(
         ({ observation }) => `
     <div class="sighting">
-      <p><span class="at">${clock(observation.observedAt)}</span> · <span class="where">${escape(location(observation))}</span></p>
+      <p><span class="at">${clock(observation.observedAt)}</span> · <span class="where">${escape(renderLocation(observation))}</span></p>
       <p>${escape(observation.observed)}</p>
     </div>`,
       ),
@@ -403,7 +390,7 @@ export async function composeReport(
     ${
       finding.photos.length === 0
         ? ''
-        : `<div class="evidence">${rows(
+        : `<div class="evidence">${all(
             finding.photos.map(
               (photo) => `
       <figure>

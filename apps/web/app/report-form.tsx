@@ -1,19 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { type SiteVisitReport, isRendering } from './api';
+import { useLiveList } from './live-list';
 
 /**
  * Progress while the walk is printed, over server-sent events (issue #13).
  *
- * `CaptureProgress`'s shape, and for its reasons: the state is seeded from
- * what the server rendered and corrected by the stream afterwards, never the
- * other way round, because a value set from an effect during the hydration
- * commit is discarded (ADR-0028). When a report reaches a state the page
- * renders differently — a link to a document that now exists — this asks the
- * server for the page again.
+ * The state the page renders differently is a document that now exists, and
+ * the link to it is server-rendered — so a refresh is what puts it on screen.
  */
 export function ReportProgress({
   siteVisitId,
@@ -22,24 +17,11 @@ export function ReportProgress({
   siteVisitId: string;
   initial: SiteVisitReport[];
 }) {
-  const [live, setLive] = useState(initial);
-  const router = useRouter();
-  const rendered = useRef(summarise(initial));
-
-  useEffect(() => {
-    const source = new EventSource(`/site-visits/${siteVisitId}/reports/stream`);
-    source.onmessage = (event) => {
-      const reports = JSON.parse(event.data as string) as SiteVisitReport[];
-      setLive(reports);
-
-      const now = summarise(reports);
-      if (now !== rendered.current) {
-        rendered.current = now;
-        router.refresh();
-      }
-    };
-    return () => source.close();
-  }, [siteVisitId, router]);
+  const live = useLiveList(
+    `/site-visits/${siteVisitId}/reports/stream`,
+    initial,
+    summarise,
+  );
 
   if (live.length === 0) {
     return (

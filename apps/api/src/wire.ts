@@ -60,8 +60,13 @@ export function withDate<T extends { startedAt: Date }>(visit: T) {
  * The axis name is part of the segment rather than part of the stored value,
  * because Side and Sector are what the two axes *are*, and a column holding
  * "Side A" could be written with the wrong one.
+ *
+ * Exported for the report (issue #13), which prints the same grammar onto the
+ * page. There must be exactly one of it: two copies could drift, and "composed
+ * on every read so the parts and the string cannot disagree" would then be
+ * true of each copy and false of the pair.
  */
-function renderLocation(observation: {
+export function renderLocation(observation: {
   floor: string;
   qualifier: string;
   side: string | null;

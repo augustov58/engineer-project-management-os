@@ -37,6 +37,18 @@ afterEach(async () => {
   await Promise.all(started.splice(0).map((instance) => instance.close()));
 });
 
+function post(app: TestApi, path: string, body?: unknown) {
+  return app.fetch(path, {
+    method: 'POST',
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+  });
+}
+
 const NO_SUCH = '2f1e6d8c-0000-4000-8000-000000000000';
 
 async function visit(app: TestApi, id: string) {
@@ -203,17 +215,24 @@ test('generating again is a second report and leaves the first standing', async 
   const { walk } = await walked(app, 'R-4');
 
   const first = await generateReport(app, walk.id);
-  await reaches(app, walk.id, first.id, 'rendered');
+  // The **finished** first report, not the queued body it was created with:
+  // that one has every stamp still null, so comparing against it below would
+  // compare null to null and pass whatever the second rendering did.
+  const firstDone = await reaches(app, walk.id, first.id, 'rendered');
+  expect(firstDone.renderedAt).not.toBeNull();
 
   // A correction is another rendering dated its own moment, the shape a
   // reissue and a rerun of a calculation have. Nothing edits the first.
   const second = await generateReport(app, walk.id);
   expect(second.id).not.toBe(first.id);
-  const done = await reaches(app, walk.id, second.id, 'rendered');
+  const secondDone = await reaches(app, walk.id, second.id, 'rendered');
+  expect(secondDone.renderedAt).not.toBe(firstDone.renderedAt);
 
   const reports = (await visit(app, walk.id)).reports;
-  expect(reports.map((report) => report.id)).toEqual([first.id, done.id]);
-  expect(reports[0]?.renderedAt).toBe(first.renderedAt ?? reports[0]?.renderedAt);
+  expect(reports.map((report) => report.id)).toEqual([first.id, second.id]);
+  // The whole row, field for field. The second rendering wrote a new record
+  // and touched nothing on this one — which is the whole claim.
+  expect(reports[0]).toEqual(firstDone);
   expect((await pdfOf(app, first.id)).byteLength).toBeGreaterThan(0);
 });
 
@@ -347,6 +366,92 @@ test('non-issue observations are their own table, and come first', async () => {
   expect(stayed).toBeGreaterThan(table);
   expect(finding).toBeGreaterThan(stayed);
   expect(became).toBeGreaterThan(finding);
+});
+
+test('a finding first raised on an earlier walk still prints its identifier', async () => {
+  const app = await api();
+  const project = await createProject(app, 'R-14', 'Riverside clinic');
+
+  // July: the finding is raised, and gets identifier 1.
+  const july = await createSiteVisit(app, project.id, {
+    startedAt: '2026-07-23T13:00:00.000Z',
+    endedAt: '2026-07-23T16:20:00.000Z',
+  });
+  const raised = await createObservation(app, july.id, {
+    observed: 'Fire rated wall penetration left unsealed',
+    floor: '3',
+    qualifier: 'Room 304 (electrical closet)',
+    side: 'A',
+  });
+  const finding = await createIssue(app, raised.id, 'Safety / Code');
+  expect(finding.number).toBe(1);
+
+  // August: still there, and seen somewhere else on the floor.
+  const august = await createSiteVisit(app, project.id, {
+    startedAt: '2026-08-20T09:00:00.000Z',
+    endedAt: '2026-08-20T11:00:00.000Z',
+  });
+  const again = await createObservation(app, august.id, {
+    observed: 'Still unsealed, and the same detail repeats at the corridor wall',
+    observedAt: '2026-08-20T09:40:00.000Z',
+    floor: '3',
+    qualifier: 'east corridor',
+    side: 'A',
+  });
+  const response = await post(app, `/v1/issues/${finding.id}/observations/${again.id}`);
+  // 204: the sighting is a join row and the route returns no body.
+  expect(response.status).toBe(204);
+
+  const asked = await generateReport(app, august.id);
+  await reaches(app, august.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  // The identifier is the one allocated in July and never renumbered — which
+  // is what story 59 promises about a reference in an issued report.
+  expect(text).toContain('Issue 1');
+  // August's location, not July's: this report is August's.
+  expect(text).toContain('Floor 3 — east corridor, Side A');
+  expect(text).not.toContain('Room 304 (electrical closet)');
+});
+
+test('a finding not sighted on this walk is no part of this report', async () => {
+  const app = await api();
+  const project = await createProject(app, 'R-15', 'Riverside clinic');
+
+  const july = await createSiteVisit(app, project.id, {
+    startedAt: '2026-07-23T13:00:00.000Z',
+    endedAt: '2026-07-23T16:20:00.000Z',
+  });
+  const raised = await createObservation(app, july.id, {
+    observed: 'Fire rated wall penetration left unsealed',
+    floor: '3',
+    qualifier: 'Room 304 (electrical closet)',
+    side: 'A',
+  });
+  await createIssue(app, raised.id, 'Safety / Code');
+
+  // August: a photograph of that finding is added, and nothing is observed.
+  // Binding by filename creates no **sighting** — a sighting is an observation
+  // (ADR-0032) — so the finding is no part of this walk and prints nowhere.
+  const august = await createSiteVisit(app, project.id, {
+    startedAt: '2026-08-20T09:00:00.000Z',
+    endedAt: '2026-08-20T11:00:00.000Z',
+  });
+  const photo = await addPhoto(app, august.id, {
+    filename: '3-room 304-issue-1.png',
+    takenAt: '2026-08-20T09:30:00.000Z',
+  });
+  expect(photo.issueNumber).toBe(1);
+
+  const asked = await generateReport(app, august.id);
+  await reaches(app, august.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  // Deliberate, and pinned here so it stays a decision. An issue printed off a
+  // photograph alone would have no location and no words to print beside it,
+  // and the criterion asks for both.
+  expect(text).toContain('No issues were raised on this visit.');
+  expect(text).not.toContain('Issue 1');
 });
 
 test('an issue prints the photographs bound to it on this walk', async () => {
