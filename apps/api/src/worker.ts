@@ -73,9 +73,23 @@ export function buildWorker({
       const { voiceCaptureId } = job.data;
       const capture = await prisma.voiceCapture.findUnique({
         where: { id: voiceCaptureId },
-        select: { id: true, storageKey: true, contentType: true },
+        select: {
+          id: true,
+          storageKey: true,
+          contentType: true,
+          transcribedAt: true,
+        },
       });
       if (capture === null) {
+        return;
+      }
+      if (capture.transcribedAt !== null) {
+        // Already answered. Two taps of "ask again" while it is queued enqueue
+        // two jobs, and BullMQ can redeliver a stalled one; the write below is
+        // guarded either way, but a vendor is a paid network call and there is
+        // nothing here left to ask it. Returning also leaves
+        // `transcribing_since` where the answered attempt left it, rather than
+        // moving it under a screen that is showing a finished transcript.
         return;
       }
 
