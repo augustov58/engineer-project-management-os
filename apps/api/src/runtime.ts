@@ -8,6 +8,16 @@ export interface Runtime {
   prisma: PrismaClient;
   queue: Queue;
   objectStore: ObjectStore;
+  /** What the worker listens on, which is what the queue writes to. */
+  queueName: string;
+  /**
+   * A second Redis, for the transcription worker (issue #12).
+   *
+   * Not the queue's. A BullMQ `Worker` waits on the list with a blocking
+   * command and holds the connection for the duration, so sharing one would
+   * park every `queue.add` behind whatever the worker is waiting for.
+   */
+  workerConnection: Redis;
   close(): Promise<void>;
 }
 
@@ -37,17 +47,21 @@ export function createRuntime({
     adapter: new PrismaPg({ connectionString: databaseUrl }),
   });
   const redis = new Redis(redisUrl, { maxRetriesPerRequest: null });
+  const workerRedis = new Redis(redisUrl, { maxRetriesPerRequest: null });
 
-  /** Wired and reachable. Nothing enqueues onto it yet. */
+  /** Transcription is the one thing on it (issue #12). */
   const queue = new Queue(queueName, { connection: redis });
 
   return {
     prisma,
     queue,
     objectStore: new FilesystemObjectStore(objectStoreDir),
+    queueName,
+    workerConnection: workerRedis,
     close: async () => {
       await queue.close();
       redis.disconnect();
+      workerRedis.disconnect();
       await prisma.$disconnect();
     },
   };

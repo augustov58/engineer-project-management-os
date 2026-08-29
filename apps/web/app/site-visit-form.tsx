@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -131,7 +131,7 @@ export function ObservationForm({
   const [state, action, pending] = useActionState(submit, { added: 0 });
 
   return (
-    <Fields
+    <ObservationFields
       key={state.added}
       action={action}
       pending={pending}
@@ -140,24 +140,55 @@ export function ObservationForm({
   );
 }
 
-function Fields({
+/**
+ * The observation fields themselves, so the screen that corrects a transcript
+ * is the screen that types one (issue #12).
+ *
+ * Exported rather than copied. ADR-0025 asks for one act to be one control,
+ * and two forms drifting apart is how the one-axis rule gets weakened on the
+ * newer of them — which is precisely what ADR-0030 warned a later writer would
+ * do. "Voice will replace the typing, not the layout" is that ADR's sentence
+ * about this ticket, and this is what it looks like.
+ */
+export function ObservationFields({
   action,
   pending,
   error,
+  defaultObserved,
+  submitLabel = 'Record the observation',
+  timeHint = 'Blank means now.',
 }: {
   action: (formData: FormData) => void;
   pending: boolean;
   error: string | undefined;
+  /** What the vendor heard, for the engineer to correct. */
+  defaultObserved?: string;
+  submitLabel?: string;
+  timeHint?: string;
 }) {
   // Native, because the action reads this out of FormData and the axis and
   // its value have to arrive together (ADR-0025).
   const [axis, setAxis] = useState<'side' | 'sector'>('side');
 
+  // One per instance. A walk with three drafts awaiting review renders four of
+  // these at once, and a fixed `id` would give every label on the page the
+  // same target — so tapping "Floor" would focus the typed form's field
+  // whichever draft you were reading.
+  const field = useId();
+
   return (
     <form action={action} className="space-y-4">
       <div className="grid gap-1.5">
-        <Label htmlFor="observed">What you observed</Label>
-        <Textarea id="observed" name="observed" required rows={3} />
+        <Label htmlFor={`${field}-observed`}>What you observed</Label>
+        <Textarea
+          id={`${field}-observed`}
+          name="observed"
+          required
+          rows={3}
+          // Uncontrolled and seeded, so the transcript is what the engineer
+          // starts from and every keystroke after that is theirs.
+          defaultValue={defaultObserved}
+        />
         <p className="text-muted-foreground text-sm">
           Most observations are not findings, and this one stays an
           observation.
@@ -166,14 +197,14 @@ function Fields({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-1.5">
-          <Label htmlFor="floor">Floor</Label>
-          <Input id="floor" name="floor" required placeholder="3" />
+          <Label htmlFor={`${field}-floor`}>Floor</Label>
+          <Input id={`${field}-floor`} name="floor" required placeholder="3" />
           <p className="text-muted-foreground text-sm">3, B1, M, PH.</p>
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="qualifier">Qualifier</Label>
+          <Label htmlFor={`${field}-qualifier`}>Qualifier</Label>
           <Input
-            id="qualifier"
+            id={`${field}-qualifier`}
             name="qualifier"
             required
             placeholder="Stair B"
@@ -186,7 +217,7 @@ function Fields({
       </div>
 
       <div className="grid gap-1.5">
-        <Label htmlFor="axisValue">Side or Sector</Label>
+        <Label htmlFor={`${field}-axisValue`}>Side or Sector</Label>
         <div className="flex flex-wrap gap-2">
           <select
             name="axis"
@@ -201,7 +232,7 @@ function Fields({
             <option value="sector">Sector</option>
           </select>
           <Input
-            id="axisValue"
+            id={`${field}-axisValue`}
             name="axisValue"
             required
             placeholder={axis === 'side' ? 'A' : '4'}
@@ -219,14 +250,14 @@ function Fields({
           leave blank and no way for a typed time to be dropped for want of
           one — and one less control to hit on a phone.
         */}
-        <Label htmlFor="observedAt">Observed at</Label>
-        <Input id="observedAt" name="observedAt" type="time" />
-        <p className="text-muted-foreground text-sm">Blank means now.</p>
+        <Label htmlFor={`${field}-observedAt`}>Observed at</Label>
+        <Input id={`${field}-observedAt`} name="observedAt" type="time" />
+        <p className="text-muted-foreground text-sm">{timeHint}</p>
       </div>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          Record the observation
+          {submitLabel}
         </Button>
         {error !== undefined && (
           <p role="alert" className="text-destructive text-sm">

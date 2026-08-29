@@ -167,3 +167,65 @@ export function withSightings(found: Finding) {
     photos: photos.map(photoOnTheWire),
   };
 }
+
+/**
+ * A recording read with the observation it became, if it became one.
+ *
+ * Here rather than in `routes/voice.ts` because two records return it: a walk
+ * lists its recordings, and the voice routes return one. That is the same
+ * reason `photoOnTheWire` is here (ADR-0033).
+ */
+export const voiceCapturesMade = {
+  orderBy: [{ recordedAt: 'asc' }, { createdAt: 'asc' }],
+  include: { observation: true },
+} satisfies Prisma.SiteVisit$voiceCapturesArgs;
+
+type StoredCapture = Prisma.VoiceCaptureGetPayload<{
+  include: { observation: true };
+}>;
+
+/**
+ * What has happened to a recording, derived on every read from the four stamps
+ * and stored nowhere.
+ *
+ * There is no status column underneath this, for ADR-0024's reason and
+ * ADR-0031's: `resolved_at` being null is the whole of *unresolved*, and
+ * `closed_at` the whole of *closed*, precisely so that a second answer cannot
+ * come to disagree with the first.
+ *
+ * Failed is read first. A retry clears the failure before the vendor is called
+ * again, so a row carrying both a failure and a start is one that failed after
+ * starting — which is every failure there is.
+ */
+function transcriptionState(capture: {
+  transcribingSince: Date | null;
+  transcribedAt: Date | null;
+  failedAt: Date | null;
+}): 'queued' | 'transcribing' | 'transcribed' | 'failed' {
+  if (capture.failedAt !== null) {
+    return 'failed';
+  }
+  if (capture.transcribedAt !== null) {
+    return 'transcribed';
+  }
+  return capture.transcribingSince === null ? 'queued' : 'transcribing';
+}
+
+/**
+ * A recording on the wire: what the vendor heard, what state it is in, and the
+ * observation it became — never the key its audio is under.
+ *
+ * The observation itself and not its id, because *committed* is exactly "there
+ * is one", and a screen holding both an id and a record could show a draft
+ * beside the words it already became. The storage key is the object store's
+ * business and means something different the day the adapter changes, which is
+ * why a photograph does not carry one either.
+ */
+export function voiceCaptureOnTheWire(capture: StoredCapture) {
+  const { storageKey: _key, observationId: _row, observation, ...onTheWire } = capture;
+  return {
+    ...onTheWire,
+    state: transcriptionState(capture),
+    observation: observation === null ? null : withLocation(observation),
+  };
+}

@@ -402,9 +402,10 @@ model SiteVisit {
   /// Entry order, so two visits started the same day do not list at random.
   createdAt DateTime @map("created_at")
 
-  floors       SiteVisitFloor[]
-  observations Observation[]
-  photos       Photo[]
+  floors        SiteVisitFloor[]
+  observations  Observation[]
+  photos        Photo[]
+  voiceCaptures VoiceCapture[]
 
   @@index([projectId, startedAt])
   @@map("site_visits")
@@ -508,6 +509,12 @@ model Observation {
   /// here says whether there are any: promotion is a row pointing back at this
   /// one, which is what keeps staying an observation the default path.
   issues IssueObservation[]
+
+  /// The recording this observation was committed from, if it was spoken
+  /// rather than typed (issue #12). Nothing here says whether there is one:
+  /// the capture points at this row and this row is written no differently,
+  /// which is what keeps typing and speaking the same record.
+  voiceCapture VoiceCapture?
 
   @@index([siteVisitId, observedAt])
   @@map("observations")
@@ -708,4 +715,105 @@ model Photo {
   @@index([siteVisitId, takenAt])
   @@index([issueId])
   @@map("photos")
+}
+
+/// A recording made during a site visit, and the draft observation it becomes
+/// (issue #12, stories 51-52).
+///
+/// The engineer speaks instead of typing, and what the vendor heard is reviewed
+/// and corrected before anything becomes a record — so transcription error
+/// never becomes record error.
+///
+/// **The draft is this row and not a state of an observation.** ADR-0030 put no
+/// status on `observations`, no category and no promotion route, and a test
+/// asserts the exact key set one comes back with; a `draft` column here would
+/// be that status arriving under another name. Committing writes an ordinary
+/// observation and stamps `observation_id` here, which is slice 9's shape —
+/// promotion writes nothing at all to the row it points at.
+///
+/// The audio goes to the injected `ObjectStore` and never into the database,
+/// the way a photograph's bytes do (ADR-0032); this row keeps the key.
+model VoiceCapture {
+  id String @id @default(uuid())
+
+  /// The walk it was recorded on, the way an observation and a photograph are
+  /// each bound to their visit and to nothing else. The project is the visit's.
+  siteVisitId String    @map("site_visit_id")
+  siteVisit   SiteVisit @relation(fields: [siteVisitId], references: [id])
+
+  /// The name the phone gave this recording before it tried to send it, unique
+  /// per visit.
+  ///
+  /// This is the whole of story 112: the recording is held on the phone until
+  /// the server acknowledges it, and a send that is retried after the signal
+  /// comes back carries the same key. A photograph reconciles on its filename
+  /// (ADR-0032); a recording has no natural name, so the phone mints one.
+  ///
+  /// Unlike the photograph's, a repeat is answered with the row rather than
+  /// refused: a refusal does not tell the phone whether the first attempt
+  /// landed, and "without losing a recording" is what the story asks for.
+  captureKey String @map("capture_key")
+
+  /// When it was recorded, supplied by the phone that recorded it.
+  ///
+  /// Required, and never falling back to the injected TimeSource, for
+  /// `photos.taken_at`'s reason: a recording sent an hour later when the signal
+  /// returned would otherwise be stamped with the moment it arrived, and the
+  /// observation it becomes is dated from this.
+  recordedAt DateTime @map("recorded_at")
+
+  /// One of the audio types the boundary admits, held so the bytes can be
+  /// served back as what they are. A CHECK names the set, since the read route
+  /// hands this straight to a browser.
+  contentType String @map("content_type")
+
+  /// What was stored, so a list renders without reading every object.
+  byteSize Int @map("byte_size")
+
+  /// Where the audio is in the object store. Never on the wire.
+  storageKey String @unique @map("storage_key")
+
+  /// The four stamps the state is read from. There is no status column, for
+  /// ADR-0024's reason and ADR-0031's: `resolved_at` and `closed_at` are how
+  /// this product says what has happened to a record, and a second answer
+  /// beside them is a second thing to keep true.
+  ///
+  /// Queued is all four null. `transcribing_since` is stamped when the worker
+  /// picks the job up; `transcript` and `transcribed_at` move together, as do
+  /// `failed_at` and `failure`. Retrying clears the failure and the start, the
+  /// way reopening an issue clears `closed_at` and `closure_note`.
+  transcribingSince DateTime? @map("transcribing_since")
+  transcript        String?
+  transcribedAt     DateTime? @map("transcribed_at")
+  failedAt          DateTime? @map("failed_at")
+
+  /// Why the vendor could not transcribe it, in the vendor's own words. A
+  /// failure and a rejection are the same stored fact: both leave the audio
+  /// where it is, and nothing about what the engineer does next differs.
+  failure String?
+
+  /// The observation this draft became, or null while it is still a draft.
+  ///
+  /// Unique, so one recording becomes at most one observation — the shape
+  /// `issue_observations.observation_id` has, and for its reason: a double tap
+  /// that committed twice would write the same words into the record twice.
+  ///
+  /// The transcript above is **never rewritten** when the engineer corrects it.
+  /// What the vendor heard and what was recorded are two facts, and keeping
+  /// both is what makes "transcription error never became record error"
+  /// something anybody can check afterwards (ADR-0029's verbatim shape).
+  observationId String?      @unique @map("observation_id")
+  /// `Restrict` named explicitly, because Prisma defaults an optional relation
+  /// to `SetNull` while every foreign key in this schema is RESTRICT on delete.
+  /// Left implicit, the next `migrate dev` would offer to rewrite this one and
+  /// the two older ones that already differ.
+  observation   Observation? @relation(fields: [observationId], references: [id], onDelete: Restrict)
+
+  /// Entry order, so two recordings made in the same minute do not list at
+  /// random.
+  createdAt DateTime @map("created_at")
+
+  @@unique([siteVisitId, captureKey])
+  @@index([siteVisitId, recordedAt])
+  @@map("voice_captures")
 }

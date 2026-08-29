@@ -16,6 +16,8 @@ import {
 import {
   photoOnTheWire,
   photosTaken,
+  voiceCaptureOnTheWire,
+  voiceCapturesMade,
   withDate,
   withLocation,
 } from '../wire.js';
@@ -87,7 +89,7 @@ const completeFloorBodySchema = {
  * qualifier gets the project name's 200, being a phrase you say out loud. Both
  * axes get the floor's 32.
  */
-const observationBodySchema = {
+export const observationBodySchema = {
   type: 'object',
   required: ['observed', 'floor', 'qualifier'],
   additionalProperties: false,
@@ -109,6 +111,49 @@ const observationBodySchema = {
     { required: ['sector'], not: { required: ['side'] } },
   ],
 } as const;
+
+/** What the schema above admits, for the two routes that write this table. */
+export interface ObservationBody {
+  observed: string;
+  observedAt?: string;
+  floor: string;
+  qualifier: string;
+  side?: string;
+  sector?: string;
+}
+
+/**
+ * An observation row, from the body every writer of this table validates
+ * against the schema above.
+ *
+ * Exported because a second route writes observations now: issue #12 commits
+ * one from a corrected transcript. ADR-0030 predicted exactly that and named
+ * the risk — "story 55 is about the grammar not being corruptible *by the
+ * interface*, which is exactly the guard a later writer forgets" — so the
+ * schema and the row it becomes are one thing to reach for rather than two to
+ * remember.
+ *
+ * The instant is a parameter and not read from a clock here, because the two
+ * callers fall back to different ones: a typed observation to the injected
+ * TimeSource, and one committed from a recording to the moment the recording
+ * was made.
+ */
+export function observationData(
+  body: ObservationBody,
+  siteVisitId: string,
+  observedAt: Date,
+  createdAt: Date,
+) {
+  const { observedAt: _supplied, side, sector, ...rest } = body;
+  return {
+    ...rest,
+    siteVisitId,
+    observedAt,
+    side: side ?? null,
+    sector: sector ?? null,
+    createdAt,
+  };
+}
 
 /**
  * The one end-before-start body. Said twice — once by the create route, once
@@ -209,17 +254,22 @@ export function siteVisitRoutes(
             orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
           },
           photos: photosTaken,
+          // What was spoken on this walk (issue #12), in the order it was
+          // said. A recording still awaiting review is a draft and is not an
+          // observation, so it is read here and not in the list above.
+          voiceCaptures: voiceCapturesMade,
         },
       });
       if (found === null) {
         return noSuchSiteVisit(reply);
       }
 
-      const { observations, photos, ...visit } = found;
+      const { observations, photos, voiceCaptures, ...visit } = found;
       return {
         ...withDate(visit),
         observations: observations.map(withLocation),
         photos: photos.map(photoOnTheWire),
+        voiceCaptures: voiceCaptures.map(voiceCaptureOnTheWire),
       };
     },
   );
@@ -353,17 +403,7 @@ export function siteVisitRoutes(
    * on the way out. Exactly one of side or sector is set, which the body
    * schema refuses to let the interface get wrong.
    */
-  v1.post<{
-    Params: { id: string };
-    Body: {
-      observed: string;
-      observedAt?: string;
-      floor: string;
-      qualifier: string;
-      side?: string;
-      sector?: string;
-    };
-  }>(
+  v1.post<{ Params: { id: string }; Body: ObservationBody }>(
     '/site-visits/:id/observations',
     { schema: { body: observationBodySchema } },
     async (request, reply) => {
@@ -375,16 +415,13 @@ export function siteVisitRoutes(
         return noSuchSiteVisit(reply);
       }
 
-      const { observedAt, side, sector, ...rest } = request.body;
       const created = await prisma.observation.create({
-        data: {
-          ...rest,
-          siteVisitId: walk.id,
-          observedAt: instant(observedAt, timeSource),
-          side: side ?? null,
-          sector: sector ?? null,
-          createdAt: timeSource.now(),
-        },
+        data: observationData(
+          request.body,
+          walk.id,
+          instant(request.body.observedAt, timeSource),
+          timeSource.now(),
+        ),
       });
       return reply.code(201).send(withLocation(created));
     },

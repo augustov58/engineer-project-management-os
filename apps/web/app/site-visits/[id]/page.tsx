@@ -6,13 +6,16 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   addPhoto,
+  addVoiceCapture,
   bindPhotoToFloor,
   bindPhotoToIssue,
+  commitVoiceCapture,
   completeFloor,
   endSiteVisit,
   raiseIssue,
   recordObservation,
   reobserveIssue,
+  retryVoiceCapture,
   startFloor,
 } from '../../actions';
 import { getSiteVisit, listIssues, listIssuesWithoutPhotos } from '../../api';
@@ -20,6 +23,12 @@ import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { clock, day } from '../../open-item';
 import { PhotoBindings, PhotoForm } from '../../photo-form';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
+import {
+  CaptureProgress,
+  CaptureState,
+  DraftObservationForm,
+  VoiceRecorder,
+} from '../../voice-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -266,9 +275,118 @@ export default async function SiteVisitRecord({
         )}
       </section>
 
+      {/*
+        Speaking is the point of this ticket and typing is the fallback, so it
+        comes first and gets the whole width. ADR-0025: field capture is
+        designed for a thumb, and this is the one control on the screen that
+        has to be hit without looking.
+      */}
       <Card>
         <CardHeader>
-          <CardTitle>Record an observation</CardTitle>
+          <CardTitle>Speak an observation</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <VoiceRecorder
+            siteVisitId={id}
+            add={addVoiceCapture.bind(null, id, projectId)}
+          />
+        </CardContent>
+      </Card>
+
+      {/*
+        What was said, and what it is waiting on. A recording is a **draft**
+        until the engineer has read it and corrected it — so nothing here has
+        written an observation, and the list above stays what was actually
+        recorded.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Spoken</h2>
+          {/*
+            Live over SSE, so a slow transcription reads as working rather than
+            as broken — and so the drafts below appear without a reload.
+          */}
+          <CaptureProgress siteVisitId={id} initial={visit.voiceCaptures} />
+        </div>
+
+        {visit.voiceCaptures.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {visit.voiceCaptures.map((capture) => (
+              <li key={capture.id} className="space-y-3 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-muted-foreground text-sm tabular-nums">
+                    {clock(capture.recordedAt)}
+                  </span>
+                  <CaptureState capture={capture} />
+                  {/*
+                    Through the Next server, never straight at the API — the
+                    same reason a photograph's bytes are proxied. This is also
+                    half of what makes a failed transcription recoverable: the
+                    engineer listens and writes it down.
+                  */}
+                  <audio
+                    controls
+                    preload="none"
+                    src={`/voice-captures/${capture.id}/audio`}
+                    className="h-9 min-w-48 flex-1"
+                  />
+                </div>
+
+                {capture.failure !== null && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className="text-destructive text-sm">
+                      {capture.failure}
+                    </p>
+                    <form
+                      action={retryVoiceCapture.bind(
+                        null,
+                        capture.id,
+                        id,
+                        projectId,
+                      )}
+                    >
+                      <Button type="submit" variant="ghost" size="sm">
+                        Ask again
+                      </Button>
+                    </form>
+                  </div>
+                )}
+
+                {capture.observation !== null ? (
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground text-sm">
+                      {capture.observation.location}
+                    </p>
+                    <p className="text-sm whitespace-pre-wrap">
+                      {capture.observation.observed}
+                    </p>
+                  </div>
+                ) : capture.state === 'queued' ||
+                  capture.state === 'transcribing' ? (
+                  <p className="text-muted-foreground text-sm">
+                    Waiting for the transcript. The audio is already stored.
+                  </p>
+                ) : (
+                  <DraftObservationForm
+                    transcript={capture.transcript}
+                    submit={commitVoiceCapture.bind(
+                      null,
+                      capture.id,
+                      id,
+                      visitedOn,
+                      projectId,
+                    )}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Or type an observation</CardTitle>
         </CardHeader>
         <CardContent>
           <ObservationForm

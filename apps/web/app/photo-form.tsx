@@ -4,30 +4,11 @@ import { useActionState, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { selectClassName } from './native-select';
+import { asTypedInstant } from './wall-clock';
 import type { AddState } from './actions';
 
 /** The four the API stores, so the picker offers only what it will accept. */
 const ACCEPT = 'image/jpeg,image/png,image/heic,image/webp';
-
-/**
- * The wall clock the engineer was reading, written the way a typed time is.
- *
- * A file's `lastModified` is a real instant; a floor started at 13:00 typed
- * into the schedule was stored as `13:00Z` whatever zone it was typed in.
- * ADR-0030 left that product-wide timezone decision open deliberately and
- * noted that the screens are written so a walk stays in one frame. Sending
- * the photograph's true UTC instant would put it in the other one, and every
- * photograph of the afternoon would bin to nothing by the engineer's offset.
- *
- * So the local wall clock goes up as though it were UTC, which is exactly what
- * `composeInstant` does with a time the engineer types. When the product takes
- * the timezone decision, this and that helper change together.
- */
-function asTypedInstant(lastModified: number): string {
-  const local = new Date(lastModified);
-  const offset = local.getTimezoneOffset() * 60_000;
-  return new Date(lastModified - offset).toISOString();
-}
 
 /**
  * Adding the walk's photographs.

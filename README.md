@@ -19,7 +19,14 @@ pnpm dev
 
 `pnpm dev` copies the `.env.example` files if no `.env` exists yet, starts PostgreSQL and
 Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, frontend on
-<http://127.0.0.1:3000>.
+<http://127.0.0.1:3000>. The transcription worker runs inside the API process (ADR-0034),
+so there is no third thing to start.
+
+**Recording audio needs a secure context.** `getUserMedia` is unavailable over plain HTTP
+except on `localhost`, so voice capture works on this machine and *not* on a phone reaching
+`http://<this machine's address>:3000` — the screen says so rather than failing silently.
+Nothing in the repo can change that; a deployed instance behind TLS (ADR-0003) or a tunnel
+is what makes one-handed capture on a phone real.
 
 Use `localhost`, not `127.0.0.1`, in the browser: `next dev` refuses to serve its own
 `/_next/*` assets to an origin it does not recognise, so the page renders and then dies
@@ -41,7 +48,7 @@ break that, and would only fail on the second device.
 ## Layout
 
 ```
-apps/api    Fastify API, Prisma schema and migrations, BullMQ queue
+apps/api    Fastify API, Prisma schema and migrations, BullMQ queue and transcription worker
 apps/web    Next.js frontend (App Router)
 docs/       Agent-facing notes; the ADRs and glossary live in the vault
 ```
