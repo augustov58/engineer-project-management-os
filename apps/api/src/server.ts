@@ -33,7 +33,9 @@ const API_PREFIX = '/v1';
  * The boundary, and only the boundary: the ajv setting every schema depends
  * on, the prefix every path is carried by, and the record types the API is
  * made of. A record's own routes, schemas and helpers live in its file under
- * `routes/`, one per file and one per test file (ADR-0033).
+ * `routes/`, one per record type (ADR-0033). The test files line up with them
+ * but are not one-to-one: `submissions.ts` is driven by three of them, and
+ * phases are exercised through `submissions.test.ts`.
  */
 export function buildServer({
   prisma,

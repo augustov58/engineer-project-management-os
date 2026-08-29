@@ -6,7 +6,7 @@
  * new row and nothing at all to the one it replaces (ADR-0028).
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import type { TimeSource } from '../time-source.js';
 import {
@@ -18,7 +18,6 @@ import {
 } from '../http.js';
 import {
   type Refusal,
-  alreadySuperseded,
   noSuchProject,
   noSuchSubmission,
   openItemRefusal,
@@ -326,6 +325,17 @@ export function itemOnSubmission(
     waitingSince: instant(waitingSince, timeSource),
     submissions: { create: { submissionId: submission.id } },
   } satisfies Prisma.OpenItemCreateInput | Prisma.OpenItemUncheckedCreateInput;
+}
+
+/**
+ * The one already-superseded body. Said twice by the reissue route — once by
+ * the check that reads the successor, once by the index catching a race — and
+ * a reworded message must not become two different sentences.
+ */
+export function alreadySuperseded(reply: FastifyReply) {
+  return reply
+    .code(409)
+    .send({ message: 'that submission has already been superseded' });
 }
 
 export function submissionRoutes(

@@ -1,9 +1,15 @@
 /**
- * Every way this API says no, in one place.
+ * The refusals more than one route module reaches for.
  *
- * The 404s are one line each and read as a set: a route names the record it
- * could not find rather than assembling a body. The two async ones below them
- * are the checks more than one record has to make before writing.
+ * The ten 404s are here as a **set** rather than by the count rule ADR-0033
+ * otherwise applies — most are used by one record, but a route naming the
+ * record it could not find is the thing that must not drift into ten
+ * differently worded bodies. Below them are the two async checks a record
+ * makes before writing that another record makes too.
+ *
+ * The 4xx bodies a single record sends inline stay with that record; there are
+ * thirty-two of them, and hoisting them here would empty the route modules of
+ * the reasons they refuse.
  */
 
 import type { FastifyReply } from 'fastify';
@@ -43,17 +49,6 @@ export function noSuchSubmission(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no submission with that id' });
 }
 
-/**
- * The one already-superseded body. Said twice by the reissue route — once by
- * the check that reads the successor, once by the index catching a race — and
- * a reworded message must not become two different sentences.
- */
-export function alreadySuperseded(reply: FastifyReply) {
-  return reply
-    .code(409)
-    .send({ message: 'that submission has already been superseded' });
-}
-
 /** The one 404 body for assumption records, matching the others. */
 export function noSuchAssumptionRecord(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no assumption record with that id' });
@@ -62,17 +57,6 @@ export function noSuchAssumptionRecord(reply: FastifyReply) {
 /** The one 404 body for site visits, matching the others. */
 export function noSuchSiteVisit(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no site visit with that id' });
-}
-
-/**
- * The one end-before-start body. Said twice — once by the create route, once
- * by the end route — and a reworded message must not become two different
- * sentences, for the reason `alreadySuperseded` is one function.
- */
-export function endsBeforeItStarted(reply: FastifyReply) {
-  return reply
-    .code(409)
-    .send({ message: 'a site visit cannot end before it started' });
 }
 
 /** The one 404 body for a floor's entry in a visit's schedule. */
@@ -85,9 +69,16 @@ export function noSuchIssue(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no issue with that id' });
 }
 
+/**
+ * The one 404 body for observations, matching the others — and exported,
+ * because `observationRefusal` in `routes/issues.ts` answers the same miss in
+ * the `Refusal` shape and the two sentences must stay one sentence.
+ */
+export const NO_SUCH_OBSERVATION = 'no observation with that id';
+
 /** The one 404 body for observations, matching the others. */
 export function noSuchObservation(reply: FastifyReply) {
-  return reply.code(404).send({ message: 'no observation with that id' });
+  return reply.code(404).send({ message: NO_SUCH_OBSERVATION });
 }
 
 /** The one 404 body for photographs, matching the others. */

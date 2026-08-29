@@ -1,6 +1,6 @@
 /** Site visits, the per-floor schedule, and observations (issue #9). */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   FLOOR,
   NOT_BLANK,
@@ -9,7 +9,6 @@ import {
   isUniqueViolation,
 } from '../http.js';
 import {
-  endsBeforeItStarted,
   noSuchFloor,
   noSuchProject,
   noSuchSiteVisit,
@@ -110,6 +109,17 @@ const observationBodySchema = {
     { required: ['sector'], not: { required: ['side'] } },
   ],
 } as const;
+
+/**
+ * The one end-before-start body. Said twice — once by the create route, once
+ * by the end route — and a reworded message must not become two different
+ * sentences, for the reason `alreadySuperseded` is one function.
+ */
+export function endsBeforeItStarted(reply: FastifyReply) {
+  return reply
+    .code(409)
+    .send({ message: 'a site visit cannot end before it started' });
+}
 
 export function siteVisitRoutes(
   v1: FastifyInstance,
@@ -379,7 +389,5 @@ export function siteVisitRoutes(
       return reply.code(201).send(withLocation(created));
     },
   );
-
-  // ── Issues with stable per-project identifiers (issue #10) ───────────
 
 }

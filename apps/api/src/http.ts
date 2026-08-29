@@ -3,9 +3,9 @@
  * schemas share, the one way a Prisma error is read, and the dependencies a
  * route module is handed.
  *
- * A leaf on purpose. Nothing here imports a route module, which is what keeps
- * the read shapes two records share (`wire.ts`) from forming a cycle with the
- * records that return them.
+ * A leaf on purpose: nothing here imports a route module, so every record can
+ * reach it without reaching through another record. `refusals.ts` and
+ * `wire.ts` are leaves for the same reason and each for its own sake.
  */
 
 import type { Queue } from 'bullmq';

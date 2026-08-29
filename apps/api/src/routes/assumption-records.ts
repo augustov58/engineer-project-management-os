@@ -62,6 +62,12 @@ const counterfactualBodySchema = {
  *
  * The property definitions are the open item's own rather than a second copy,
  * so the caps cannot drift apart.
+ *
+ * Read across a module boundary at load, which is the one thing the split
+ * added to it: it is safe while `routes/open-items.ts` imports no route module
+ * and stays a sink. If that ever changes, this fails loudly — a `const` in an
+ * ESM cycle is a `ReferenceError` at load, not a silently `undefined` schema
+ * (verified) — but it fails, so keep open items a sink (ADR-0033).
  */
 const raisedFlagBodySchema = {
   type: 'object',
@@ -376,7 +382,5 @@ export function assumptionRecordRoutes(
       }
     },
   );
-
-  // ── Site visits and observations (issue #9) ──────────────────────────
 
 }

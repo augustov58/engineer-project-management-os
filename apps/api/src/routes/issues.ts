@@ -11,6 +11,7 @@ import {
   violates,
 } from '../http.js';
 import {
+  NO_SUCH_OBSERVATION,
   type Refusal,
   noSuchIssue,
   noSuchObservation,
@@ -69,6 +70,12 @@ const issueBodySchema = {
  * Closing takes a note and a date; only the date may be left to the clock.
  * The cap is read off the open item's resolution note rather than written down
  * twice, being the same field on the other record with a lifecycle.
+ *
+ * Read across a module boundary at load, which is the one thing the split
+ * added to it: it is safe while `routes/open-items.ts` imports no route module
+ * and stays a sink. If that ever changes, this fails loudly — a `const` in an
+ * ESM cycle is a `ReferenceError` at load, not a silently `undefined` schema
+ * (verified) — but it fails, so keep open items a sink (ADR-0033).
  */
 const closeIssueBodySchema = {
   type: 'object',
@@ -115,7 +122,7 @@ async function observationRefusal(
     select: { siteVisit: { select: { projectId: true } } },
   });
   if (observation === null) {
-    return { code: 404, message: 'no observation with that id' };
+    return { code: 404, message: NO_SUCH_OBSERVATION };
   }
   if (observation.siteVisit.projectId !== projectId) {
     return { code: 409, message: 'that observation is on another project' };
@@ -498,7 +505,5 @@ export function issueRoutes(
       return reply.code(204).send();
     },
   );
-
-  // ── Photographs and the two bindings (issue #11) ─────────────────────
 
 }
