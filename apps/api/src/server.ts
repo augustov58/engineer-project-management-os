@@ -12,6 +12,7 @@ import { photoRoutes } from './routes/photos.js';
 import { projectRoutes } from './routes/projects.js';
 import { siteVisitRoutes } from './routes/site-visits.js';
 import { submissionRoutes } from './routes/submissions.js';
+import { voiceRoutes } from './routes/voice.js';
 
 export interface ServerDependencies {
   prisma: PrismaClient;
@@ -56,7 +57,7 @@ export function buildServer({
   const dependencies = { prisma, queue, objectStore, timeSource };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The nine below are plain functions and
+  // spelled into every path (ADR-0023). The ten below are plain functions and
   // not plugins on purpose: a plugin would open an encapsulation context of its
   // own, and there is nothing here that wants one.
   app.register(
@@ -70,6 +71,7 @@ export function buildServer({
       siteVisitRoutes(v1, dependencies);
       issueRoutes(v1, dependencies);
       photoRoutes(v1, dependencies);
+      voiceRoutes(v1, dependencies);
     },
     { prefix: API_PREFIX },
   );

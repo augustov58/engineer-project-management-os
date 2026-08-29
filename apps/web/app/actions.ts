@@ -968,3 +968,116 @@ function revalidateIssues(projectId: string, siteVisitId?: string): void {
     revalidatePath(`/site-visits/${siteVisitId}`);
   }
 }
+
+// ── Voice capture and the draft observation (issue #12) ───────────────────
+
+/**
+ * Adding **one** recording to a walk (story 51). The API's refusal message, or
+ * undefined when it took it.
+ *
+ * Accepted on **200 as well as 201**, which no other write here does. 201 is a
+ * new recording; 200 is the one already stored under this key, which is what a
+ * phone gets when it sends again after losing signal (story 112). Both mean
+ * the same thing to the caller — the server has it and the phone may let go —
+ * and treating the second as a refusal is exactly how a recording gets kept
+ * forever or thrown away.
+ *
+ * `recordedAt` comes from the browser, because the browser is the only side
+ * that knows which wall clock the engineer was reading.
+ */
+export interface CaptureRefusal {
+  message: string;
+  /**
+   * Whether sending it again could ever succeed.
+   *
+   * A 4xx is the API understanding the recording and refusing it — a type it
+   * does not store, a body over the cap — and it will refuse the identical
+   * bytes every time. Holding one on the device would put a permanent banner
+   * on the screen and resend it on every load forever, which is the opposite
+   * of reconciling. Anything else is the send not arriving, which is exactly
+   * what the device is holding it for.
+   */
+  permanent: boolean;
+}
+
+export async function addVoiceCapture(
+  siteVisitId: string,
+  projectId: string,
+  captureKey: string,
+  recordedAt: string,
+  audio: File,
+): Promise<CaptureRefusal | undefined> {
+  const response = await send(`/site-visits/${siteVisitId}/voice-captures`, {
+    captureKey,
+    recordedAt,
+    contentType: audio.type,
+    bytes: Buffer.from(await audio.arrayBuffer()).toString('base64'),
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      message?: string;
+    };
+    return {
+      message: body.message ?? `the API returned ${response.status}`,
+      permanent: response.status >= 400 && response.status < 500,
+    };
+  }
+
+  revalidateSiteVisit(siteVisitId, projectId);
+  return undefined;
+}
+
+/**
+ * The draft, corrected, becoming an observation (story 52).
+ *
+ * The same fields the typed form sends, read the same way — the axis and its
+ * value arrive together so the grammar cannot be corrupted by the interface.
+ *
+ * The time is left off unless the engineer typed one, so the API dates the
+ * observation from the moment the recording was made rather than from the
+ * evening it was reviewed.
+ */
+export async function commitVoiceCapture(
+  voiceCaptureId: string,
+  siteVisitId: string,
+  visitedOn: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const axis = String(formData.get('axis') ?? 'side');
+  const value = omitIfBlank(formData, 'axisValue');
+
+  const error = await refusal(
+    await send(`/voice-captures/${voiceCaptureId}/observation`, {
+      observed: formData.get('observed'),
+      observedAt: composeInstant(
+        withDay(formData, visitedOn),
+        'day',
+        'observedAt',
+      ),
+      floor: formData.get('floor'),
+      qualifier: formData.get('qualifier'),
+      side: axis === 'side' ? (value ?? '') : undefined,
+      sector: axis === 'sector' ? (value ?? '') : undefined,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSiteVisit(siteVisitId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/** Asking the vendor again. The audio never moved; only the failure is cleared. */
+export async function retryVoiceCapture(
+  voiceCaptureId: string,
+  siteVisitId: string,
+  projectId: string,
+): Promise<void> {
+  await sendOrThrow(`/voice-captures/${voiceCaptureId}/retry`);
+  revalidateSiteVisit(siteVisitId, projectId);
+}

@@ -6,7 +6,9 @@ import { Client } from 'pg';
 import { inject } from 'vitest';
 import { createRuntime } from '../src/runtime.js';
 import { buildServer } from '../src/server.js';
-import type { TimeSource } from '../src/time-source.js';
+import { systemTimeSource, type TimeSource } from '../src/time-source.js';
+import type { Transcriber } from '../src/transcription.js';
+import { buildWorker } from '../src/worker.js';
 
 export interface TestApi {
   /** Origin of a real listening HTTP server, e.g. `http://127.0.0.1:41234`. */
@@ -31,12 +33,18 @@ export interface TestApi {
  * Redis, and listens on a random port.
  *
  * Every call copies the migrated template database, so tests never share
- * state and never need to clean up after each other. Nothing here is mocked
- * or substituted: the only injectable is the time source, which is the one
- * seam the plan names.
+ * state and never need to clean up after each other. Two things are
+ * substituted, and both are seams the plan names: the time source, and the
+ * transcription vendor — the one place issue #12 leaves this process for
+ * something no test may depend on.
+ *
+ * The transcription **worker** is not substituted. It is the real BullMQ
+ * worker over the real Redis the containers already start, built from the
+ * same `buildWorker` production calls, so a queued job is genuinely queued
+ * and genuinely picked up.
  */
 export async function startTestApi(
-  options: { timeSource?: TimeSource } = {},
+  options: { timeSource?: TimeSource; transcriber?: Transcriber } = {},
 ): Promise<TestApi> {
   const adminUrl = inject('postgresAdminUrl');
   const database = `test_${randomBytes(8).toString('hex')}`;
@@ -68,6 +76,18 @@ export async function startTestApi(
     objectStore: runtime.objectStore,
     timeSource: options.timeSource,
   });
+
+  const worker = buildWorker({
+    prisma: runtime.prisma,
+    objectStore: runtime.objectStore,
+    transcriber: options.transcriber ?? fakeTranscriber(),
+    // The same default `buildServer` applies, spelled here because the
+    // worker has no boundary of its own to default at.
+    timeSource: options.timeSource ?? systemTimeSource,
+    connection: runtime.workerConnection,
+    queueName: runtime.queueName,
+  });
+
   await app.listen({ port: 0, host: '127.0.0.1' });
 
   const address = app.server.address();
@@ -88,6 +108,10 @@ export async function startTestApi(
     },
     close: async () => {
       await app.close();
+      // Forced, unlike production's. A test that holds the fake vendor open to
+      // look at *transcribing* has a job that will never finish on its own,
+      // and a graceful close waits for exactly that.
+      await worker.close(true);
       await runtime.close();
       await rm(objectStoreDir, { recursive: true, force: true });
 
@@ -517,6 +541,8 @@ export interface SiteVisitDetail extends SiteVisitResponse {
   observations: ObservationResponse[];
   /** In the order they were taken, which is the order the walk happened in. */
   photos: PhotoResponse[];
+  /** What was spoken on this walk, in the order it was said (issue #12). */
+  voiceCaptures: VoiceCaptureResponse[];
 }
 
 export interface SiteVisitBody {
@@ -735,4 +761,122 @@ export async function addPhoto(
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
   }
   return (await response.json()) as PhotoResponse;
+}
+
+/**
+ * A transcription vendor that always says the same thing.
+ *
+ * The default for every test that is not about transcription: the seam the
+ * plan names for "the OCR/extraction vendor and the transcription vendor,
+ * behind their own thin ports".
+ */
+export function fakeTranscriber(
+  transcript = 'Fire rated wall penetration left unsealed above the ceiling',
+) {
+  return { transcribe: () => Promise.resolve(transcript) };
+}
+
+/** A vendor that refuses, which is the same stored fact as one that errors. */
+export function refusingTranscriber(reason: string) {
+  return { transcribe: () => Promise.reject(new Error(reason)) };
+}
+
+/**
+ * A vendor that does not answer until the test says so, so that *transcribing*
+ * is a state a test can stand in and look at.
+ *
+ * `reached` resolves once the worker has actually called it, which is the only
+ * way to know the job was picked up without sleeping.
+ */
+export function heldTranscriber(
+  transcript = 'Held until the test releases it',
+) {
+  let arrive!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  return {
+    reached,
+    release: () => release(),
+    transcribe: () => {
+      arrive();
+      return held.then(() => transcript);
+    },
+  };
+}
+
+/** A voice capture as the API returns it. Never its audio, never its key. */
+export interface VoiceCaptureResponse {
+  id: string;
+  siteVisitId: string;
+  /** What the phone called it, so a resend after a signal drop lands once. */
+  captureKey: string;
+  recordedAt: string;
+  contentType: string;
+  byteSize: number;
+  /** Stamped when the worker picked it up. Null while it is still queued. */
+  transcribingSince: string | null;
+  /** What the vendor heard, verbatim, and never rewritten by a correction. */
+  transcript: string | null;
+  transcribedAt: string | null;
+  failedAt: string | null;
+  failure: string | null;
+  createdAt: string;
+  /** Derived from the four stamps on every read, and stored nowhere. */
+  state: 'queued' | 'transcribing' | 'transcribed' | 'failed';
+  /** The observation it became, or null while it is still a draft. */
+  observation: ObservationResponse | null;
+}
+
+export interface VoiceCaptureBody {
+  captureKey: string;
+  recordedAt: string;
+  contentType: string;
+  /** The audio, base64. The record keeps the key; the store keeps these. */
+  bytes: string;
+}
+
+/**
+ * A short run of bytes standing in for audio.
+ *
+ * Nothing in this product ever decodes it — the vendor is behind a port and
+ * the read route hands the bytes straight back — so what matters is only that
+ * it is a real, non-empty, byte-exact payload to compare against.
+ */
+export const A_SOUND = 'T2dnUwACAAAAAAAAAABzcGVha2luZw==';
+
+/** A valid create body, so a test about one field need not restate the rest. */
+export function voiceCaptureBody(
+  patch: Partial<VoiceCaptureBody> = {},
+): VoiceCaptureBody {
+  return {
+    captureKey: 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
+    recordedAt: '2026-07-23T13:20:00.000Z',
+    contentType: 'audio/webm',
+    bytes: A_SOUND,
+    ...patch,
+  };
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function addVoiceCapture(
+  api: TestApi,
+  siteVisitId: string,
+  patch: Partial<VoiceCaptureBody> = {},
+): Promise<VoiceCaptureResponse> {
+  const path = `/v1/site-visits/${siteVisitId}/voice-captures`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(voiceCaptureBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as VoiceCaptureResponse;
 }

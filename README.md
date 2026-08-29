@@ -19,7 +19,14 @@ pnpm dev
 
 `pnpm dev` copies the `.env.example` files if no `.env` exists yet, starts PostgreSQL and
 Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, frontend on
-<http://127.0.0.1:3000>.
+<http://127.0.0.1:3000>. The transcription worker runs inside the API process (ADR-0034),
+so there is no third thing to start.
+
+**Recording audio needs a secure context.** `getUserMedia` is unavailable over plain HTTP
+except on `localhost`, so voice capture works on this machine and *not* on a phone reaching
+`http://<this machine's address>:3000` — the screen says so rather than failing silently.
+Nothing in the repo can change that; a deployed instance behind TLS (ADR-0003) or a tunnel
+is what makes one-handed capture on a phone real.
 
 Use `localhost`, not `127.0.0.1`, in the browser: `next dev` refuses to serve its own
 `/_next/*` assets to an origin it does not recognise, so the page renders and then dies
@@ -41,7 +48,7 @@ break that, and would only fail on the second device.
 ## Layout
 
 ```
-apps/api    Fastify API, Prisma schema and migrations, BullMQ queue
+apps/api    Fastify API, Prisma schema and migrations, BullMQ queue and transcription worker
 apps/web    Next.js frontend (App Router)
 docs/       Agent-facing notes; the ADRs and glossary live in the vault
 ```
@@ -273,8 +280,8 @@ exercises the API only, and a change that breaks the page would not fail the sui
 is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
 visit capture), on top of record-level coverage, rather than here.
 
-**Step 3 is now three slices in (issues #9, #10 and #11) and that automated pass is still
-not written.** Slices 8, 9 and 10 were each verified by driving the real pages in a browser
+**Step 3 is now four slices in (issues #9, #10, #11 and #12) and that automated pass is
+still not written.** Slices 8, 9 and 10 were each verified by driving the real pages in a browser
 by hand, which found nothing the suite would have caught but is not a regression test — and
 slice 9 showed what that costs. The hand pass walked the paths the ticket describes and passed;
 review then found two the pass had not thought to walk, both frontend-visible: a bad issue
@@ -282,13 +289,18 @@ number in a URL rendered an error page where every other bad URL renders a 404, 
 finding closed since a walk still read as open on that walk. A written pass walks the same
 paths every time, including the ones nobody feels like walking. The spec
 scopes the pass to the *capture flow* — voice, one-handed operation, photo picking,
-poor-signal reconciliation — which is issues #11 and #12. **Issue #11 has now landed
-without it**, and it was the half of that flow with the most interaction in it: a
-multi-file picker, per-file timestamps the server cannot read, and two selects that submit
-on change. That was verified by hand — three photographs added at once, binding to both
-mechanisms, to a floor only and to a finding only, and one re-binned from a single select
-change — and none of it is a regression test. Only #12 is left to carry the pass; if it is
-not written there, the seam the spec described does not exist.
+poor-signal reconciliation — which is issues #11 and #12. **Both have now landed without
+it.** #11 was the half with the most interaction in it: a multi-file picker, per-file
+timestamps the server cannot read, and two selects that submit on change, verified by hand
+— three photographs added at once, binding to both mechanisms, to a floor only and to a
+finding only, and one re-binned from a single select change. #12 is the half the spec names
+first, and named by name: "voice recording, one-handed operation, photo picking,
+poor-signal reconciliation". It was verified by hand too — a real `MediaRecorder` driven
+with a synthetic microphone at `localhost`, recorded, sent, transcribed, corrected,
+committed; then failed against the refusing default, its audio still readable, and
+recovered on a retry. **None of that is a regression test, and there is no longer a later
+ticket to carry the pass**: the seam the spec described does not exist, and writing it is
+now its own piece of work rather than a line item on somebody else's slice.
 
 Slice 4 hit the gap twice, both invisible to `pnpm test` and to `tsc`: a `<select>` whose
 `defaultValue` is only applied at mount, so changing a project's current phase left the

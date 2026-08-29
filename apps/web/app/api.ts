@@ -352,6 +352,56 @@ export interface Photo {
   createdAt: string;
 }
 
+/**
+ * A recording made on a walk, and the draft observation it becomes (issue #12).
+ *
+ * The audio is not here and neither is the key it is under: the bytes come
+ * back through `/voice-captures/:id/audio`, proxied by this app so the browser
+ * never calls the API directly.
+ */
+export interface VoiceCapture {
+  id: string;
+  siteVisitId: string;
+  captureKey: string;
+  recordedAt: string;
+  contentType: string;
+  byteSize: number;
+  transcribingSince: string | null;
+  /** What the vendor heard, verbatim. A correction never rewrites it. */
+  transcript: string | null;
+  transcribedAt: string | null;
+  failedAt: string | null;
+  failure: string | null;
+  createdAt: string;
+  /** Derived from the four stamps on every read, and stored nowhere. */
+  state: 'queued' | 'transcribing' | 'transcribed' | 'failed';
+  /** The observation it became, or null while it is still a draft. */
+  observation: Observation | null;
+}
+
+/**
+ * Still with the vendor: queued, or being transcribed. Nothing for the
+ * engineer to do yet.
+ *
+ * Here rather than beside any one of its readers, because the four-state union
+ * is read on three screens and a fifth state would otherwise be an edit in
+ * each of them. Not in a `'use client'` module: the site visit page is a
+ * server component, and Next turns every export of a client module into a
+ * client reference it cannot call.
+ */
+export function isWorking(capture: VoiceCapture): boolean {
+  return capture.state === 'queued' || capture.state === 'transcribing';
+}
+
+/**
+ * The engineer's move: a transcript to correct, or a failure to type from.
+ * Both are drafts, and a failed one is still committable — that is what makes
+ * a dead vendor unable to stop the walk being written up.
+ */
+export function awaitsReview(capture: VoiceCapture): boolean {
+  return capture.observation === null && !isWorking(capture);
+}
+
 /** One visit, with the job it was against and what it produced. */
 export interface SiteVisitDetail extends SiteVisit {
   project: { id: string; projectNumber: string; name: string };
@@ -361,6 +411,8 @@ export interface SiteVisitDetail extends SiteVisit {
   observations: Observation[];
   /** In the order they were taken, which is the order the walk happened in. */
   photos: Photo[];
+  /** What was spoken on this walk, in the order it was said. */
+  voiceCaptures: VoiceCapture[];
 }
 
 /** Oldest first: this list is a chronicle of the walks on a job. */
