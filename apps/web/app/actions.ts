@@ -714,6 +714,118 @@ function revalidateSiteVisit(siteVisitId: string, projectId: string): void {
   revalidatePath(`/projects/${projectId}`);
 }
 
+/**
+ * Adding photographs to a walk (stories 63-65).
+ *
+ * The whole selection in one action, because the work this removes is sorting
+ * a hundred of them by hand and picking them one at a time would be that
+ * afternoon back.
+ *
+ * Each file's timestamp rides along in a hidden field the browser wrote, in
+ * the same order as the files. It is read there and not here because
+ * `File.lastModified` is the only time a picked file carries and a File
+ * crossing a server action boundary is not promised to keep it — and because
+ * the browser is the only side that knows which wall clock the engineer was
+ * reading.
+ */
+export async function addPhotos(
+  siteVisitId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const files = formData
+    .getAll('photos')
+    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+  const times = formData.getAll('takenAt').map(String);
+
+  if (files.length === 0) {
+    return { added: previous.added, error: 'no photographs were chosen' };
+  }
+
+  let added = 0;
+  let error: string | undefined;
+
+  for (const [index, file] of files.entries()) {
+    const refused = await refusal(
+      await send(`/site-visits/${siteVisitId}/photos`, {
+        filename: file.name,
+        takenAt: times[index],
+        contentType: file.type,
+        bytes: Buffer.from(await file.arrayBuffer()).toString('base64'),
+      }),
+      201,
+    );
+
+    if (refused === undefined) {
+      added += 1;
+      continue;
+    }
+    // The first refusal, carrying the file it was about: out of a hundred
+    // photographs, "the API returned 409" is not an answer anybody can act on.
+    error ??= `${file.name}: ${refused}`;
+  }
+
+  revalidatePhoto(siteVisitId, projectId);
+  if (error === undefined) {
+    return { added: previous.added + added };
+  }
+  return {
+    added: previous.added + added,
+    error:
+      files.length === 1
+        ? error
+        : `${error} — ${added} of ${files.length} added`,
+  };
+}
+
+/**
+ * Correcting the floor a photograph was binned to (story 65), which ADR-0025
+ * holds to one action. Blank means unbound, which is a real answer: "not this
+ * floor" and "no window contained it" are the same fact about where it
+ * belongs.
+ */
+export async function bindPhotoToFloor(
+  photoId: string,
+  siteVisitId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  await sendOrThrow(`/photos/${photoId}/floor`, {
+    floor: omitIfBlank(formData, 'floor') ?? null,
+  });
+  revalidatePhoto(siteVisitId, projectId);
+}
+
+/**
+ * Correcting the finding a photograph evidences (story 65). Independent of
+ * the floor above, because the two mechanisms are: a photograph binned to the
+ * wrong floor and bound to the right finding needs one fixed, not both
+ * restated.
+ */
+export async function bindPhotoToIssue(
+  photoId: string,
+  siteVisitId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  const chosen = omitIfBlank(formData, 'issueNumber');
+  await sendOrThrow(`/photos/${photoId}/issue`, {
+    issueNumber: chosen === undefined ? null : Number(chosen),
+  });
+  revalidatePhoto(siteVisitId, projectId);
+}
+
+/**
+ * Every screen a photograph appears on. The finding's is one of them: its
+ * photo evidence is the rows pointing at it, so binding one changes that
+ * screen without anything being written to the issue.
+ */
+function revalidatePhoto(siteVisitId: string, projectId: string): void {
+  revalidateSiteVisit(siteVisitId, projectId);
+  revalidatePath('/projects/[id]/issues/[number]', 'page');
+}
+
 // ── Issues ────────────────────────────────────────────────────────────────
 
 /**

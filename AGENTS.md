@@ -26,10 +26,10 @@ Slice 1 (walking skeleton and test harness, issue #2), slice 2 (the `Project` re
 issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
 (submissions and per-project phases, issue #5), slice 5 (provisional state and exposure,
 issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption records,
-issue #8), slice 8 (site visits and observations, issue #9) and slice 9 (issues with
-stable per-project identifiers, issue #10) are built. The plan is the six-step **Revised
-MVP sequence** in `PRD and Architecture.md`, and the MVP is ticketed as
-GitHub issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is
+issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues with
+stable per-project identifiers, issue #10) and slice 10 (photo binning, issue #11) are
+built. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+the MVP is ticketed as GitHub issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is
 the author's to do. Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
@@ -166,6 +166,44 @@ See [README.md](./README.md).
   UI copy. The observation's content column is `observed` and not `note` for that reason;
   the record is a *site visit*, never an inspection or a walkthrough; and a location has no
   *area* or *zone*. Check a new column name against the glossary before writing it.
+- A photograph's bytes go to the injected `ObjectStore` port and never into the database
+  (ADR-0032). The row keeps `storage_key` and that key never reaches the wire. The bytes are
+  read back through `GET /v1/photos/:id/bytes` and **not** a presigned URL: that would be a
+  second thing reachable without the edge gate ADR-0020 carved its one exception out of, and
+  0020 is still Proposed. `apps/web` proxies the route so the browser never calls the API.
+- The **filename grammar** is `/\b(?:issue|iss)[-_ ]?(\d+)/gi`, written down for the first
+  time in ADR-0032 after ADR-0031, the glossary and the schema all recorded that it was
+  written down nowhere and refused to invent it. **A marker is required and a bare integer
+  never counts**: those filenames carry the floor as well as the finding, so
+  `3-west stair-issue-12.jpg` opens with a bare `3`, and reading any integer as an
+  identifier would bind every photograph taken on floor 3 to issue 3. Do not "simplify" it
+  to the last number in the name. One distinct number or nothing.
+- A photograph binds to a floor **iff exactly one** per-floor window contains its timestamp
+  — both ends inclusive, open-ended while the floor is still being walked. Zero windows and
+  two windows are equally unbound, because picking one of two is the guess the ticket
+  refuses in the zero case (ADR-0032). Do not add a tie-break.
+- Both bindings are **stamped when the photograph is added and corrected in one action**,
+  not derived on read as `location`, *currently provisional* and *superseded* are
+  (ADR-0032). A derived binding has nowhere to keep a correction, and a floor time fixed the
+  next morning would silently move photographs between floors. There is no provenance
+  column: "the engineer cleared it" and "no window contained it" are the same stored fact.
+- `photos.taken_at` is **required** and never falls back to the `TimeSource`, unlike
+  `observations.observed_at` — that fallback would bin a timestamp-less photograph to
+  whichever floor was being walked at the moment of the request (ADR-0032). Nothing reads
+  EXIF. The screen sends the file's *local wall clock* written as UTC, the same frame
+  `composeInstant` puts a typed time in, because ADR-0030's timezone deferral is still open
+  and mixing the two frames would bin every photograph of the afternoon to nothing.
+- Photo evidence lands on the **floor** and the **finding**, never on the observation
+  (ADR-0032), whatever the glossary's Observation entry used to promise. There is no
+  `photo_observations` join; a photograph and the observations made on its floor are read
+  together through the floor value, which is why ADR-0030 joined those columns by value.
+  Binding by filename creates no **sighting** — a sighting is an observation.
+- Nothing deletes a photograph and nothing rewrites its filename: the name is the mechanism,
+  so a correction touches only the bindings. `PATCH`, `PUT` and `DELETE` on one are 404, as
+  they are for a submission and an issue, and a test asserts it.
+- Photo binning runs **in the request**, not on BullMQ, despite the PRD diagram and the spec
+  stack line putting it on a worker (ADR-0032). It is date comparison and one regular
+  expression. BullMQ is still wired and still enqueues nothing.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  addPhotos,
+  bindPhotoToFloor,
+  bindPhotoToIssue,
   completeFloor,
   endSiteVisit,
   raiseIssue,
@@ -12,9 +15,10 @@ import {
   reobserveIssue,
   startFloor,
 } from '../../actions';
-import { getSiteVisit, listIssues } from '../../api';
+import { getSiteVisit, listIssues, listIssuesWithoutPhotos } from '../../api';
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { clock, day } from '../../open-item';
+import { PhotoBindings, PhotoForm } from '../../photo-form';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
 
 export const dynamic = 'force-dynamic';
@@ -43,6 +47,21 @@ export default async function SiteVisitRecord({
       issue.observations.map((sighting) => [sighting.id, issue] as const),
     ),
   );
+
+  // Read before the report is written, so it never ships with placeholders and
+  // sits incomplete for four days (story 66).
+  const unevidenced = await listIssuesWithoutPhotos(id);
+
+  // Every floor this walk knows about: the ones formally started and the ones
+  // only ever observed on. ADR-0030 joined those two by value rather than by a
+  // foreign key precisely so a floor could exist without being scheduled, and
+  // a correction has to be able to name one.
+  const floors = [
+    ...new Set([
+      ...visit.floors.map((floor) => floor.floor),
+      ...visit.observations.map((observation) => observation.floor),
+    ]),
+  ];
 
   async function end() {
     'use server';
@@ -255,6 +274,102 @@ export default async function SiteVisitRecord({
           <ObservationForm
             submit={recordObservation.bind(null, id, visitedOn, projectId)}
           />
+        </CardContent>
+      </Card>
+
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Photographs</h2>
+          <span className="text-muted-foreground text-sm">
+            {visit.photos.length === 0
+              ? 'none yet'
+              : `${visit.photos.length} on this walk`}
+          </span>
+        </div>
+
+        {unevidenced.length > 0 && (
+          <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-4">
+            <p className="text-sm font-medium">
+              {unevidenced.length === 1
+                ? 'One finding on this walk has no photograph yet.'
+                : `${unevidenced.length} findings on this walk have no photograph yet.`}
+            </p>
+            <ul className="flex flex-wrap gap-2">
+              {unevidenced.map((finding) => (
+                <li key={finding.id}>
+                  <Link
+                    href={`/projects/${projectId}/issues/${finding.number}`}
+                    className="inline-flex items-center gap-2"
+                  >
+                    <Badge variant="outline">Issue {finding.number}</Badge>
+                    <span className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+                      {finding.category}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {visit.photos.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {visit.photos.map((photo) => (
+              <li
+                key={photo.id}
+                className="flex flex-wrap items-center gap-4 px-4 py-3"
+              >
+                {/*
+                  Through the Next server, never straight at the API. The bin
+                  cannot be seen to be wrong without seeing the photograph, so
+                  this is what makes a two-second correction possible at all.
+                */}
+                <img
+                  src={`/photos/${photo.id}/bytes`}
+                  alt={photo.filename}
+                  className="bg-muted size-16 shrink-0 rounded-md border object-cover"
+                />
+                <div className="min-w-48 flex-1 space-y-0.5">
+                  <p className="text-sm font-medium break-all">
+                    {photo.filename}
+                  </p>
+                  <p className="text-muted-foreground text-sm tabular-nums">
+                    {clock(photo.takenAt)}
+                    {photo.floor === null && photo.issueNumber === null
+                      ? ' · unbound'
+                      : ''}
+                  </p>
+                </div>
+                <PhotoBindings
+                  floor={photo.floor}
+                  floors={floors}
+                  issueNumber={photo.issueNumber}
+                  issues={issues}
+                  bindFloor={bindPhotoToFloor.bind(
+                    null,
+                    photo.id,
+                    id,
+                    projectId,
+                  )}
+                  bindIssue={bindPhotoToIssue.bind(
+                    null,
+                    photo.id,
+                    id,
+                    projectId,
+                  )}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Add the walk&rsquo;s photographs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PhotoForm submit={addPhotos.bind(null, id, projectId)} />
         </CardContent>
       </Card>
 

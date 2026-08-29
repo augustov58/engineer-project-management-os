@@ -28,11 +28,13 @@ const runtime = createRuntime({
   databaseUrl: requireEnv('DATABASE_URL'),
   redisUrl: requireEnv('REDIS_URL'),
   queueName: 'epmos',
+  objectStoreDir: requireEnv('OBJECT_STORE_DIR'),
 });
 
 const app = buildServer({
   prisma: runtime.prisma,
   queue: runtime.queue,
+  objectStore: runtime.objectStore,
   logger: true,
 });
 

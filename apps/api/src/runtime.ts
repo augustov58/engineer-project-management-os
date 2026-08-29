@@ -2,10 +2,12 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { PrismaClient } from '../generated/prisma/client.js';
+import { FilesystemObjectStore, type ObjectStore } from './object-store.js';
 
 export interface Runtime {
   prisma: PrismaClient;
   queue: Queue;
+  objectStore: ObjectStore;
   close(): Promise<void>;
 }
 
@@ -14,6 +16,8 @@ export interface RuntimeOptions {
   redisUrl: string;
   /** Distinct per test, so two suites never share a queue. */
   queueName: string;
+  /** Where a photograph's bytes go. Distinct per test, like the queue name. */
+  objectStoreDir: string;
 }
 
 /**
@@ -27,6 +31,7 @@ export function createRuntime({
   databaseUrl,
   redisUrl,
   queueName,
+  objectStoreDir,
 }: RuntimeOptions): Runtime {
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: databaseUrl }),
@@ -39,6 +44,7 @@ export function createRuntime({
   return {
     prisma,
     queue,
+    objectStore: new FilesystemObjectStore(objectStoreDir),
     close: async () => {
       await queue.close();
       redis.disconnect();

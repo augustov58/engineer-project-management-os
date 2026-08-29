@@ -140,6 +140,50 @@ export default async function IssueRecord({
       </section>
 
       <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Photo evidence</h2>
+          <span className="text-muted-foreground text-sm">
+            {found.photos.length === 0
+              ? 'none yet'
+              : found.photos.length === 1
+                ? 'one photograph'
+                : `${found.photos.length} photographs`}
+          </span>
+        </div>
+
+        {found.photos.length === 0 ? (
+          <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+            Nothing photographed yet. A photograph binds itself here by its
+            name &mdash; <code>issue-{found.number}</code> anywhere in it
+            &mdash; or is bound by hand from the walk it was taken on.
+          </p>
+        ) : (
+          <ul className="flex flex-wrap gap-3">
+            {found.photos.map((photo) => (
+              <li key={photo.id}>
+                <Link
+                  href={`/site-visits/${photo.siteVisitId}`}
+                  className="block space-y-1"
+                >
+                  {/* Through the Next server, never straight at the API. */}
+                  <img
+                    src={`/photos/${photo.id}/bytes`}
+                    alt={photo.filename}
+                    className="bg-muted size-32 rounded-md border object-cover"
+                  />
+                  <p className="text-muted-foreground max-w-32 truncate text-xs">
+                    {photo.floor === null
+                      ? photo.filename
+                      : `Floor ${photo.floor}`}
+                  </p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3">
         <h2 className="text-lg font-medium">Lifecycle</h2>
 
         {closedAt !== null ? (

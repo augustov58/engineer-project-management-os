@@ -1,11 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import type { Queue } from 'bullmq';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
+import type { ObjectStore } from './object-store.js';
 import { systemTimeSource, type TimeSource } from './time-source.js';
 
 export interface ServerDependencies {
   prisma: PrismaClient;
   queue: Queue;
+  /** Where a photograph's bytes go. No default: there is no sensible one. */
+  objectStore: ObjectStore;
   /** Defaults to the real clock; tests pass a fake and advance it by hand. */
   timeSource?: TimeSource;
   logger?: boolean;
@@ -1027,6 +1031,182 @@ async function observationRefusal(
   return null;
 }
 
+// ── Photographs and the two bindings (issue #11) ─────────────────────────
+//
+// Above the issue helpers rather than at the bottom with the rest of the
+// slice, because an issue is read with its photo evidence and `issueInclude`
+// names `photoInclude` below.
+
+/**
+ * The image types the boundary admits, byte-exact and closed.
+ *
+ * Closed rather than any `image/*`, because the read route hands this value
+ * straight back as the response's content type: a row carrying `text/html`
+ * would be a page this product served under its own origin. A CHECK
+ * constraint names the same four underneath, the way the issue category's
+ * five are named in both places.
+ */
+const PHOTO_CONTENT_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/heic',
+  'image/webp',
+] as const;
+
+/**
+ * Twelve mebibytes of file, as the base64 that carries it.
+ *
+ * The cap the plan does not state. A 48-megapixel HEIC off a current phone is
+ * about five, and the largest JPEG a site camera produces is under ten, so
+ * twelve is the first round number above anything a walk actually generates.
+ */
+const PHOTO_BYTES_MAX = 16_777_216;
+
+/** The body plus its JSON, so the limit refuses a file and not a request. */
+const PHOTO_BODY_LIMIT = PHOTO_BYTES_MAX + 64 * 1024;
+
+/**
+ * A photograph on the way in.
+ *
+ * The bytes arrive base64 in the JSON body rather than as multipart, so the
+ * filename, the timestamp and the type are refused by the same schema as
+ * every other field in this product instead of by a hand-written check on the
+ * far side of a plugin. The cost is a third more on the wire, and it buys a
+ * boundary that behaves like all the others.
+ *
+ * `takenAt` is required, and pointedly does not fall back to the injected
+ * clock the way `observedAt` does: a photograph with no time would bin to
+ * whichever floor was being walked at the moment of the request, which is the
+ * guess the ticket asks not to make.
+ */
+const photoBodySchema = {
+  type: 'object',
+  required: ['filename', 'takenAt', 'contentType', 'bytes'],
+  additionalProperties: false,
+  properties: {
+    // Long enough for a real name off a phone, which is the mechanism, and
+    // short enough to be a filename rather than a sentence.
+    filename: { type: 'string', pattern: NOT_BLANK, maxLength: 255 },
+    takenAt: { type: 'string', format: 'date-time' },
+    contentType: { type: 'string', enum: [...PHOTO_CONTENT_TYPES] },
+    // Four characters of base64 is one byte or more, so a body that passes
+    // here can never decode to the nothing the CHECK constraint refuses.
+    bytes: {
+      type: 'string',
+      pattern: '^[A-Za-z0-9+/]+={0,2}$',
+      minLength: 4,
+      maxLength: PHOTO_BYTES_MAX,
+    },
+  },
+} as const;
+
+/**
+ * Correcting the floor. Null clears it, which is a real answer: the engineer
+ * saying "not this floor" and the schedule saying nothing are the same fact
+ * about where the photograph belongs.
+ */
+const photoFloorBodySchema = {
+  type: 'object',
+  required: ['floor'],
+  additionalProperties: false,
+  properties: { floor: { oneOf: [FLOOR, { type: 'null' }] } },
+} as const;
+
+/** Correcting the finding, by the identifier rather than by the row id. */
+const photoIssueBodySchema = {
+  type: 'object',
+  required: ['issueNumber'],
+  additionalProperties: false,
+  properties: {
+    issueNumber: { oneOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] },
+  },
+} as const;
+
+/** The one 404 body for photographs, matching the others. */
+function noSuchPhoto(reply: FastifyReply) {
+  return reply.code(404).send({ message: 'no photo with that id' });
+}
+
+const photoInclude = { issue: { select: { number: true } } } as const;
+
+type StoredPhoto = Prisma.PhotoGetPayload<{ include: typeof photoInclude }>;
+
+/**
+ * A photograph on the wire: the **identifier** of the finding it evidences,
+ * and neither that finding's row id nor the key its bytes are under.
+ *
+ * The number, because the identifier is the thing anybody has written down —
+ * it is what the filename carried in and what the report will print. The
+ * storage key is the object store's business and means something different
+ * the day the adapter changes.
+ */
+function photoOnTheWire(photo: StoredPhoto) {
+  const { storageKey: _key, issueId: _row, issue, ...onTheWire } = photo;
+  return { ...onTheWire, issueNumber: issue === null ? null : issue.number };
+}
+
+/**
+ * The floor whose window contains the moment a photograph was taken, or null
+ * (story 63).
+ *
+ * A window runs from when the floor was started to when it was completed,
+ * **both ends included**, and stays open while the floor is still being
+ * walked: the last floor of a walk is the one most often left unclosed, and a
+ * photograph taken on it is not ambiguous just because nobody said "done".
+ *
+ * **Exactly one window, or nothing.** None is the case the ticket names by
+ * hand. Two is the walk where the engineer doubled back before closing a
+ * floor — both windows really do contain the moment, so which floor it was
+ * taken on is not known, and picking one would be the same guess.
+ */
+function binToFloor(
+  takenAt: Date,
+  schedule: { floor: string; startedAt: Date; completedAt: Date | null }[],
+): string | null {
+  const taken = takenAt.getTime();
+  const containing = schedule.filter(
+    (window) =>
+      window.startedAt.getTime() <= taken &&
+      (window.completedAt === null || taken <= window.completedAt.getTime()),
+  );
+  return containing.length === 1 ? (containing[0]?.floor ?? null) : null;
+}
+
+/**
+ * The grammar the engineer already uses, written down here for the first time
+ * (story 64): `issue` or `iss`, then the number, with a hyphen, an underscore,
+ * a space or nothing between them — `3-west stair-issue-12.jpg`,
+ * `B1 MDP room ISS-7.jpeg`.
+ *
+ * [[0018]] records that photographs "already arrive over a messaging app with
+ * filenames encoding floor, location, and issue" and says no more than that;
+ * [[0031]] refused to invent the rest without having seen a real name.
+ * ADR-0032 is where a real one was supplied, and this is it.
+ *
+ * **A marker is required and a bare integer never counts.** `IMG_0003.jpg`
+ * names no finding — it is a camera's counter, and reading it as issue 3
+ * would have the mechanism doing harm to most of a hundred photographs, which
+ * is worse than binding none of them.
+ *
+ * The floor the ADR also mentions is deliberately not read here: the timestamp
+ * against the schedule is the floor's mechanism, and two answers to one
+ * question is a disagreement waiting to be resolved by a coin.
+ */
+const ISSUE_IN_FILENAME = /\b(?:issue|iss)[-_ ]?(\d+)/gi;
+
+/**
+ * One distinct identifier or nothing, for the reason a floor takes exactly one
+ * window: a name carrying two findings does not say which the photograph is
+ * of. The same one twice is still one.
+ */
+function issueNumberInFilename(filename: string): number | null {
+  const named = new Set(
+    [...filename.matchAll(ISSUE_IN_FILENAME)].map((match) => Number(match[1])),
+  );
+  const [only] = named;
+  return named.size === 1 ? (only ?? null) : null;
+}
+
 /**
  * What an issue is read with: every sighting of it, oldest first, and the open
  * items being chased for it.
@@ -1053,6 +1233,12 @@ const issueInclude = {
     orderBy: { openItem: { waitingSince: 'asc' } },
     select: { openItem: true },
   },
+  // The photo evidence for this finding, across every walk it was seen on
+  // (issue #11). A list, whose length is the count.
+  photos: {
+    orderBy: [{ takenAt: 'asc' }, { createdAt: 'asc' }],
+    include: photoInclude,
+  },
   // `satisfies` rather than `as const`, which the other includes here use:
   // Prisma's `orderBy` takes a mutable array, and `as const` makes this one
   // readonly.
@@ -1070,7 +1256,7 @@ type Finding = Prisma.IssueGetPayload<{ include: typeof issueInclude }>;
  * silently wrong about the others.
  */
 function withSightings(found: Finding) {
-  const { observations, openItems, ...issue } = found;
+  const { observations, openItems, photos, ...issue } = found;
   return {
     ...issue,
     observations: observations.map(({ observation }) => {
@@ -1078,6 +1264,7 @@ function withSightings(found: Finding) {
       return { ...withLocation(sighting), siteVisit: withDate(siteVisit) };
     }),
     openItems: openItems.map((row) => row.openItem),
+    photos: photos.map(photoOnTheWire),
   };
 }
 
@@ -1124,6 +1311,7 @@ function writeIssue(
 export function buildServer({
   prisma,
   queue,
+  objectStore,
   timeSource = systemTimeSource,
   logger = false,
 }: ServerDependencies): FastifyInstance {
@@ -2280,16 +2468,21 @@ export function buildServer({
               observations: {
                 orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
               },
+              photos: {
+                orderBy: [{ takenAt: 'asc' }, { createdAt: 'asc' }],
+                include: photoInclude,
+              },
             },
           });
           if (found === null) {
             return noSuchSiteVisit(reply);
           }
 
-          const { observations, ...visit } = found;
+          const { observations, photos, ...visit } = found;
           return {
             ...withDate(visit),
             observations: observations.map(withLocation),
+            photos: photos.map(photoOnTheWire),
           };
         },
       );
@@ -2791,6 +2984,258 @@ export function buildServer({
             throw error;
           }
           return reply.code(204).send();
+        },
+      );
+
+      // ── Photographs and the two bindings (issue #11) ─────────────────────
+
+      /**
+       * Adding a photograph to a walk (stories 63-64).
+       *
+       * Two independent mechanisms, both deterministic, both stamped here and
+       * both correctable below. The timestamp against the per-floor schedule
+       * binds it to a floor; the filename grammar binds it to a finding. It
+       * may end up with either, both, or neither.
+       *
+       * Stamped rather than derived on every read, which is what this product
+       * does with `location`, *currently provisional* and *superseded*: a
+       * derived binding has nowhere to keep a correction, and a schedule fixed
+       * the next morning would silently move what was already binned.
+       *
+       * Binning runs here and not on the queue. The PRD's diagram and the
+       * spec's stack line both put photo binning on a worker; it is date and
+       * string matching that takes microseconds, and a job would add
+       * asynchrony, a progress surface and a second place to look for nothing.
+       */
+      v1.post<{
+        Params: { id: string };
+        Body: {
+          filename: string;
+          takenAt: string;
+          contentType: string;
+          bytes: string;
+        };
+      }>(
+        '/site-visits/:id/photos',
+        { schema: { body: photoBodySchema }, bodyLimit: PHOTO_BODY_LIMIT },
+        async (request, reply) => {
+          const walk = await prisma.siteVisit.findUnique({
+            where: { id: request.params.id },
+            select: {
+              id: true,
+              projectId: true,
+              floors: {
+                select: { floor: true, startedAt: true, completedAt: true },
+              },
+            },
+          });
+          if (walk === null) {
+            return noSuchSiteVisit(reply);
+          }
+
+          const { filename, contentType } = request.body;
+          const bytes = Buffer.from(request.body.bytes, 'base64');
+          const takenAt = new Date(request.body.takenAt);
+
+          // The identifier is the job's, so a name carrying a number this
+          // project never allocated binds to nothing — including one that is
+          // a real finding on some other job.
+          const named = issueNumberInFilename(filename);
+          const finding =
+            named === null
+              ? null
+              : await prisma.issue.findUnique({
+                  where: {
+                    projectId_number: {
+                      projectId: walk.projectId,
+                      number: named,
+                    },
+                  },
+                  select: { id: true },
+                });
+
+          try {
+            const stored = await prisma.$transaction(async (tx) => {
+              const row = await tx.photo.create({
+                data: {
+                  siteVisitId: walk.id,
+                  filename,
+                  takenAt,
+                  contentType,
+                  byteSize: bytes.byteLength,
+                  storageKey: `photos/${randomUUID()}`,
+                  floor: binToFloor(takenAt, walk.floors),
+                  issueId: finding === null ? null : finding.id,
+                  createdAt: timeSource.now(),
+                },
+                include: photoInclude,
+              });
+
+              // Inside the transaction, so a store that refuses the bytes
+              // rolls the row back rather than leaving a photograph with
+              // nothing behind it.
+              await objectStore.put(row.storageKey, bytes, row.contentType);
+              return row;
+            });
+            return reply.code(201).send(photoOnTheWire(stored));
+          } catch (error) {
+            // Narrowed to the name. The insert also writes a fresh storage
+            // key, and answering "already on this visit" to a collision there
+            // would be a lie at the one moment anybody read it.
+            if (violates(error, 'filename')) {
+              return reply
+                .code(409)
+                .send({ message: 'that file is already on this site visit' });
+            }
+            throw error;
+          }
+        },
+      );
+
+      /**
+       * The bytes themselves, served through the API.
+       *
+       * Not a presigned URL. [[0020]] puts one shared secret in front of every
+       * route and carved out exactly one exception, reasoning about it
+       * explicitly; a second carve-out deserves the same treatment, and that
+       * ADR is still Proposed.
+       */
+      v1.get<{ Params: { id: string } }>(
+        '/photos/:id/bytes',
+        async (request, reply) => {
+          const found = await prisma.photo.findUnique({
+            where: { id: request.params.id },
+            select: { storageKey: true, contentType: true },
+          });
+          if (found === null) {
+            return noSuchPhoto(reply);
+          }
+
+          const bytes = await objectStore.get(found.storageKey);
+          return reply
+            .header('content-type', found.contentType)
+            // One of four image types, and the browser is told not to look
+            // for a fifth.
+            .header('x-content-type-options', 'nosniff')
+            .send(bytes);
+        },
+      );
+
+      /**
+       * Correcting the floor in one action (story 65), which is the quality
+       * bar [[0025]] holds this ticket to.
+       *
+       * The designation and not a row on the schedule: [[0030]] joined those
+       * two by value on purpose, and a photograph belongs on a floor whether
+       * or not anybody formally started it.
+       */
+      v1.post<{ Params: { id: string }; Body: { floor: string | null } }>(
+        '/photos/:id/floor',
+        { schema: { body: photoFloorBodySchema } },
+        async (request, reply) => {
+          const found = await prisma.photo.findUnique({
+            where: { id: request.params.id },
+            select: { id: true },
+          });
+          if (found === null) {
+            return noSuchPhoto(reply);
+          }
+
+          const corrected = await prisma.photo.update({
+            where: { id: found.id },
+            data: { floor: request.body.floor },
+            include: photoInclude,
+          });
+          return photoOnTheWire(corrected);
+        },
+      );
+
+      /**
+       * Correcting the finding in one action (story 65), by the identifier.
+       *
+       * Independent of the floor above, because the two mechanisms are: a
+       * photograph binned to the wrong floor and bound to the right finding
+       * needs one of them fixed and not both restated.
+       */
+      v1.post<{ Params: { id: string }; Body: { issueNumber: number | null } }>(
+        '/photos/:id/issue',
+        { schema: { body: photoIssueBodySchema } },
+        async (request, reply) => {
+          const found = await prisma.photo.findUnique({
+            where: { id: request.params.id },
+            select: { id: true, siteVisit: { select: { projectId: true } } },
+          });
+          if (found === null) {
+            return noSuchPhoto(reply);
+          }
+
+          const { issueNumber } = request.body;
+          let issueId: string | null = null;
+          if (issueNumber !== null) {
+            // Resolved against this job, so another project's issue 1 is not
+            // an issue this photograph can evidence — the same answer the
+            // filename gets, and for the same reason.
+            const finding = await prisma.issue.findUnique({
+              where: {
+                projectId_number: {
+                  projectId: found.siteVisit.projectId,
+                  number: issueNumber,
+                },
+              },
+              select: { id: true },
+            });
+            if (finding === null) {
+              return reply
+                .code(404)
+                .send({ message: 'no issue with that number on this project' });
+            }
+            issueId = finding.id;
+          }
+
+          const corrected = await prisma.photo.update({
+            where: { id: found.id },
+            data: { issueId },
+            include: photoInclude,
+          });
+          return photoOnTheWire(corrected);
+        },
+      );
+
+      /**
+       * Which findings on this walk still have no photo evidence (story 66),
+       * read before the report is generated so it never ships with
+       * placeholders.
+       *
+       * A **list**, whose length is the count — [[0027]]'s shape, so a number
+       * on a screen and the records it links to cannot disagree, and there is
+       * no third figure to combine with the two [[0016]] keeps apart.
+       *
+       * "On this walk" is *sighted* on it: a finding with an observation made
+       * here. And the evidence has to be from here too — July's photograph
+       * does not evidence August's re-observation, and the report about to be
+       * written is August's.
+       */
+      v1.get<{ Params: { id: string } }>(
+        '/site-visits/:id/issues-without-photos',
+        async (request, reply) => {
+          const { id } = request.params;
+          const walk = await prisma.siteVisit.findUnique({
+            where: { id },
+            select: { id: true },
+          });
+          if (walk === null) {
+            return noSuchSiteVisit(reply);
+          }
+
+          const found = await prisma.issue.findMany({
+            where: {
+              observations: { some: { observation: { siteVisitId: id } } },
+              photos: { none: { siteVisitId: id } },
+            },
+            orderBy: { number: 'asc' },
+            include: issueInclude,
+          });
+          return found.map(withSightings);
         },
       );
     },
