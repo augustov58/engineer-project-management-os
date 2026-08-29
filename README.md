@@ -10,6 +10,14 @@ Planning documentation is authoritative in the Obsidian vault, not here — star
 Node 22.12+, pnpm 10, and Docker (PostgreSQL and Redis run in containers; nothing needs
 to be installed on the host).
 
+`pnpm install` downloads Chrome and its headless shell into puppeteer's own cache, which
+is 652 MB on disk (measured, `~/.cache/puppeteer`, Chrome 152). That is
+the renderer a site visit report is printed with (ADR-0035), pinned with the dependency
+rather than found on the host, and `pnpm-workspace.yaml` lists `puppeteer` under
+`onlyBuiltDependencies` so its postinstall is allowed to run at all — pnpm blocks build
+scripts by default, and without the entry the install succeeds and every report fails at
+render time with no browser to launch.
+
 ## Running it
 
 ```bash
@@ -19,8 +27,9 @@ pnpm dev
 
 `pnpm dev` copies the `.env.example` files if no `.env` exists yet, starts PostgreSQL and
 Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, frontend on
-<http://127.0.0.1:3000>. The transcription worker runs inside the API process (ADR-0034),
-so there is no third thing to start.
+<http://127.0.0.1:3000>. The worker runs inside the API process (ADR-0034) and carries
+both things that run off the request — transcribing a recording and rendering a site visit
+report (ADR-0035) — so there is still no third thing to start.
 
 **Recording audio needs a secure context.** `getUserMedia` is unavailable over plain HTTP
 except on `localhost`, so voice capture works on this machine and *not* on a phone reaching
@@ -41,14 +50,15 @@ break that, and would only fail on the second device.
 | --- | --- |
 | `pnpm dev` | Everything: containers, migrations, API, frontend |
 | `pnpm typecheck` | `tsc --noEmit` across both apps |
-| `pnpm test` | API test suite — starts its own PostgreSQL and Redis, so nothing needs to be running first |
+| `pnpm test` | API test suite — starts its own PostgreSQL and Redis, so nothing needs to be running first; a report test really launches Chrome and reads the PDF back |
 | `pnpm services:up` / `services:down` | The Docker containers on their own |
 | `pnpm --filter api migrate:dev` | Create a migration after editing `schema.prisma` |
 
 ## Layout
 
 ```
-apps/api    Fastify API, Prisma schema and migrations, BullMQ queue and transcription worker
+apps/api    Fastify API, Prisma schema and migrations, BullMQ queue and the worker that
+            transcribes recordings and renders site visit reports
 apps/web    Next.js frontend (App Router)
 docs/       Agent-facing notes; the ADRs and glossary live in the vault
 ```
@@ -264,6 +274,54 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   exactly why ADR-0030 made those two columns the same type and joined them by value.
   Binding by filename creates no **sighting**: a sighting is an observation.
 
+- **A report is a record of a rendering** (ADR-0035). `POST /v1/site-visits/:id/reports`
+  writes a row and puts a job on the queue; `GET /v1/site-visits/:id/reports/stream` pushes
+  the state of every report on that walk while it renders; and
+  `GET /v1/site-visit-reports/:id/pdf` serves the document through the API rather than a
+  presigned URL, for the reason a photograph's bytes and a recording's are served that way,
+  with `apps/web` proxying it so the browser never calls the API directly. Nothing edits a
+  report — generating again writes another row, the shape ADR-0028 gave a reissue and
+  ADR-0029 a rerun — which is why there is **no retry route**: a recording is retried in
+  place because its audio is irreplaceable and the phone has let go of it, while a report's
+  every input is still in the database. That is also how a report is regenerated once a
+  finding that had no photograph has one. Its state is four stamps derived on every read —
+  `rendering_since`, `rendered_at` + `storage_key`, `failed_at` + `failure`, and queued is
+  all four null — with no status column, and nothing is ever cleared, because clearing is
+  what a retry in place would need. It owns nothing it prints, so it cannot come to disagree
+  with the walk it is a rendering of. `storage_key` is nullable, which inverts ADR-0032's
+  bytes-before-row order for the only reason that could: the queue sits between the row and
+  the document. The key is still written in the same statement as `rendered_at`, after the
+  object is stored.
+- **An issue prints as `Issue N`, and a report prints this walk's sightings** (ADR-0035).
+  Both were deferred to issue #13 by name, by ADR-0031 and again by ADR-0032. The identifier
+  is the record's name and the integer, which invents nothing — it is ADR-0030's floor rule,
+  where the column holds `3` and the render supplies the word, and it is what the filename
+  grammar already carries in as `issue-7`; `T-1-007` is refused, as ADR-0031 refused
+  `T-12-003`, and the project is named in the header block above every finding anyway. What
+  gets printed is every sighting made on the walk being written up and no others, the same
+  `where` clause `GET /v1/site-visits/:id/issues-without-photos` already uses — ADR-0032's
+  reasoning about evidence ("July's photograph does not evidence August's re-observation")
+  applied to the wording as well.
+- **The renderer is not behind a port** (ADR-0035), which is the first deliberate departure
+  from the `TimeSource` / `ObjectStore` / `Transcriber` pattern. Each of those defers a pick
+  no test can exercise: a bucket that does not exist, a vendor account nobody has chosen.
+  Chrome is not a pick — no account, no key, no network, no per-call cost, and puppeteer
+  pins its own build — so a port would defer nothing while costing the acceptance test its
+  subject, the ticket asking for an assertion on the resulting *document*. The real renderer
+  therefore runs in every test run. Rendering is on BullMQ, which is ADR-0034's case rather
+  than ADR-0032's: it launches a browser, decodes every photograph on the walk and lays out
+  a paginated document. One queue, a second job name dispatched on `job.name` inside
+  `buildWorker`, concurrency still 1.
+- **Two things the document taught that the screen could not** (ADR-0035). `letter-spacing`
+  above about a tenth of an em destroys a PDF's text layer: Chrome emits every glyph as its
+  own text run, so a tracked-out heading prints as `N O TA B L E …`, unsearchable and
+  uncopyable in the one artifact this product issues outside itself — it breaks at `0.11em`
+  and is fine at `0.09em`, measured. And photographs are inlined as data URIs, because the
+  renderer has to load one string and a linked `<img>` would need the API reachable from
+  inside the process serving it; they are bounded to 70mm tall or a portrait phone
+  photograph is a page each. Every value printed is HTML-escaped, this being the one place
+  where what the engineer spoke becomes markup.
+
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
   package, so there is no library upgrade to absorb. Radix underneath means focus rings and
@@ -280,8 +338,8 @@ exercises the API only, and a change that breaks the page would not fail the sui
 is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
 visit capture), on top of record-level coverage, rather than here.
 
-**Step 3 is now four slices in (issues #9, #10, #11 and #12) and that automated pass is
-still not written.** Slices 8, 9 and 10 were each verified by driving the real pages in a browser
+**Step 3 is now finished — five slices, issues #9, #10, #11, #12 and #13 — and that
+automated pass was never written.** Slices 8, 9 and 10 were each verified by driving the real pages in a browser
 by hand, which found nothing the suite would have caught but is not a regression test — and
 slice 9 showed what that costs. The hand pass walked the paths the ticket describes and passed;
 review then found two the pass had not thought to walk, both frontend-visible: a bad issue
@@ -298,9 +356,14 @@ first, and named by name: "voice recording, one-handed operation, photo picking,
 poor-signal reconciliation". It was verified by hand too — a real `MediaRecorder` driven
 with a synthetic microphone at `localhost`, recorded, sent, transcribed, corrected,
 committed; then failed against the refusing default, its audio still readable, and
-recovered on a retry. **None of that is a regression test, and there is no longer a later
-ticket to carry the pass**: the seam the spec described does not exist, and writing it is
-now its own piece of work rather than a line item on somebody else's slice.
+recovered on a retry. #13 is the step's last slice and the one place the seam matters least,
+because the artifact it produces is asserted on directly — the acceptance test drives
+generation through the API and reads the stable identifier of every finding back out of the
+rendered PDF, which is what keeping the renderer out from behind a port bought (ADR-0035).
+Its two screens were still verified by hand. **None of that is a regression test, and there
+is no longer a later ticket to carry the pass**: the seam the spec described does not exist,
+and writing it is now its own piece of work rather than a line item on somebody else's
+slice.
 
 Slice 4 hit the gap twice, both invisible to `pnpm test` and to `tsc`: a `<select>` whose
 `defaultValue` is only applied at mount, so changing a project's current phase left the
@@ -337,3 +400,15 @@ Since ADR-0025 the frontend also compiles a stylesheet, which `pnpm typecheck` d
 check. `pnpm --filter web build` is the command that catches a Tailwind or PostCSS error;
 it also works when `pnpm dev` will not, which on a machine that has run out of inotify
 watches is the difference between verifying a change and not.
+
+**Both of those commands currently fail, and were already failing before slice 12.**
+`pnpm typecheck` and `pnpm --filter web build` each stop on
+`apps/web/components/ui/field.tsx` — unused shadcn scaffolding left over from the Tailwind
+slice, which no longer typechecks now that two `@types/react` resolve in the tree: 19.2.2
+pinned, and 19.2.18 arriving through a radix peer dependency. Nothing imports the file.
+Verified pre-existing by checking out a pristine tree and running
+`pnpm install --frozen-lockfile && pnpm -r typecheck`, so it is not slice 12's to fix and
+was deliberately left standing rather than repaired inside somebody else's change. The cost
+is real and worth stating: while it fails, a frontend change is verified by loading the
+pages against `pnpm dev` — which is what slice 12's two screens got — and the Tailwind and
+PostCSS errors the paragraph above exists to catch are going uncaught.
