@@ -402,6 +402,32 @@ export function awaitsReview(capture: VoiceCapture): boolean {
   return capture.observation === null && !isWorking(capture);
 }
 
+/**
+ * A rendering of a walk into the document it is written up as (issue #13).
+ *
+ * The PDF is not here and neither is the key it is under: the bytes come back
+ * through `/site-visit-reports/:id/pdf`, proxied by this app so the browser
+ * never calls the API directly.
+ */
+export interface SiteVisitReport {
+  id: string;
+  siteVisitId: string;
+  renderingSince: string | null;
+  renderedAt: string | null;
+  /** The size of the document, once there is one. */
+  byteSize: number | null;
+  failedAt: string | null;
+  failure: string | null;
+  createdAt: string;
+  /** Derived from the four stamps on every read, and stored nowhere. */
+  state: 'queued' | 'rendering' | 'rendered' | 'failed';
+}
+
+/** Still rendering: queued, or in the browser. Nothing to do but wait. */
+export function isRendering(report: SiteVisitReport): boolean {
+  return report.state === 'queued' || report.state === 'rendering';
+}
+
 /** One visit, with the job it was against and what it produced. */
 export interface SiteVisitDetail extends SiteVisit {
   project: { id: string; projectNumber: string; name: string };
@@ -413,6 +439,8 @@ export interface SiteVisitDetail extends SiteVisit {
   photos: Photo[];
   /** What was spoken on this walk, in the order it was said. */
   voiceCaptures: VoiceCapture[];
+  /** The write-ups asked for of this walk, oldest first. */
+  reports: SiteVisitReport[];
 }
 
 /** Oldest first: this list is a chronicle of the walks on a job. */

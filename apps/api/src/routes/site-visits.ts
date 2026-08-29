@@ -16,6 +16,8 @@ import {
 import {
   photoOnTheWire,
   photosTaken,
+  reportOnTheWire,
+  reportsMade,
   voiceCaptureOnTheWire,
   voiceCapturesMade,
   withDate,
@@ -258,18 +260,24 @@ export function siteVisitRoutes(
           // said. A recording still awaiting review is a draft and is not an
           // observation, so it is read here and not in the list above.
           voiceCaptures: voiceCapturesMade,
+          // The write-ups asked for of this walk (issue #13), oldest first.
+          // Here rather than on a list route of their own, because "the
+          // generated report is retrievable from the visit" is the ticket's
+          // criterion and this is the screen it is retrieved on.
+          reports: reportsMade,
         },
       });
       if (found === null) {
         return noSuchSiteVisit(reply);
       }
 
-      const { observations, photos, voiceCaptures, ...visit } = found;
+      const { observations, photos, voiceCaptures, reports, ...visit } = found;
       return {
         ...withDate(visit),
         observations: observations.map(withLocation),
         photos: photos.map(photoOnTheWire),
         voiceCaptures: voiceCaptures.map(voiceCaptureOnTheWire),
+        reports: reports.map(reportOnTheWire),
       };
     },
   );

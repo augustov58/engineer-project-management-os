@@ -10,6 +10,7 @@ import { openItemRoutes } from './routes/open-items.js';
 import { phaseRoutes } from './routes/phases.js';
 import { photoRoutes } from './routes/photos.js';
 import { projectRoutes } from './routes/projects.js';
+import { reportRoutes } from './routes/reports.js';
 import { siteVisitRoutes } from './routes/site-visits.js';
 import { submissionRoutes } from './routes/submissions.js';
 import { voiceRoutes } from './routes/voice.js';
@@ -57,9 +58,9 @@ export function buildServer({
   const dependencies = { prisma, queue, objectStore, timeSource };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The ten below are plain functions and
-  // not plugins on purpose: a plugin would open an encapsulation context of its
-  // own, and there is nothing here that wants one.
+  // spelled into every path (ADR-0023). The eleven below are plain functions
+  // and not plugins on purpose: a plugin would open an encapsulation context of
+  // its own, and there is nothing here that wants one.
   app.register(
     async (v1) => {
       healthRoutes(v1, dependencies);
@@ -72,6 +73,7 @@ export function buildServer({
       issueRoutes(v1, dependencies);
       photoRoutes(v1, dependencies);
       voiceRoutes(v1, dependencies);
+      reportRoutes(v1, dependencies);
     },
     { prefix: API_PREFIX },
   );

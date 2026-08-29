@@ -406,6 +406,7 @@ model SiteVisit {
   observations  Observation[]
   photos        Photo[]
   voiceCaptures VoiceCapture[]
+  reports       SiteVisitReport[]
 
   @@index([projectId, startedAt])
   @@map("site_visits")
@@ -816,4 +817,69 @@ model VoiceCapture {
   @@unique([siteVisitId, captureKey])
   @@index([siteVisitId, recordedAt])
   @@map("voice_captures")
+}
+
+/// The write-up of a walk, rendered to PDF off the request (issue #13).
+///
+/// A **record of a rendering**, not a mutable document. Nothing here is
+/// edited: generating again writes another row against the same visit, dated
+/// its own moment, the way a rerun of a calculation is another assumption
+/// record against the same submission (ADR-0029) and a correction to a
+/// submission is a reissue (ADR-0028). That is also how a report is
+/// regenerated after a missing photograph is added.
+///
+/// It owns no content. Everything it prints is read from the visit, its
+/// observations, the findings sighted on it and their photographs at the
+/// moment it renders — so a report cannot come to disagree with the record it
+/// is a rendering of. What it froze is the PDF.
+model SiteVisitReport {
+  id String @id @default(uuid())
+
+  /// The walk it is a write-up of. The project is the visit's, read through
+  /// it, as a photograph's and a recording's are.
+  siteVisitId String    @map("site_visit_id")
+  siteVisit   SiteVisit @relation(fields: [siteVisitId], references: [id])
+
+  /// The four stamps the state is read from, in the shape ADR-0034 gave a
+  /// voice capture and for its reasons. There is no status column: ADR-0024
+  /// made `resolved_at` the whole of *unresolved* and ADR-0031 made
+  /// `closed_at` the whole of *closed*, so a second answer beside these would
+  /// be a second thing to keep true.
+  ///
+  /// Queued is all of them null. `rendering_since` is stamped when the worker
+  /// picks the job up; `storage_key` and `rendered_at` move together, as do
+  /// `failed_at` and `failure`.
+  ///
+  /// Nothing clears them. A recording is retried in place because its audio is
+  /// irreplaceable and the phone has already let go of it (ADR-0034); a report
+  /// has no such input — every byte it needs is still in the database — so a
+  /// second attempt is a second record and this row keeps saying what happened
+  /// to the first.
+  renderingSince DateTime? @map("rendering_since")
+  renderedAt     DateTime? @map("rendered_at")
+
+  /// Where the PDF is in the object store, and how big it is. Never on the
+  /// wire, for the reason a photograph's key and a recording's are not: the
+  /// key is the object store's business and means something different the day
+  /// the adapter changes. The bytes come back through
+  /// `GET /v1/site-visit-reports/:id/pdf`.
+  ///
+  /// There is no `content_type` beside them. A photograph and a recording each
+  /// carry one because either could be one of several types; a report is
+  /// always `application/pdf`, and a column holding one value forever is a
+  /// place for it to one day hold another.
+  storageKey String? @unique @map("storage_key")
+  byteSize   Int?    @map("byte_size")
+
+  /// Why it could not be rendered, bounded. Kept rather than cleared, because
+  /// this row is the record of one attempt.
+  failedAt DateTime? @map("failed_at")
+  failure  String?
+
+  /// When it was asked for. Entry order, so two reports generated in the same
+  /// minute do not list at random, and the newest is the last of them.
+  createdAt DateTime @map("created_at")
+
+  @@index([siteVisitId, createdAt])
+  @@map("site_visit_reports")
 }

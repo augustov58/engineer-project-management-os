@@ -1081,3 +1081,19 @@ export async function retryVoiceCapture(
   await sendOrThrow(`/voice-captures/${voiceCaptureId}/retry`);
   revalidateSiteVisit(siteVisitId, projectId);
 }
+
+/**
+ * Generating the write-up of a walk (issue #13).
+ *
+ * A second press is a second report and never a refusal: nothing edits one, so
+ * a correction is another rendering dated its own moment. That is what makes
+ * this the answer to a finding that had no photograph — add the photograph,
+ * generate again.
+ */
+export async function generateSiteVisitReport(
+  siteVisitId: string,
+  projectId: string,
+): Promise<void> {
+  await sendOrThrow(`/site-visits/${siteVisitId}/reports`);
+  revalidateSiteVisit(siteVisitId, projectId);
+}

@@ -44,7 +44,20 @@ export interface TestApi {
  * and genuinely picked up.
  */
 export async function startTestApi(
-  options: { timeSource?: TimeSource; transcriber?: Transcriber } = {},
+  options: {
+    timeSource?: TimeSource;
+    transcriber?: Transcriber;
+    /**
+     * Whether to run the worker at all. Default true.
+     *
+     * `false` does not substitute it — it does not start one, which is a state
+     * production has too: the API up with a job still sitting in Redis, which
+     * is what `POST /voice-captures/:id/retry` exists for. It is how *queued*
+     * becomes a state a test can stand in and look at for work with no vendor
+     * seam to hold open, the way `heldTranscriber` does for a transcription.
+     */
+    worker?: boolean;
+  } = {},
 ): Promise<TestApi> {
   const adminUrl = inject('postgresAdminUrl');
   const database = `test_${randomBytes(8).toString('hex')}`;
@@ -77,16 +90,19 @@ export async function startTestApi(
     timeSource: options.timeSource,
   });
 
-  const worker = buildWorker({
-    prisma: runtime.prisma,
-    objectStore: runtime.objectStore,
-    transcriber: options.transcriber ?? fakeTranscriber(),
-    // The same default `buildServer` applies, spelled here because the
-    // worker has no boundary of its own to default at.
-    timeSource: options.timeSource ?? systemTimeSource,
-    connection: runtime.workerConnection,
-    queueName: runtime.queueName,
-  });
+  const worker =
+    options.worker === false
+      ? null
+      : buildWorker({
+          prisma: runtime.prisma,
+          objectStore: runtime.objectStore,
+          transcriber: options.transcriber ?? fakeTranscriber(),
+          // The same default `buildServer` applies, spelled here because the
+          // worker has no boundary of its own to default at.
+          timeSource: options.timeSource ?? systemTimeSource,
+          connection: runtime.workerConnection,
+          queueName: runtime.queueName,
+        });
 
   await app.listen({ port: 0, host: '127.0.0.1' });
 
@@ -111,7 +127,7 @@ export async function startTestApi(
       // Forced, unlike production's. A test that holds the fake vendor open to
       // look at *transcribing* has a job that will never finish on its own,
       // and a graceful close waits for exactly that.
-      await worker.close(true);
+      await worker?.close(true);
       await runtime.close();
       await rm(objectStoreDir, { recursive: true, force: true });
 
@@ -543,6 +559,8 @@ export interface SiteVisitDetail extends SiteVisitResponse {
   photos: PhotoResponse[];
   /** What was spoken on this walk, in the order it was said (issue #12). */
   voiceCaptures: VoiceCaptureResponse[];
+  /** The write-ups asked for of this walk, oldest first (issue #13). */
+  reports: SiteVisitReportResponse[];
 }
 
 export interface SiteVisitBody {
@@ -879,4 +897,35 @@ export async function addVoiceCapture(
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
   }
   return (await response.json()) as VoiceCaptureResponse;
+}
+
+/** A site visit report as the API returns it (issue #13). */
+export interface SiteVisitReportResponse {
+  id: string;
+  siteVisitId: string;
+  /**
+   * The four stamps the state is read from. Queued is all four null; the
+   * document's size arrives with `renderedAt`.
+   */
+  renderingSince: string | null;
+  renderedAt: string | null;
+  byteSize: number | null;
+  failedAt: string | null;
+  failure: string | null;
+  createdAt: string;
+  /** Derived on every read from the four stamps and stored nowhere. */
+  state: 'queued' | 'rendering' | 'rendered' | 'failed';
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function generateReport(
+  api: TestApi,
+  siteVisitId: string,
+): Promise<SiteVisitReportResponse> {
+  const path = `/v1/site-visits/${siteVisitId}/reports`;
+  const response = await api.fetch(path, { method: 'POST' });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as SiteVisitReportResponse;
 }

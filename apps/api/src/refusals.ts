@@ -1,9 +1,9 @@
 /**
  * The refusals more than one route module reaches for.
  *
- * The eleven 404s are here as a **set** rather than by the count rule ADR-0033
+ * The twelve 404s are here as a **set** rather than by the count rule ADR-0033
  * otherwise applies — most are used by one record, but a route naming the
- * record it could not find is the thing that must not drift into eleven
+ * record it could not find is the thing that must not drift into twelve
  * differently worded bodies. Below them are the two async checks a record
  * makes before writing that another record makes too.
  *
@@ -89,6 +89,13 @@ export function noSuchPhoto(reply: FastifyReply) {
 /** The one 404 body for voice captures, matching the others. */
 export function noSuchVoiceCapture(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no voice capture with that id' });
+}
+
+/** The one 404 body for site visit reports, matching the others. */
+export function noSuchSiteVisitReport(reply: FastifyReply) {
+  return reply
+    .code(404)
+    .send({ message: 'no site visit report with that id' });
 }
 
 export async function phaseRefusal(
