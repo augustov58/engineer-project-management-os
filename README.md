@@ -64,6 +64,10 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
 - **`/v1` on every route** (ADR-0023). The prefix is one `register` call in
   `apps/api/src/server.ts`, not a string repeated per route. Slice 2 moved `/health` under
   it and dropped `skeleton_records`, so nothing unversioned survives.
+- **A record type is a file** (ADR-0033). `apps/api/src/routes/` holds one per record,
+  named to match the test file that drives it; `server.ts` is 76 lines of boundary.
+  `http.ts`, `refusals.ts` and `wire.ts` are leaves that import nothing from a route
+  module, which is what keeps records that read each other from forming a cycle.
 - **One column says whether an open item is unresolved** (ADR-0024): `resolved_at` being
   null, with `resolution_note` moving with it. Exposure, provisional state and the pending
   items view are all derived from that column, so none of them can disagree about what
