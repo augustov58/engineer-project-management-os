@@ -34,6 +34,18 @@ function lanAddresses(): string[] {
  */
 const nextConfig: NextConfig = {
   allowedDevOrigins: lanAddresses(),
+
+  /**
+   * A server action's body defaults to one megabyte, which no photograph off a
+   * phone fits in — the picker would have refused every real file while
+   * accepting the one-pixel PNG the API tests use.
+   *
+   * Sixteen covers the twelve-mebibyte file the API caps at plus the multipart
+   * overhead around it. It is a per-*photograph* limit and not a per-selection
+   * one, because the form sends one request per file: a hundred of them in one
+   * body is not a request anybody should make.
+   */
+  experimental: { serverActions: { bodySizeLimit: '16mb' } },
 };
 
 export default nextConfig;

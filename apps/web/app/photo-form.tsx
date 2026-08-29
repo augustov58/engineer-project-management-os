@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { selectClassName } from './native-select';
@@ -32,62 +32,80 @@ function asTypedInstant(lastModified: number): string {
 /**
  * Adding the walk's photographs.
  *
- * The whole selection at once: sorting a hundred by hand is the work this
- * removes, and a one-at-a-time picker would be that afternoon back.
+ * The whole selection is picked at once — sorting a hundred by hand is the
+ * work this removes — but sent **one request per photograph**, because a
+ * server action's body is capped and a hundred files of two to four megabytes
+ * in one body is not a request anybody should make. That is why this form
+ * drives the loop itself instead of handing one `FormData` to an action the
+ * way every other form here does; the count and the refusal come back per
+ * file, which is what a hundred photographs needs.
  */
 export function PhotoForm({
-  submit,
+  add,
 }: {
-  submit: (previous: AddState, formData: FormData) => Promise<AddState>;
+  add: (file: File, takenAt: string) => Promise<string | undefined>;
 }) {
-  const [state, action, pending] = useActionState(submit, { added: 0 });
+  const picker = useRef<HTMLInputElement>(null);
+  const [chosen, setChosen] = useState<File[]>([]);
+  const [state, setState] = useState<AddState>({ added: 0 });
+  const [pending, start] = useTransition();
+
+  function submit() {
+    if (chosen.length === 0) {
+      setState({ added: state.added, error: 'no photographs were chosen' });
+      return;
+    }
+
+    start(async () => {
+      let added = 0;
+      let error: string | undefined;
+
+      for (const file of chosen) {
+        const refused = await add(file, asTypedInstant(file.lastModified));
+        if (refused === undefined) {
+          added += 1;
+          continue;
+        }
+        // The first refusal, carrying the file it was about: out of a hundred
+        // photographs, "the API returned 409" is not an answer anybody can
+        // act on.
+        error ??= `${file.name}: ${refused}`;
+      }
+
+      // Cleared on the way out so the next selection starts empty, which the
+      // native input needs told directly — remounting it is what the `key` on
+      // every other form here is for, and there is no action state to key on.
+      setChosen([]);
+      if (picker.current !== null) {
+        picker.current.value = '';
+      }
+      setState({
+        added: state.added + added,
+        error:
+          error === undefined || chosen.length === 1
+            ? error
+            : `${error} — ${added} of ${chosen.length} added`,
+      });
+    });
+  }
 
   return (
-    <Fields
-      key={state.added}
-      action={action}
-      pending={pending}
-      error={state.error}
-    />
-  );
-}
-
-function Fields({
-  action,
-  pending,
-  error,
-}: {
-  action: (formData: FormData) => void;
-  pending: boolean;
-  error: string | undefined;
-}) {
-  // What the browser knows about each picked file and the server cannot be
-  // told any other way.
-  const [chosen, setChosen] = useState<{ name: string; takenAt: string }[]>([]);
-
-  return (
-    <form action={action} className="space-y-4">
+    <form action={submit} className="space-y-4">
       <div className="grid gap-1.5">
         <Label htmlFor="photos">Photographs</Label>
         {/*
-          Native, and not only because there is no styled equivalent: the
-          action reads the files straight out of FormData, which is the rule
-          ADR-0025 keeps every select in this product native for.
+          Native, and not only because there is no styled equivalent: this is
+          the control that carries the files, and ADR-0025 keeps the native
+          element wherever a styled one would change what a form serialises.
         */}
         <input
           id="photos"
+          ref={picker}
           name="photos"
           type="file"
           multiple
           accept={ACCEPT}
-          onChange={(event) =>
-            setChosen(
-              Array.from(event.target.files ?? []).map((file) => ({
-                name: file.name,
-                takenAt: asTypedInstant(file.lastModified),
-              })),
-            )
-          }
+          onChange={(event) => setChosen(Array.from(event.target.files ?? []))}
           className="file:text-foreground file:bg-transparent file:border-0 file:text-sm file:font-medium border-input w-full rounded-lg border bg-transparent px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         />
         <p className="text-muted-foreground text-sm">
@@ -98,27 +116,18 @@ function Fields({
         </p>
       </div>
 
-      {chosen.map((file, index) => (
-        <input
-          // Two files of the same name can be picked from two folders, so the
-          // position is part of what makes this row itself.
-          key={`${index}-${file.name}`}
-          type="hidden"
-          name="takenAt"
-          value={file.takenAt}
-        />
-      ))}
-
       {chosen.length > 0 && (
         <ul className="divide-y rounded-lg border text-sm">
           {chosen.map((file, index) => (
             <li
+              // Two files of the same name can be picked from two folders, so
+              // the position is part of what makes this row itself.
               key={`${index}-${file.name}`}
               className="flex flex-wrap items-baseline justify-between gap-3 px-3 py-2"
             >
-              <span className="font-medium">{file.name}</span>
+              <span className="font-medium break-all">{file.name}</span>
               <span className="text-muted-foreground tabular-nums">
-                {file.takenAt.slice(11, 16)}
+                {asTypedInstant(file.lastModified).slice(11, 16)}
               </span>
             </li>
           ))}
@@ -127,13 +136,15 @@ function Fields({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {chosen.length > 1
-            ? `Add ${chosen.length} photographs`
-            : 'Add the photograph'}
+          {pending
+            ? 'Adding…'
+            : chosen.length > 1
+              ? `Add ${chosen.length} photographs`
+              : 'Add the photograph'}
         </Button>
-        {error !== undefined && (
+        {state.error !== undefined && (
           <p role="alert" className="text-destructive text-sm">
-            {error}
+            {state.error}
           </p>
         )}
       </div>

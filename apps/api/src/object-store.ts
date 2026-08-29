@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, normalize, sep } from 'node:path';
+import { dirname, join, normalize, resolve, sep } from 'node:path';
 
 /**
  * Where a file's bytes live, injectable at the API boundary the way
@@ -32,7 +32,10 @@ export class FilesystemObjectStore implements ObjectStore {
   readonly #root: string;
 
   constructor(root: string) {
-    this.#root = root;
+    // Resolved, which normalises the path and drops any trailing separator.
+    // Without it, `OBJECT_STORE_DIR=/var/data/` would have the guard below
+    // compare against `/var/data//` and refuse every write to its own store.
+    this.#root = resolve(root);
   }
 
   async put(key: string, bytes: Buffer, _contentType: string): Promise<void> {

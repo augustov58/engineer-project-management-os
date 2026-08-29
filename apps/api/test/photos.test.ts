@@ -311,6 +311,13 @@ test.each([
   ['F-4', 'iss_4 north elevation.png'],
   ['F-5', 'Issue 4.jpg'],
   ['F-6', 'issue4.jpg'],
+  // Underscore-joined, which is the shape a phone and a messaging app
+  // actually produce. A `\b` before the marker found no boundary after an
+  // underscore and bound every one of these to nothing — while that same
+  // character is an allowed separator on the other side of the marker.
+  ['F-7', 'IMG_20260723_132045_issue4.jpg'],
+  ['F-8', 'photo_issue_4.jpg'],
+  ['F-9', '3_west_stair_iss_4.jpg'],
 ])('the filename %s binds to the issue it names', async (projectNumber, filename) => {
   const app = await api();
   const { walk } = await walked(app, projectNumber);
@@ -334,7 +341,26 @@ test('a camera’s own filename binds to nothing', async () => {
   // `IMG_0003` names issue 3 to a reader who takes any integer for an
   // identifier. It is a camera's counter and this is the case the ticket
   // names by hand.
-  for (const filename of ['IMG_0003.jpg', 'PXL_20260723_132045.jpg', 'DSC_0004.jpg']) {
+  //
+  // `3-west stair` matters more. ADR-0018 says these filenames encode the
+  // floor as well as the finding, so a bare integer at the front of the name
+  // is the floor — and every photograph on floor 3 of a job with three
+  // findings would otherwise arrive bound to the wrong one.
+  //
+  // The last four are what a *letter* before the marker buys, which is what
+  // the lookbehind guards and what makes the underscore cases above safe.
+  for (const filename of [
+    'IMG_0003.jpg',
+    'IMG 0003.jpg',
+    'PXL_20260723_132045.jpg',
+    'DSC_0004.jpg',
+    '3-west stair.jpg',
+    '3 - west stair landing.jpg',
+    'dismissed-3.jpg',
+    'Missouri-3.jpg',
+    'issuer-3.jpg',
+    'reissue-3.jpg',
+  ]) {
     const photo = await addPhoto(app, walk.id, { filename });
     expect(photo.issueNumber, filename).toBeNull();
   }

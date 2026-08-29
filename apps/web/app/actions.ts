@@ -715,68 +715,64 @@ function revalidateSiteVisit(siteVisitId: string, projectId: string): void {
 }
 
 /**
- * Adding photographs to a walk (stories 63-65).
+ * The type a browser could not name for itself.
  *
- * The whole selection in one action, because the work this removes is sorting
- * a hundred of them by hand and picking them one at a time would be that
- * afternoon back.
- *
- * Each file's timestamp rides along in a hidden field the browser wrote, in
- * the same order as the files. It is read there and not here because
- * `File.lastModified` is the only time a picked file carries and a File
- * crossing a server action boundary is not promised to keep it — and because
- * the browser is the only side that knows which wall clock the engineer was
- * reading.
+ * Desktop Chrome and Firefox report an empty type for a `.heic`, which the API
+ * refuses — while the picker offers HEIC, and HEIC is what a walk on an iPhone
+ * produces and what the messaging app hands back. The extension is the only
+ * other thing that says what the file is, and the four here are exactly the
+ * four the API stores.
  */
-export async function addPhotos(
+const TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  heic: 'image/heic',
+  webp: 'image/webp',
+};
+
+function contentTypeOf(file: File): string {
+  if (file.type !== '') {
+    return file.type;
+  }
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  // Sent as an empty string rather than omitted when nothing is known, so the
+  // API refuses it by the same rule as any other bad type.
+  return TYPE_BY_EXTENSION[extension] ?? '';
+}
+
+/**
+ * Adding **one** photograph to a walk (stories 63-65). The API's refusal
+ * message, or undefined when it took it.
+ *
+ * One request per photograph, and pointedly not the whole selection in one:
+ * a server action's body is capped, a walk is a hundred photographs of two to
+ * four megabytes each, and one body carrying all of them is a request nobody
+ * should make. The form calls this in a loop and counts, which also means a
+ * refusal names the file it was about.
+ *
+ * `takenAt` comes from the browser rather than from this file, because
+ * `File.lastModified` is the only time a picked file carries and the browser
+ * is the only side that knows which wall clock the engineer was reading.
+ */
+export async function addPhoto(
   siteVisitId: string,
   projectId: string,
-  previous: AddState,
-  formData: FormData,
-): Promise<AddState> {
-  const files = formData
-    .getAll('photos')
-    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
-  const times = formData.getAll('takenAt').map(String);
-
-  if (files.length === 0) {
-    return { added: previous.added, error: 'no photographs were chosen' };
-  }
-
-  let added = 0;
-  let error: string | undefined;
-
-  for (const [index, file] of files.entries()) {
-    const refused = await refusal(
-      await send(`/site-visits/${siteVisitId}/photos`, {
-        filename: file.name,
-        takenAt: times[index],
-        contentType: file.type,
-        bytes: Buffer.from(await file.arrayBuffer()).toString('base64'),
-      }),
-      201,
-    );
-
-    if (refused === undefined) {
-      added += 1;
-      continue;
-    }
-    // The first refusal, carrying the file it was about: out of a hundred
-    // photographs, "the API returned 409" is not an answer anybody can act on.
-    error ??= `${file.name}: ${refused}`;
-  }
+  file: File,
+  takenAt: string,
+): Promise<string | undefined> {
+  const refused = await refusal(
+    await send(`/site-visits/${siteVisitId}/photos`, {
+      filename: file.name,
+      takenAt,
+      contentType: contentTypeOf(file),
+      bytes: Buffer.from(await file.arrayBuffer()).toString('base64'),
+    }),
+    201,
+  );
 
   revalidatePhoto(siteVisitId, projectId);
-  if (error === undefined) {
-    return { added: previous.added + added };
-  }
-  return {
-    added: previous.added + added,
-    error:
-      files.length === 1
-        ? error
-        : `${error} — ${added} of ${files.length} added`,
-  };
+  return refused;
 }
 
 /**

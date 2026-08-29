@@ -49,6 +49,13 @@ const listQuerySchema = {
 
 const UNIQUE_VIOLATION = 'P2002';
 
+/**
+ * The largest value a Prisma `Int` column holds. An identifier above it is not
+ * a number this product ever allocated, and passing it to a lookup is a driver
+ * range error rather than a row that is not there.
+ */
+const MAX_IDENTIFIER = 2_147_483_647;
+
 /** The one 404 body, so the two lookup routes cannot drift apart. */
 function noSuchProject(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no project with that id' });
@@ -1054,16 +1061,17 @@ const PHOTO_CONTENT_TYPES = [
 ] as const;
 
 /**
- * Twelve mebibytes of file, as the base64 that carries it.
+ * The longest base64 string the boundary takes, which is twelve mebibytes of
+ * file. Named for the string because that is what `maxLength` measures.
  *
  * The cap the plan does not state. A 48-megapixel HEIC off a current phone is
  * about five, and the largest JPEG a site camera produces is under ten, so
  * twelve is the first round number above anything a walk actually generates.
  */
-const PHOTO_BYTES_MAX = 16_777_216;
+const PHOTO_BASE64_MAX = 16_777_216;
 
 /** The body plus its JSON, so the limit refuses a file and not a request. */
-const PHOTO_BODY_LIMIT = PHOTO_BYTES_MAX + 64 * 1024;
+const PHOTO_BODY_LIMIT = PHOTO_BASE64_MAX + 64 * 1024;
 
 /**
  * A photograph on the way in.
@@ -1095,7 +1103,7 @@ const photoBodySchema = {
       type: 'string',
       pattern: '^[A-Za-z0-9+/]+={0,2}$',
       minLength: 4,
-      maxLength: PHOTO_BYTES_MAX,
+      maxLength: PHOTO_BASE64_MAX,
     },
   },
 } as const;
@@ -1118,7 +1126,15 @@ const photoIssueBodySchema = {
   required: ['issueNumber'],
   additionalProperties: false,
   properties: {
-    issueNumber: { oneOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] },
+    // Bounded above as well as below: an identifier is an `Int` column, and a
+    // larger one is a range error from the driver where this route has its own
+    // answer — no issue with that number on this project.
+    issueNumber: {
+      oneOf: [
+        { type: 'integer', minimum: 1, maximum: MAX_IDENTIFIER },
+        { type: 'null' },
+      ],
+    },
   },
 } as const;
 
@@ -1128,6 +1144,12 @@ function noSuchPhoto(reply: FastifyReply) {
 }
 
 const photoInclude = { issue: { select: { number: true } } } as const;
+
+/** A walk's photographs, and a finding's, in the order they were taken. */
+const photosTaken = {
+  orderBy: [{ takenAt: 'asc' }, { createdAt: 'asc' }],
+  include: photoInclude,
+} satisfies Prisma.SiteVisit$photosArgs;
 
 type StoredPhoto = Prisma.PhotoGetPayload<{ include: typeof photoInclude }>;
 
@@ -1191,8 +1213,17 @@ function binToFloor(
  * The floor the ADR also mentions is deliberately not read here: the timestamp
  * against the schedule is the floor's mechanism, and two answers to one
  * question is a disagreement waiting to be resolved by a coin.
+ *
+ * The leading guard is a lookbehind for a letter and **not** `\b`, which is the
+ * whole difference between this matching a real filename and not. `\b` counts
+ * `_` as a word character, so `photo_issue_4.jpg` and `3_west_stair_iss_12.jpg`
+ * — the underscore-joined shape a phone and a messaging app actually produce,
+ * and the one this very grammar allows `iss_4` for on the other side of the
+ * marker — would find no boundary before the marker and bind to nothing at all.
+ * A *letter* is what must not precede it, so `dismissed-4`, `Missouri-3`,
+ * `issuer-4` and `reissue-4` still name no finding.
  */
-const ISSUE_IN_FILENAME = /\b(?:issue|iss)[-_ ]?(\d+)/gi;
+const ISSUE_IN_FILENAME = /(?<![a-z])(?:issue|iss)[-_ ]?(\d+)/gi;
 
 /**
  * One distinct identifier or nothing, for the reason a floor takes exactly one
@@ -1204,7 +1235,15 @@ function issueNumberInFilename(filename: string): number | null {
     [...filename.matchAll(ISSUE_IN_FILENAME)].map((match) => Number(match[1])),
   );
   const [only] = named;
-  return named.size === 1 ? (only ?? null) : null;
+  if (named.size !== 1 || only === undefined) {
+    return null;
+  }
+  // An identifier is an `Int` column, so a longer run of digits is not a
+  // number this job could ever have handed out — and asking anyway is a
+  // driver error that would 500 the whole add and lose the photograph.
+  // `ISS-20260723131500.jpg` is an ordinary name off a messaging app; it names
+  // no finding, which is the same answer every other unmatched name gets.
+  return only > MAX_IDENTIFIER ? null : only;
 }
 
 /**
@@ -1235,10 +1274,7 @@ const issueInclude = {
   },
   // The photo evidence for this finding, across every walk it was seen on
   // (issue #11). A list, whose length is the count.
-  photos: {
-    orderBy: [{ takenAt: 'asc' }, { createdAt: 'asc' }],
-    include: photoInclude,
-  },
+  photos: photosTaken,
   // `satisfies` rather than `as const`, which the other includes here use:
   // Prisma's `orderBy` takes a mutable array, and `as const` makes this one
   // readonly.
@@ -2468,10 +2504,7 @@ export function buildServer({
               observations: {
                 orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
               },
-              photos: {
-                orderBy: [{ takenAt: 'asc' }, { createdAt: 'asc' }],
-                include: photoInclude,
-              },
+              photos: photosTaken,
             },
           });
           if (found === null) {
@@ -3054,28 +3087,35 @@ export function buildServer({
                   select: { id: true },
                 });
 
-          try {
-            const stored = await prisma.$transaction(async (tx) => {
-              const row = await tx.photo.create({
-                data: {
-                  siteVisitId: walk.id,
-                  filename,
-                  takenAt,
-                  contentType,
-                  byteSize: bytes.byteLength,
-                  storageKey: `photos/${randomUUID()}`,
-                  floor: binToFloor(takenAt, walk.floors),
-                  issueId: finding === null ? null : finding.id,
-                  createdAt: timeSource.now(),
-                },
-                include: photoInclude,
-              });
+          // The bytes go down first, under a key generated here, and the row
+          // that points at them second. Never the other way round and never
+          // both inside one transaction: a `put` against the S3 adapter
+          // ADR-0032 promises is a network write, and holding a database
+          // connection across it would blow Prisma's interactive-transaction
+          // timeout on a large photograph and roll back a row whose object
+          // was already stored.
+          //
+          // The cost is an orphaned object when the insert is refused —
+          // garbage in the store, and nothing a reader can reach. The
+          // alternative costs a row pointing at bytes that are not there,
+          // which is the one a reader *does* reach.
+          const storageKey = `photos/${randomUUID()}`;
+          await objectStore.put(storageKey, bytes, contentType);
 
-              // Inside the transaction, so a store that refuses the bytes
-              // rolls the row back rather than leaving a photograph with
-              // nothing behind it.
-              await objectStore.put(row.storageKey, bytes, row.contentType);
-              return row;
+          try {
+            const stored = await prisma.photo.create({
+              data: {
+                siteVisitId: walk.id,
+                filename,
+                takenAt,
+                contentType,
+                byteSize: bytes.byteLength,
+                storageKey,
+                floor: binToFloor(takenAt, walk.floors),
+                issueId: finding === null ? null : finding.id,
+                createdAt: timeSource.now(),
+              },
+              include: photoInclude,
             });
             return reply.code(201).send(photoOnTheWire(stored));
           } catch (error) {

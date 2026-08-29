@@ -19,9 +19,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const upstream = await fetch(apiPath(`/photos/${id}/bytes`), {
-    cache: 'no-store',
-  });
+
+  // Encoded, and not interpolated raw. Next decodes `%2F` and `%23` out of the
+  // path before this sees them, so `..%2Fexposure%23` would arrive here as a
+  // segment that walks up and out — turning this route into an open GET proxy
+  // for every route on an API deliberately bound to loopback, in front of the
+  // one thing on this host a second device can reach.
+  const upstream = await fetch(
+    apiPath(`/photos/${encodeURIComponent(id)}/bytes`),
+    { cache: 'no-store' },
+  );
 
   if (!upstream.ok) {
     // A photograph that is not there is a 404 here too; anything else is the

@@ -446,7 +446,6 @@ export async function getIssue(
   return response.json() as Promise<Issue>;
 }
 
-
 /**
  * The findings seen on this walk that still have no photograph from it, read
  * before the report is written so it never ships with placeholders.

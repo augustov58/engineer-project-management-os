@@ -171,10 +171,14 @@ export default async function IssueRecord({
                     alt={photo.filename}
                     className="bg-muted size-32 rounded-md border object-cover"
                   />
-                  <p className="text-muted-foreground max-w-32 truncate text-xs">
-                    {photo.floor === null
-                      ? photo.filename
-                      : `Floor ${photo.floor}`}
+                  {/*
+                    The walk it was taken on, because this list spans every
+                    walk while the visit screen's "no photograph yet" is about
+                    one — without the date the two read as contradicting.
+                  */}
+                  <p className="text-muted-foreground max-w-32 truncate text-xs tabular-nums">
+                    {day(photo.takenAt)}
+                    {photo.floor === null ? '' : ` · Floor ${photo.floor}`}
                   </p>
                 </Link>
               </li>

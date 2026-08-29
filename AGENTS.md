@@ -171,7 +171,7 @@ See [README.md](./README.md).
   read back through `GET /v1/photos/:id/bytes` and **not** a presigned URL: that would be a
   second thing reachable without the edge gate ADR-0020 carved its one exception out of, and
   0020 is still Proposed. `apps/web` proxies the route so the browser never calls the API.
-- The **filename grammar** is `/\b(?:issue|iss)[-_ ]?(\d+)/gi`, written down for the first
+- The **filename grammar** is `/(?<![a-z])(?:issue|iss)[-_ ]?(\d+)/gi`, written down for the first
   time in ADR-0032 after ADR-0031, the glossary and the schema all recorded that it was
   written down nowhere and refused to invent it. **A marker is required and a bare integer
   never counts**: those filenames carry the floor as well as the finding, so
@@ -204,6 +204,24 @@ See [README.md](./README.md).
 - Photo binning runs **in the request**, not on BullMQ, despite the PRD diagram and the spec
   stack line putting it on a worker (ADR-0032). It is date comparison and one regular
   expression. BullMQ is still wired and still enqueues nothing.
+- A photograph's bytes are written to the store **before** the row that points at them, and
+  never inside a transaction with it (ADR-0032). `put` is a network write against the S3
+  adapter, and holding a database connection across it blows Prisma's interactive-transaction
+  timeout and rolls back a row whose object already stored. An orphaned object is garbage no
+  reader reaches; a row pointing at bytes that are not there is not.
+- The web form sends **one request per photograph** and calls the action in a loop, which is
+  a deliberate departure from the `useActionState` shape every other form uses (ADR-0032). A
+  server action's body is capped at one megabyte by default — raised to 16mb in
+  `next.config.ts` for one file plus overhead — and a hundred files in one body is not a
+  request anybody should make. Do not "tidy" this back into a single `FormData` action.
+- An identifier above `2_147_483_647` names no finding, bounded in `issueNumberInFilename`
+  and again as a `maximum` on the correction route's schema (ADR-0032). `ISS-20260723131500.jpg`
+  is an ordinary messaging-app name, and asking Prisma for that number on an `Int` column is a
+  driver range error that 500s the add and loses the photograph.
+- `apps/web/app/photos/[id]/bytes/route.ts` must `encodeURIComponent` the id it forwards.
+  Next decodes `%2F` and `%23` out of a path segment before the handler sees it, so
+  interpolating it raw made the Next server an open GET proxy for every API route — verified,
+  fixed, and verified again against the fix (ADR-0032).
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  addPhotos,
+  addPhoto,
   bindPhotoToFloor,
   bindPhotoToIssue,
   completeFloor,
@@ -369,7 +369,7 @@ export default async function SiteVisitRecord({
           <CardTitle>Add the walk&rsquo;s photographs</CardTitle>
         </CardHeader>
         <CardContent>
-          <PhotoForm submit={addPhotos.bind(null, id, projectId)} />
+          <PhotoForm add={addPhoto.bind(null, id, projectId)} />
         </CardContent>
       </Card>
 

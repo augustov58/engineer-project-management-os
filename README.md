@@ -204,7 +204,7 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   `Physical / Safety` and the real words would then live in a lookup in the API and again in
   the frontend.
 
-- **The filename grammar, written down at last** (ADR-0032). `/\b(?:issue|iss)[-_ ]?(\d+)/gi`
+- **The filename grammar, written down at last** (ADR-0032). `/(?<![a-z])(?:issue|iss)[-_ ]?(\d+)/gi`
   — `issue` or `iss`, then the number, separated by a hyphen, an underscore, a space or
   nothing, case-insensitive. ADR-0031, the glossary and the schema's own doc comment each
   recorded, in the same words, that this was described in ADR-0018 as "already in use" and
