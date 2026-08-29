@@ -14,8 +14,8 @@ import { Button } from '@/components/ui/button';
 import { held, hold, release, type HeldRecording } from './recordings';
 import { ObservationFields } from './site-visit-form';
 import { asTypedInstant } from './wall-clock';
-import type { AddState } from './actions';
-import type { VoiceCapture } from './api';
+import type { AddState, CaptureRefusal } from './actions';
+import { awaitsReview, isWorking, type VoiceCapture } from './api';
 
 /**
  * The three types the API stores, in the order a browser is likely to offer
@@ -43,9 +43,18 @@ function supportedType(): string | undefined {
  * A browser reports `audio/webm;codecs=opus`, and what is stored is what is
  * served back — a parameter is not part of what the file is, and the API's
  * closed set of three names none.
+ *
+ * When the browser reports nothing, the type asked for is the answer, and when
+ * nothing was asked for the empty string goes up. **Never a guess**: the read
+ * route hands this value straight back as the response's content type under
+ * `nosniff`, so audio stored as a type it is not would be a recording that
+ * silently refuses to play, with the row passing every check underneath. An
+ * empty string is refused by the API by the same rule as any other bad type,
+ * which is the photo form's answer to a browser that cannot name a HEIC.
  */
-function baseType(reported: string): string {
-  return (reported.split(';')[0] ?? '').trim() || 'audio/webm';
+function baseType(reported: string, requested: string | undefined): string {
+  const named = (reported.split(';')[0] ?? '').trim();
+  return named === '' ? (requested ?? '') : named;
 }
 
 function reason(cause: unknown): string {
@@ -84,13 +93,18 @@ export function VoiceRecorder({
     captureKey: string,
     recordedAt: string,
     audio: File,
-  ) => Promise<string | undefined>;
+  ) => Promise<CaptureRefusal | undefined>;
 }) {
   const [recording, setRecording] = useState(false);
   const [waiting, setWaiting] = useState(0);
   const [error, setError] = useState<string>();
   const [pending, start] = useTransition();
   const recorder = useRef<MediaRecorder | null>(null);
+  // `setRecording(true)` only lands once `getUserMedia` has resolved, so
+  // without this a second tap in that window opens a second microphone
+  // stream, overwrites the first recorder and leaves the first stream's tracks
+  // live — a microphone that stays on after the engineer thinks it stopped.
+  const opening = useRef(false);
   const router = useRouter();
 
   /** Everything the device is still holding, sent oldest first. */
@@ -100,16 +114,24 @@ export function VoiceRecorder({
       for (const one of recordings) {
         try {
           const name = `${one.captureKey}.${EXTENSIONS[one.contentType] ?? 'webm'}`;
-          const message = await add(
+          const rejection = await add(
             one.captureKey,
             one.recordedAt,
             new File([one.audio], name, { type: one.contentType }),
           );
-          if (message === undefined) {
+          if (rejection === undefined) {
             await release(one.captureKey).catch(() => undefined);
             continue;
           }
-          refused ??= message;
+          refused ??= rejection.message;
+          // A refusal the API will repeat — a type it does not store, a body
+          // over the cap. Held, it would resend on every load and every
+          // `online` for the life of the device, with a banner that never
+          // clears and no way to be rid of it. The message is still shown;
+          // what is dropped is the doomed retry, not the news of it.
+          if (rejection.permanent) {
+            await release(one.captureKey).catch(() => undefined);
+          }
         } catch {
           // The send never arrived — no signal, or the tab lost the server.
           // The recording stays held and goes again next time, which is the
@@ -140,6 +162,10 @@ export function VoiceRecorder({
   }, [siteVisitId, drain]);
 
   async function begin() {
+    if (opening.current) {
+      return;
+    }
+    opening.current = true;
     setError(undefined);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -159,7 +185,7 @@ export function VoiceRecorder({
         for (const track of stream.getTracks()) {
           track.stop();
         }
-        const contentType = baseType(media.mimeType);
+        const contentType = baseType(media.mimeType, type);
         const audio = new Blob(parts, { type: contentType });
         const recorded: HeldRecording = {
           captureKey: crypto.randomUUID(),
@@ -182,6 +208,8 @@ export function VoiceRecorder({
       setRecording(true);
     } catch (cause) {
       setError(reason(cause));
+    } finally {
+      opening.current = false;
     }
   }
 
@@ -253,7 +281,9 @@ export function CaptureProgress({
   const rendered = useRef(summarise(initial));
 
   useEffect(() => {
-    const source = new EventSource(`/site-visits/${siteVisitId}/captures/stream`);
+    const source = new EventSource(
+      `/site-visits/${siteVisitId}/voice-captures/stream`,
+    );
     source.onmessage = (event) => {
       const captures = JSON.parse(event.data as string) as VoiceCapture[];
       setLive(captures);
@@ -271,12 +301,8 @@ export function CaptureProgress({
     return <span className="text-muted-foreground text-sm">nothing spoken yet</span>;
   }
 
-  const working = live.filter(
-    (one) => one.state === 'queued' || one.state === 'transcribing',
-  ).length;
-  const toReview = live.filter(
-    (one) => one.observation === null && one.state !== 'queued' && one.state !== 'transcribing',
-  ).length;
+  const working = live.filter(isWorking).length;
+  const toReview = live.filter(awaitsReview).length;
 
   return (
     <span className="text-muted-foreground text-sm">

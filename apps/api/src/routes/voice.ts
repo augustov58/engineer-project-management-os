@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { type PrismaClient } from '../../generated/prisma/client.js';
-import { NOT_BLANK, type RouteDependencies, violates } from '../http.js';
+import { type RouteDependencies, violates } from '../http.js';
 import { noSuchSiteVisit, noSuchVoiceCapture } from '../refusals.js';
 import { TRANSCRIBE, type TranscribeJob } from '../worker.js';
 import { voiceCaptureOnTheWire, voiceCapturesMade } from '../wire.js';
@@ -105,16 +105,23 @@ export function voiceRoutes(
   v1: FastifyInstance,
   { prisma, queue, objectStore, timeSource }: RouteDependencies,
 ): void {
-  /** Every stream open right now, so shutdown does not wait on them. */
-  const streaming = new Set<FastifyReply>();
+  /**
+   * How to stop each stream open right now, so shutdown does not wait on them.
+   *
+   * The stop function and not the reply: ending the socket is only half of it,
+   * and a hook that did only that would leave this stream's timers running
+   * against a response that had ended — where the heartbeat's write raises
+   * `'error'` on a `ServerResponse` nobody is listening to, which takes the
+   * process down.
+   */
+  const streaming = new Set<() => void>();
   // `preClose` and not `onClose`: Fastify closes the HTTP server between the
   // two, and a hijacked event-stream socket is not idle — so an `onClose` hook
   // would be waiting to end the very streams the server was waiting on.
   v1.addHook('preClose', async () => {
-    for (const open of streaming) {
-      open.raw.end();
+    for (const stop of [...streaming]) {
+      stop();
     }
-    streaming.clear();
   });
 
   /**
@@ -154,12 +161,16 @@ export function voiceRoutes(
       }
 
       const { captureKey, contentType } = request.body;
-      const already = await prisma.voiceCapture.findUnique({
-        where: {
-          siteVisitId_captureKey: { siteVisitId: walk.id, captureKey },
-        },
-        include: { observation: true },
-      });
+      /** The recording already stored under this key on this walk, or null. */
+      const existing = () =>
+        prisma.voiceCapture.findUnique({
+          where: {
+            siteVisitId_captureKey: { siteVisitId: walk.id, captureKey },
+          },
+          include: { observation: true },
+        });
+
+      const already = await existing();
       if (already !== null) {
         // The recording is here and the phone can let go of it. Nothing is
         // re-stored and nothing is re-queued: the transcript it already has,
@@ -197,12 +208,7 @@ export function voiceRoutes(
         // narrowed to the key, because the insert also writes a fresh storage
         // key whose collision would mean something else entirely.
         if (violates(error, 'capture_key')) {
-          const raced = await prisma.voiceCapture.findUnique({
-            where: {
-              siteVisitId_captureKey: { siteVisitId: walk.id, captureKey },
-            },
-            include: { observation: true },
-          });
+          const raced = await existing();
           if (raced !== null) {
             return voiceCaptureOnTheWire(raced);
           }
@@ -418,16 +424,39 @@ export function voiceRoutes(
         // a live stream into one silent block at the end.
         'x-accel-buffering': 'no',
       });
-      streaming.add(reply);
-
-      let last = '';
-      const push = async () => {
-        const payload = JSON.stringify(await capturesOn(prisma, walk.id));
-        if (payload === last) {
+      /**
+       * Nothing is written to a response that has ended.
+       *
+       * Both writers go through here: the heartbeat fires on a timer of its
+       * own and is not inside the chain the poll's `catch` guards, so without
+       * this a stream stopped between two beats would write once more.
+       */
+      const write = (chunk: string): void => {
+        if (reply.raw.writableEnded || reply.raw.destroyed) {
           return;
         }
-        last = payload;
-        reply.raw.write(`data: ${payload}\n\n`);
+        reply.raw.write(chunk);
+      };
+
+      let last = '';
+      // One read at a time. The interval does not await, so a query slower
+      // than the tick would otherwise let two reads finish out of order and
+      // leave `last` holding the older of them.
+      let reading = false;
+      const push = async () => {
+        if (reading) {
+          return;
+        }
+        reading = true;
+        try {
+          const payload = JSON.stringify(await capturesOn(prisma, walk.id));
+          if (payload !== last) {
+            last = payload;
+            write(`data: ${payload}\n\n`);
+          }
+        } finally {
+          reading = false;
+        }
       };
 
       // The first event is the state right now, so a screen that opens on a
@@ -443,20 +472,33 @@ export function voiceRoutes(
         });
       }, PROGRESS_POLL_MS);
       const beat = setInterval(() => {
-        reply.raw.write(': still here\n\n');
+        write(': still here\n\n');
       }, PROGRESS_HEARTBEAT_MS);
       // Neither timer is a reason for the process to stay up.
       poll.unref();
       beat.unref();
 
+      let stopped = false;
       function stop() {
+        // Idempotent: the client closing and the server shutting down can
+        // both reach here, and in either order.
+        if (stopped) {
+          return;
+        }
+        stopped = true;
         clearInterval(poll);
         clearInterval(beat);
-        streaming.delete(reply);
+        streaming.delete(stop);
         reply.raw.end();
       }
 
+      streaming.add(stop);
       request.raw.on('close', stop);
+      // The first read is awaited above, so a client that gave up during it
+      // has already fired `close` and would never fire it again.
+      if (request.raw.destroyed) {
+        stop();
+      }
     },
   );
 }

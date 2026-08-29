@@ -357,6 +357,26 @@ test('retrying clears the failure and transcribes on the second attempt', async 
   expect(done.transcript).toBe('Said on the second attempt');
 });
 
+test('a recording stuck at queued is retried, because a job can be lost', async () => {
+  // Redis has no volume in this stack and `queue.add` can throw after the row
+  // is written, so a recording can sit queued with nothing behind it. The row
+  // is the durable half, and this is the way back — the screen offers it here
+  // as well as on a failure.
+  const vendor = heldTranscriber('Said on the second asking');
+  const app = await api({ transcriber: vendor });
+  const { walk } = await walked(app, 'V-21');
+
+  const capture = await addVoiceCapture(app, walk.id);
+
+  const response = await post(app, `/v1/voice-captures/${capture.id}/retry`);
+  expect(response.status).toBe(200);
+  expect(((await response.json()) as VoiceCaptureResponse).state).toBe('queued');
+
+  vendor.release();
+  const done = await reaches(app, walk.id, capture.id, 'transcribed');
+  expect(done.transcript).toBe('Said on the second asking');
+});
+
 test('retrying what has already been transcribed is refused, not repeated', async () => {
   const app = await api({ transcriber: fakeTranscriber('The first answer') });
   const { walk } = await walked(app, 'V-12');

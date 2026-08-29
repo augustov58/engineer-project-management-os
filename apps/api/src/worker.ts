@@ -97,8 +97,14 @@ export function buildWorker({
           audio,
           capture.contentType,
         );
-        await prisma.voiceCapture.update({
-          where: { id: capture.id },
+        // Compare-and-set, so a second job for the same recording writes
+        // nothing. Two taps of "ask again" while it is queued enqueue two,
+        // and the retry route's own refusal cannot see them coming — a
+        // second transcript landing here would silently overwrite the words
+        // the engineer is part-way through correcting, which is the thing
+        // that refusal exists to prevent.
+        await prisma.voiceCapture.updateMany({
+          where: { id: capture.id, transcribedAt: null },
           data: { transcript, transcribedAt: timeSource.now() },
         });
       } catch (error) {

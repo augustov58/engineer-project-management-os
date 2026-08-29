@@ -18,7 +18,12 @@ import {
   retryVoiceCapture,
   startFloor,
 } from '../../actions';
-import { getSiteVisit, listIssues, listIssuesWithoutPhotos } from '../../api';
+import {
+  getSiteVisit,
+  isWorking,
+  listIssues,
+  listIssuesWithoutPhotos,
+} from '../../api';
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { clock, day } from '../../open-item';
 import { PhotoBindings, PhotoForm } from '../../photo-form';
@@ -332,25 +337,37 @@ export default async function SiteVisitRecord({
                   />
                 </div>
 
-                {capture.failure !== null && (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <p className="text-destructive text-sm">
-                      {capture.failure}
-                    </p>
-                    <form
-                      action={retryVoiceCapture.bind(
-                        null,
-                        capture.id,
-                        id,
-                        projectId,
+                {/*
+                  Offered on *queued* as well as on a failure, because a
+                  recording can sit queued with no job behind it: Redis has no
+                  volume in this stack, so a job can be lost while its row
+                  cannot. That is the case the retry route names in its own
+                  comment, and it was the one case the screen had no button
+                  for. Not offered while it is transcribing, which is a vendor
+                  genuinely working.
+                */}
+                {(capture.failure !== null || capture.state === 'queued') &&
+                  capture.observation === null && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      {capture.failure !== null && (
+                        <p className="text-destructive text-sm">
+                          {capture.failure}
+                        </p>
                       )}
-                    >
-                      <Button type="submit" variant="ghost" size="sm">
-                        Ask again
-                      </Button>
-                    </form>
-                  </div>
-                )}
+                      <form
+                        action={retryVoiceCapture.bind(
+                          null,
+                          capture.id,
+                          id,
+                          projectId,
+                        )}
+                      >
+                        <Button type="submit" variant="ghost" size="sm">
+                          Ask again
+                        </Button>
+                      </form>
+                    </div>
+                  )}
 
                 {capture.observation !== null ? (
                   <div className="space-y-1">
@@ -361,8 +378,7 @@ export default async function SiteVisitRecord({
                       {capture.observation.observed}
                     </p>
                   </div>
-                ) : capture.state === 'queued' ||
-                  capture.state === 'transcribing' ? (
+                ) : isWorking(capture) ? (
                   <p className="text-muted-foreground text-sm">
                     Waiting for the transcript. The audio is already stored.
                   </p>

@@ -379,6 +379,29 @@ export interface VoiceCapture {
   observation: Observation | null;
 }
 
+/**
+ * Still with the vendor: queued, or being transcribed. Nothing for the
+ * engineer to do yet.
+ *
+ * Here rather than beside any one of its readers, because the four-state union
+ * is read on three screens and a fifth state would otherwise be an edit in
+ * each of them. Not in a `'use client'` module: the site visit page is a
+ * server component, and Next turns every export of a client module into a
+ * client reference it cannot call.
+ */
+export function isWorking(capture: VoiceCapture): boolean {
+  return capture.state === 'queued' || capture.state === 'transcribing';
+}
+
+/**
+ * The engineer's move: a transcript to correct, or a failure to type from.
+ * Both are drafts, and a failed one is still committable — that is what makes
+ * a dead vendor unable to stop the walk being written up.
+ */
+export function awaitsReview(capture: VoiceCapture): boolean {
+  return capture.observation === null && !isWorking(capture);
+}
+
 /** One visit, with the job it was against and what it produced. */
 export interface SiteVisitDetail extends SiteVisit {
   project: { id: string; projectNumber: string; name: string };

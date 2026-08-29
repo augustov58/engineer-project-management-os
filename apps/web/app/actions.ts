@@ -985,13 +985,28 @@ function revalidateIssues(projectId: string, siteVisitId?: string): void {
  * `recordedAt` comes from the browser, because the browser is the only side
  * that knows which wall clock the engineer was reading.
  */
+export interface CaptureRefusal {
+  message: string;
+  /**
+   * Whether sending it again could ever succeed.
+   *
+   * A 4xx is the API understanding the recording and refusing it — a type it
+   * does not store, a body over the cap — and it will refuse the identical
+   * bytes every time. Holding one on the device would put a permanent banner
+   * on the screen and resend it on every load forever, which is the opposite
+   * of reconciling. Anything else is the send not arriving, which is exactly
+   * what the device is holding it for.
+   */
+  permanent: boolean;
+}
+
 export async function addVoiceCapture(
   siteVisitId: string,
   projectId: string,
   captureKey: string,
   recordedAt: string,
   audio: File,
-): Promise<string | undefined> {
+): Promise<CaptureRefusal | undefined> {
   const response = await send(`/site-visits/${siteVisitId}/voice-captures`, {
     captureKey,
     recordedAt,
@@ -1003,7 +1018,10 @@ export async function addVoiceCapture(
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
     };
-    return body.message ?? `the API returned ${response.status}`;
+    return {
+      message: body.message ?? `the API returned ${response.status}`,
+      permanent: response.status >= 400 && response.status < 500,
+    };
   }
 
   revalidateSiteVisit(siteVisitId, projectId);
