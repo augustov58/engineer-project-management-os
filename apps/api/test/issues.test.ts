@@ -141,6 +141,10 @@ test('an issue owns no content of its own — the sighting is the observation', 
   // What was seen, when and where belongs to the observation, and an issue
   // re-observed on three walks has three of them. There is no summary column
   // here, and no location — the PRD's sketch named one; it is read through.
+  //
+  // `photos` joined `observations` and `openItems` in issue #11 and is the
+  // same kind of thing: a list of rows pointing here, whose length is the
+  // count. Nothing was added to the issue itself.
   expect(Object.keys(raised).sort()).toEqual([
     'category',
     'closedAt',
@@ -150,6 +154,7 @@ test('an issue owns no content of its own — the sighting is the observation', 
     'number',
     'observations',
     'openItems',
+    'photos',
     'projectId',
   ]);
 

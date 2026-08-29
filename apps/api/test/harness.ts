@@ -1,4 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Client } from 'pg';
 import { inject } from 'vitest';
 import { createRuntime } from '../src/runtime.js';
@@ -48,15 +51,21 @@ export async function startTestApi(
   const databaseUrl = new URL(adminUrl);
   databaseUrl.pathname = `/${database}`;
 
+  // A directory of its own, so one test's photographs are invisible to the
+  // next exactly as one test's rows are. Removed with the database below.
+  const objectStoreDir = await mkdtemp(join(tmpdir(), 'epmos-objects-'));
+
   const runtime = createRuntime({
     databaseUrl: databaseUrl.toString(),
     redisUrl: inject('redisUrl'),
     queueName: `test-${database}`,
+    objectStoreDir,
   });
 
   const app = buildServer({
     prisma: runtime.prisma,
     queue: runtime.queue,
+    objectStore: runtime.objectStore,
     timeSource: options.timeSource,
   });
   await app.listen({ port: 0, host: '127.0.0.1' });
@@ -80,6 +89,7 @@ export async function startTestApi(
     close: async () => {
       await app.close();
       await runtime.close();
+      await rm(objectStoreDir, { recursive: true, force: true });
 
       const cleanup = new Client({ connectionString: adminUrl });
       await cleanup.connect();
@@ -505,6 +515,8 @@ export interface SiteVisitDetail extends SiteVisitResponse {
   project: { id: string; projectNumber: string; name: string };
   floors: SiteVisitFloorResponse[];
   observations: ObservationResponse[];
+  /** In the order they were taken, which is the order the walk happened in. */
+  photos: PhotoResponse[];
 }
 
 export interface SiteVisitBody {
@@ -635,6 +647,8 @@ export interface IssueResponse {
   observations: IssueObservationResponse[];
   /** What is being chased for this finding, oldest first. */
   openItems: OpenItemResponse[];
+  /** The photo evidence for this finding, across every walk. */
+  photos: PhotoResponse[];
 }
 
 /** Fixtures are built through the API, never by writing to the database. */
@@ -653,4 +667,72 @@ export async function createIssue(
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
   }
   return (await response.json()) as IssueResponse;
+}
+
+/** A photograph as the API returns it. Never its bytes. */
+export interface PhotoResponse {
+  id: string;
+  siteVisitId: string;
+  /** The name it arrived with, kept verbatim. It is the mechanism. */
+  filename: string;
+  takenAt: string;
+  contentType: string;
+  byteSize: number;
+  /**
+   * The floor its timestamp binned it to, or null when no single window
+   * contained it — outside every one, or inside two at once.
+   */
+  floor: string | null;
+  /**
+   * The finding its filename bound it to, or null for a name that matched no
+   * issue on this job. The identifier, not the row id, because the number is
+   * the thing anybody has written down.
+   */
+  issueNumber: number | null;
+  createdAt: string;
+}
+
+export interface PhotoBody {
+  filename: string;
+  takenAt: string;
+  contentType: string;
+  /** The bytes, base64. The record keeps the key; the store keeps these. */
+  bytes: string;
+}
+
+/** Two pixels of PNG, which is a real image and small enough to inline. */
+export const A_PIXEL =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/**
+ * A valid create body, so a test about the filename does not have to restate
+ * the bytes. The default name matches no issue, so binding is something a
+ * test asks for rather than something it gets by accident.
+ */
+export function photoBody(patch: Partial<PhotoBody> = {}): PhotoBody {
+  return {
+    filename: 'IMG_0003.jpg',
+    takenAt: '2026-07-23T13:20:00.000Z',
+    contentType: 'image/png',
+    bytes: A_PIXEL,
+    ...patch,
+  };
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function addPhoto(
+  api: TestApi,
+  siteVisitId: string,
+  patch: Partial<PhotoBody> = {},
+): Promise<PhotoResponse> {
+  const path = `/v1/site-visits/${siteVisitId}/photos`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(photoBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as PhotoResponse;
 }

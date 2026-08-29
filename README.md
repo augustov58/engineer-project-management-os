@@ -204,6 +204,55 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   `Physical / Safety` and the real words would then live in a lookup in the API and again in
   the frontend.
 
+- **The filename grammar, written down at last** (ADR-0032). `/(?<![a-z])(?:issue|iss)[-_ ]?(\d+)/gi`
+  — `issue` or `iss`, then the number, separated by a hyphen, an underscore, a space or
+  nothing, case-insensitive. ADR-0031, the glossary and the schema's own doc comment each
+  recorded, in the same words, that this was described in ADR-0018 as "already in use" and
+  written down nowhere, and each refused to invent it; it was asked for and supplied.
+  **A marker is required and a bare integer never counts.** Those filenames carry the floor
+  as well as the finding, so `3-west stair-issue-12.jpg` opens with a bare `3` — reading any
+  integer as an identifier would bind every photograph taken on floor 3 to issue 3, and a
+  mechanism wrong about most of a hundred photographs is worse than one that binds none,
+  because then all hundred have to be checked. One distinct number in the name or nothing.
+  The floor component is deliberately not read here: the timestamp is the floor's mechanism,
+  and two answers to one question is a disagreement settled by a coin.
+- **Exactly one window binds, or nothing does** (ADR-0032). A floor's window runs from its
+  start to its completion, both ends included, and stays open while the floor is still being
+  walked. The ticket says a photograph outside every window is left unbound rather than
+  guessed at; two windows containing it is the case the ticket does not mention and the
+  schedule really produces, because nothing orders the floors and an engineer who starts
+  floor 4 before closing floor 3 has doubled back. Picking one of two is the same guess, so
+  it gets the same answer. The open-ended window is what keeps the last floor of a walk —
+  the one most often left unclosed — binning correctly.
+- **A binding is stamped, not derived** (ADR-0032), which breaks this product's own reflex.
+  `location`, *currently provisional* and *superseded* are all computed on every read; both
+  photo bindings are columns written when the photograph is added. A derived binding has
+  nowhere to keep the correction story 65 asks for, and the schedule is fixed the morning
+  after the walk — a derived value would silently move photographs between floors when a
+  floor time was corrected. There is no provenance column: "the engineer cleared it" and "no
+  window contained it" are the same stored fact, which is right.
+- **`photos.taken_at` is required and never falls back to the clock** (ADR-0032), unlike
+  `observations.observed_at`. That fallback would bin a timestamp-less photograph to
+  whichever floor was being walked at the moment of the request, which is the guess under
+  another name. Nothing reads EXIF. The screen sends the file's *local wall clock written as
+  UTC*, the same frame `composeInstant` puts a typed time in — ADR-0030's timezone deferral
+  is still open, and sending the true instant instead would offset every photograph of the
+  afternoon out of every window. The frame is wrong the same way it was before; it is now
+  consistently wrong across a whole walk, which is what keeps binning working.
+- **The bytes go to a port and come back through the API** (ADR-0032). `ObjectStore` is the
+  shape ADR-0022 gave `TimeSource`: a filesystem adapter for dev and tests, the
+  S3-compatible one when there is somewhere to deploy to. Not a presigned URL — that is a
+  second thing reachable without the single edge secret ADR-0020 puts in front of every
+  route, and that ADR carved out its one exception explicitly and is still Proposed.
+  `apps/web` proxies `/photos/:id/bytes` so the browser never calls the API directly.
+- **Photo evidence lands on the floor and the finding, not the observation** (ADR-0032),
+  correcting a promise the glossary's **Observation** entry had carried since slice 8. No
+  mechanism picks one observation out of the dozen made on a floor, and the join that would
+  need is the labelling by hand the ticket exists to remove. A photograph and the
+  observations made on its floor are read together through the floor value — which is
+  exactly why ADR-0030 made those two columns the same type and joined them by value.
+  Binding by filename creates no **sighting**: a sighting is an observation.
+
 - **Tailwind and shadcn/ui, owned in-repo** (ADR-0025). Components live in
   `apps/web/components/ui` and are edited in place rather than imported from a versioned
   package, so there is no library upgrade to absorb. Radix underneath means focus rings and
@@ -220,18 +269,22 @@ exercises the API only, and a change that breaks the page would not fail the sui
 is deliberate — the MVP spec's test seam puts the thin browser-driven pass at step 3 (site
 visit capture), on top of record-level coverage, rather than here.
 
-**Step 3 is now two slices in (issues #9 and #10) and that automated pass is still not
-written.** Slices 8 and 9 were each verified by driving the real pages in a browser by hand,
-which found nothing the suite would have caught but is not a regression test — and slice 9
-showed what that costs. The hand pass walked the paths the ticket describes and passed;
+**Step 3 is now three slices in (issues #9, #10 and #11) and that automated pass is still
+not written.** Slices 8, 9 and 10 were each verified by driving the real pages in a browser
+by hand, which found nothing the suite would have caught but is not a regression test — and
+slice 9 showed what that costs. The hand pass walked the paths the ticket describes and passed;
 review then found two the pass had not thought to walk, both frontend-visible: a bad issue
 number in a URL rendered an error page where every other bad URL renders a 404, and a
 finding closed since a walk still read as open on that walk. A written pass walks the same
 paths every time, including the ones nobody feels like walking. The spec
 scopes the pass to the *capture flow* — voice, one-handed operation, photo picking,
-poor-signal reconciliation — which is issues #11 and #12, so it belongs with them rather
-than with the record types issues #9 and #10 added. Deferred there deliberately; if it is
-not written by the end of step 3, the seam the spec described does not exist.
+poor-signal reconciliation — which is issues #11 and #12. **Issue #11 has now landed
+without it**, and it was the half of that flow with the most interaction in it: a
+multi-file picker, per-file timestamps the server cannot read, and two selects that submit
+on change. That was verified by hand — three photographs added at once, binding to both
+mechanisms, to a floor only and to a finding only, and one re-binned from a single select
+change — and none of it is a regression test. Only #12 is left to carry the pass; if it is
+not written there, the seam the spec described does not exist.
 
 Slice 4 hit the gap twice, both invisible to `pnpm test` and to `tsc`: a `<select>` whose
 `defaultValue` is only applied at mount, so changing a project's current phase left the

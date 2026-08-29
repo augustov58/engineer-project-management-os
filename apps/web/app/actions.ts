@@ -714,6 +714,114 @@ function revalidateSiteVisit(siteVisitId: string, projectId: string): void {
   revalidatePath(`/projects/${projectId}`);
 }
 
+/**
+ * The type a browser could not name for itself.
+ *
+ * Desktop Chrome and Firefox report an empty type for a `.heic`, which the API
+ * refuses — while the picker offers HEIC, and HEIC is what a walk on an iPhone
+ * produces and what the messaging app hands back. The extension is the only
+ * other thing that says what the file is, and the four here are exactly the
+ * four the API stores.
+ */
+const TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  heic: 'image/heic',
+  webp: 'image/webp',
+};
+
+function contentTypeOf(file: File): string {
+  if (file.type !== '') {
+    return file.type;
+  }
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  // Sent as an empty string rather than omitted when nothing is known, so the
+  // API refuses it by the same rule as any other bad type.
+  return TYPE_BY_EXTENSION[extension] ?? '';
+}
+
+/**
+ * Adding **one** photograph to a walk (stories 63-65). The API's refusal
+ * message, or undefined when it took it.
+ *
+ * One request per photograph, and pointedly not the whole selection in one:
+ * a server action's body is capped, a walk is a hundred photographs of two to
+ * four megabytes each, and one body carrying all of them is a request nobody
+ * should make. The form calls this in a loop and counts, which also means a
+ * refusal names the file it was about.
+ *
+ * `takenAt` comes from the browser rather than from this file, because
+ * `File.lastModified` is the only time a picked file carries and the browser
+ * is the only side that knows which wall clock the engineer was reading.
+ */
+export async function addPhoto(
+  siteVisitId: string,
+  projectId: string,
+  file: File,
+  takenAt: string,
+): Promise<string | undefined> {
+  const refused = await refusal(
+    await send(`/site-visits/${siteVisitId}/photos`, {
+      filename: file.name,
+      takenAt,
+      contentType: contentTypeOf(file),
+      bytes: Buffer.from(await file.arrayBuffer()).toString('base64'),
+    }),
+    201,
+  );
+
+  revalidatePhoto(siteVisitId, projectId);
+  return refused;
+}
+
+/**
+ * Correcting the floor a photograph was binned to (story 65), which ADR-0025
+ * holds to one action. Blank means unbound, which is a real answer: "not this
+ * floor" and "no window contained it" are the same fact about where it
+ * belongs.
+ */
+export async function bindPhotoToFloor(
+  photoId: string,
+  siteVisitId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  await sendOrThrow(`/photos/${photoId}/floor`, {
+    floor: omitIfBlank(formData, 'floor') ?? null,
+  });
+  revalidatePhoto(siteVisitId, projectId);
+}
+
+/**
+ * Correcting the finding a photograph evidences (story 65). Independent of
+ * the floor above, because the two mechanisms are: a photograph binned to the
+ * wrong floor and bound to the right finding needs one fixed, not both
+ * restated.
+ */
+export async function bindPhotoToIssue(
+  photoId: string,
+  siteVisitId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  const chosen = omitIfBlank(formData, 'issueNumber');
+  await sendOrThrow(`/photos/${photoId}/issue`, {
+    issueNumber: chosen === undefined ? null : Number(chosen),
+  });
+  revalidatePhoto(siteVisitId, projectId);
+}
+
+/**
+ * Every screen a photograph appears on. The finding's is one of them: its
+ * photo evidence is the rows pointing at it, so binding one changes that
+ * screen without anything being written to the issue.
+ */
+function revalidatePhoto(siteVisitId: string, projectId: string): void {
+  revalidateSiteVisit(siteVisitId, projectId);
+  revalidatePath('/projects/[id]/issues/[number]', 'page');
+}
+
 // ── Issues ────────────────────────────────────────────────────────────────
 
 /**

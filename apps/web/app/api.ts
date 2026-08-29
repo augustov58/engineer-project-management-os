@@ -321,6 +321,37 @@ export interface Observation {
   location: string;
 }
 
+/**
+ * A photograph taken on a walk, with the two bindings it arrived with.
+ *
+ * Its bytes are never in this interface. They are read through
+ * `/photos/<id>/bytes`, which the Next server proxies, because a browser
+ * pointed straight at the API would work on this machine and fail on the
+ * second device.
+ */
+export interface Photo {
+  id: string;
+  siteVisitId: string;
+  /** The name it arrived with, kept verbatim. It is the mechanism. */
+  filename: string;
+  takenAt: string;
+  contentType: string;
+  byteSize: number;
+  /**
+   * The floor its timestamp binned it to, or null when no single window
+   * contained it — outside every one, or inside two at once. Stamped when the
+   * photograph was added, and correctable.
+   */
+  floor: string | null;
+  /**
+   * The identifier of the finding its filename named, or null for a name that
+   * named none. The number rather than the row id, because the identifier is
+   * what the filename carried in.
+   */
+  issueNumber: number | null;
+  createdAt: string;
+}
+
 /** One visit, with the job it was against and what it produced. */
 export interface SiteVisitDetail extends SiteVisit {
   project: { id: string; projectNumber: string; name: string };
@@ -328,6 +359,8 @@ export interface SiteVisitDetail extends SiteVisit {
   floors: SiteVisitFloor[];
   /** In the order they were made. */
   observations: Observation[];
+  /** In the order they were taken, which is the order the walk happened in. */
+  photos: Photo[];
 }
 
 /** Oldest first: this list is a chronicle of the walks on a job. */
@@ -383,6 +416,8 @@ export interface Issue {
   observations: IssueObservation[];
   /** What is being chased for this finding, oldest first. */
   openItems: OpenItem[];
+  /** The photo evidence for this finding, across every walk it was seen on. */
+  photos: Photo[];
 }
 
 /** By identifier: the register of what has been found on a job. */
@@ -409,4 +444,15 @@ export async function getIssue(
     throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
   }
   return response.json() as Promise<Issue>;
+}
+
+/**
+ * The findings seen on this walk that still have no photograph from it, read
+ * before the report is written so it never ships with placeholders.
+ *
+ * A list, whose length is the count — so the number on the screen and the
+ * findings it names cannot disagree.
+ */
+export function listIssuesWithoutPhotos(siteVisitId: string): Promise<Issue[]> {
+  return read<Issue[]>(`/site-visits/${siteVisitId}/issues-without-photos`);
 }

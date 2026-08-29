@@ -404,6 +404,7 @@ model SiteVisit {
 
   floors       SiteVisitFloor[]
   observations Observation[]
+  photos       Photo[]
 
   @@index([projectId, startedAt])
   @@map("site_visits")
@@ -576,6 +577,7 @@ model Issue {
 
   observations IssueObservation[]
   openItems    IssueOpenItem[]
+  photos       Photo[]
 
   @@unique([projectId, number])
   @@map("issues")
@@ -627,4 +629,83 @@ model IssueOpenItem {
   @@id([issueId, openItemId])
   @@index([openItemId])
   @@map("issue_open_items")
+}
+
+/// A photograph taken on a walk, bound to a floor by its timestamp and to a
+/// finding by its filename (issue #11).
+///
+/// The bytes are **not here**. They go to the injected `ObjectStore` and this
+/// row keeps the key, which is the ticket's own acceptance criterion and what
+/// makes the same port serve issue #12's audio and step 5's documents.
+///
+/// Both bindings are stamped when the photograph is added and both are
+/// correctable. Deliberately not derived on read, which is what this product
+/// does with `location`, *currently provisional* and *superseded*: a derived
+/// value has nowhere to keep a correction, and a schedule fixed the next
+/// morning would silently move what was already binned.
+model Photo {
+  id String @id @default(uuid())
+
+  /// The walk it was taken on, the way an observation is bound to its visit
+  /// and to nothing else. The project is the visit's.
+  siteVisitId String    @map("site_visit_id")
+  siteVisit   SiteVisit @relation(fields: [siteVisitId], references: [id])
+
+  /// The name the file arrived with, kept verbatim.
+  ///
+  /// Record content and not bookkeeping: the filename **is** the mechanism
+  /// that binds a photograph to a finding (ADR-0018's "already in use"), so it
+  /// is the one column here that a correction must never rewrite.
+  ///
+  /// Unique per visit, so re-adding the same hundred photographs after a
+  /// signal drop is refused one at a time instead of doubling the walk.
+  filename String
+
+  /// When the photograph was taken, supplied by whoever adds it.
+  ///
+  /// Required, and pointedly **not** falling back to the injected TimeSource
+  /// the way `observed_at` does: a photograph with no time would then bin to
+  /// whichever floor was being walked at the moment of the request, which is
+  /// the guess the ticket asks not to make. Nothing here reads EXIF — the
+  /// product records the timestamp it is given.
+  takenAt DateTime @map("taken_at")
+
+  /// One of the image types the boundary admits, held so the bytes can be
+  /// served back as what they are. A CHECK names the set, since the read route
+  /// hands this straight to a browser.
+  contentType String @map("content_type")
+
+  /// What was stored, so a list can be rendered without reading every object.
+  byteSize Int @map("byte_size")
+
+  /// Where the bytes are in the object store. Stored rather than derived from
+  /// the id, so the S3 adapter can key its objects however it likes without
+  /// this table meaning something different than it did.
+  storageKey String @unique @map("storage_key")
+
+  /// The floor the timestamp binned it to, or null for a photograph no single
+  /// window contained.
+  ///
+  /// The designation and not a foreign key to `site_visit_floors`, matching
+  /// `observations.floor`: ADR-0030 joined those two by value precisely so a
+  /// photograph's floor could sit beside the observations made on it, and a
+  /// correction has to be able to name a floor nobody formally started.
+  floor String?
+
+  /// The finding the filename bound it to, or null for a name that matched no
+  /// issue on this job.
+  ///
+  /// Binding here writes nothing to the issue and creates no **sighting**: a
+  /// sighting is an observation (ADR-0031), and a filename is not one.
+  issueId String? @map("issue_id")
+  issue   Issue?  @relation(fields: [issueId], references: [id])
+
+  /// Entry order, so two photographs taken in the same minute do not list at
+  /// random.
+  createdAt DateTime @map("created_at")
+
+  @@unique([siteVisitId, filename])
+  @@index([siteVisitId, takenAt])
+  @@index([issueId])
+  @@map("photos")
 }
