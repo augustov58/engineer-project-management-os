@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0037; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0039; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -30,14 +30,16 @@ issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues wit
 stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11), slice 11
 (voice capture, issue #12), slice 12 (the site visit report, issue #13), slice 13
 (registers, entries and the ball-in-court history, issue #14), slice 14
-(the clock and dispositions, issue #15) and slice 15 (the morning screen, issue #16) are
-built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
+(the clock and dispositions, issue #15), slice 15 (the morning screen, issue #16) and
+slice 16 (referenced files, issue #17) are built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
 issues #9, #10, #11, #12 and #13 — and **step 4, registers, is complete** — issues #14 and
 #15. Issue #16, the morning screen, sits outside the six steps and is the daily layer steps
-2 and 4 fed; it is done. Step 5, ingest, is gated on the consent item in the vault's ADR
-README, so issues #17 and #18 are the reachable work.
+2 and 4 fed; it is done. Issue #17, referenced files, is **outside** step 5's consent gate —
+nothing in it reads a document's contents — and is done; ADR-0039 and the vault's ADR README
+record that narrowing. The rest of step 5 (the ingest address, extraction, the confirmation
+screen) stays gated, so issue #18 is the reachable work.
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
@@ -53,7 +55,7 @@ See [README.md](./README.md).
 - Never call `new Date()` or `Date.now()` for a timestamp that gets persisted or aged, and never give such a column a database default — read the injected `TimeSource` (ADR-0022). Aging is tested by advancing a fake, never by sleeping.
 - Tests drive the HTTP API against a real PostgreSQL and assert only on responses and subsequent reads. Build fixtures through the API, not by inserting rows.
 - The one sanctioned exception is a schema invariant no route can expose — "no `users` table exists" (ADR-0012). `apps/api/test/schema.test.ts` reads `information_schema` through the harness's `tableNames()` and nothing else; it may not read domain data or write rows.
-- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the twelve route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
+- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the thirteen route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
 - A record type is a file under `apps/api/src/routes/`, named for the record and matching the test file that drives it (ADR-0033). Its schemas, its refusals that nothing else uses and its derive-on-read helpers live beside its routes. `server.ts` is the boundary and nothing else: the ajv setting, the prefix, and the list of record types.
 - `http.ts`, `refusals.ts`, `wire.ts` and `stream.ts` are **leaves** — they import Prisma and Fastify types and nothing from a route module, which is what stops `site-visits`, `photos` and `issues` importing each other in a cycle (ADR-0033). A thing used by exactly one record lives with that record and moves into a leaf only when a second record reaches for it: the SSE machinery was written inside `routes/voice.ts` and became `stream.ts` when a walk's reports reached for it (ADR-0035), which is exactly the trigger ADR-0033 names, and the 24 voice tests pass unchanged against it. `wire.ts` holds only the read shapes two or more records return; `withDerivedState` and `withLines` are used by one each and stayed put.
 - An open item is unresolved exactly when `resolved_at` is null (ADR-0024). Exposure, provisional state and the pending items view all read that one column — do not add a status field beside it.
@@ -445,6 +447,74 @@ See [README.md](./README.md).
   are gated on being non-empty (ADR-0038). Different questions: on a project screen an empty
   count is noise, and on the morning screen the count *is* the screen, so a card that
   vanished would read as one that had not loaded. This asymmetry is intended.
+- A **referenced file** is a document stored and linked but deliberately **not** parsed, and
+  it is a **column** on `documents` and never the sketch's third `referenced_files` table
+  (ADR-0039). The glossary defines one as *a document*, so a second table would make one
+  document two records and give "is this one?" two answers free to differ. `referenced_file`
+  is **required in the create body with no default** — a default classifies by omission and
+  the omitted answer is the dangerous one, since an unclassified 86-sheet set would be
+  something extraction may be pointed at.
+- `POST /v1/documents/:id/referenced-file` marks one after the fact and runs **one way**:
+  it sets the column true and there is no route that sets it false (ADR-0039). The criterion's
+  verb is *mark*, so it is an action and not only an answer given at entry; being one-way is
+  its safety — a correction may always take a document out of extraction's reach and may
+  never put one into it. A second marking is refused, as a response and a disposition are.
+  This is the only column on a document anything writes after it is recorded; nothing else
+  edits one and nothing deletes one.
+- The base64 body pattern for a document version is **whole quartets** —
+  `^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$` — and not the
+  `^[A-Za-z0-9+/]+={0,2}$` a photograph and a recording use. That looser one admits a length
+  of 4n+1, which `Buffer.from` **silently truncates** rather than refusing, so a short file
+  would store and the route would answer 201 (ADR-0039). `routes/photos.ts` and
+  `routes/voice.ts` still carry the loose pattern and the same latent truncation — fixing
+  either belongs to a change about that record, not to this rule.
+- `documents` is the **identity** — the title and the referenced-file answer, no bytes and no
+  state — and `document_versions` holds the file. Deliberately not ADR-0028's one-table
+  chain: two links of a supersede chain share nothing, two versions of a drawing set share
+  their whole identity, and on a chain the title and `referenced_file` would be copied onto
+  every row and free to disagree. `documents` is to a version's `revision` what a `Register`
+  is to an entry's `number` (ADR-0036) — the scope it is unique within.
+- `document_versions.revision` is the designation printed on the sheet — ADR-0008's extracted
+  field of that name, entered by hand, which that ADR names as the path a failed extraction
+  degrades to. The engineer's and never allocated, as a register entry's number is.
+  **`@@unique([documentId, revision])` is the whole of "a new version never overwrites a
+  prior one"** — the database holds it, not a guard. `PATCH`, `PUT` and `DELETE` on a
+  document or a version are 404 and a test asserts it.
+- "Light metadata" is the title and the referenced-file answer and nothing else. ADR-0008's
+  other five — document number, date, discipline, document type — are extraction's to
+  produce; a column nothing writes is a column nobody can trust (ADR-0039).
+- What a submission's sheet list points at is a **document version**, through
+  `submission_document_versions` written **after** the issuance (ADR-0039). It is not a link
+  to *one sheet*: ADR-0026 and the glossary both price that as a migration off the
+  `sheet_list` text column, and nothing in issue #17 addresses a single sheet, so that
+  migration is still priced rather than taken. A column on `submissions` is impossible — no
+  route updates one — which is why ADR-0036 put `submission_id` on the register entry.
+  `register_entry_document_versions` is the same shape. The link is **not** narrowed to a
+  referenced file, for the reason ADR-0037 did not narrow a next round to a Revise and
+  Resubmit.
+- `GET /v1/projects/:id/extraction-targets` returns the documents that are **not** referenced
+  files. There is no extraction queue — no job name, no worker branch — so this read is what
+  makes "a referenced file is never enqueued" checkable rather than vacuous, and it is the
+  one predicate step 5's enqueuer must read (ADR-0039). Project-scoped and deliberately not
+  offered across every job: a third across-every-project figure is what ADR-0016 keeps out.
+- **Issue #17 is outside the employer-consent gate** and the vault's ADR README and PRD now
+  say so. The gate exists because document *content* would transit a third-party OCR API;
+  nothing in this slice reads a document's contents. Do not read that narrowing as covering
+  the ingest address, extraction or the confirmation screen.
+- No embedding, no vector column, no similarity ranking and **no full-text index**
+  (ADR-0019). `schema.test.ts` asserts no `embeddings`, `document_embeddings` or
+  `search_index` table, which is as far as ADR-0012's sanctioned exception reaches; a
+  `tsvector` column would need that exception widened, and it deliberately is not.
+- A document version's bytes go to the `ObjectStore` port under `documents/<uuid>`, written
+  **before** the row and never inside a transaction with it (ADR-0032's order). `storage_key`
+  is NOT NULL — no queue sits between the row and the file — and never reaches the wire. The
+  content type is a closed set of **three** (PDF, Word, Excel), refused by the body schema
+  and by a CHECK. Base64 in the JSON body, capped at 48 MiB of file against a photograph's
+  12; a **scanned** large-format set can exceed that and is the case that would move the
+  boundary to a streamed body. `apps/web` proxies the bytes with `encodeURIComponent`.
+- Nothing is named so as to read as the glossary's **Document register**, whose overlap with
+  **Register** was flagged as drift on 2026-08-24 and is still unresolved. Slice 13 dodged it
+  and slice 16 dodges it too.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

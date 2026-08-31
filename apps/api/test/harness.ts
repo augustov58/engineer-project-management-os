@@ -1091,3 +1091,160 @@ export async function createRegisterEntry(
   }
   return (await response.json()) as RegisterEntryResponse;
 }
+
+/** A document version as the API returns it. Never its storage key. */
+export interface DocumentVersionResponse {
+  id: string;
+  documentId: string;
+  /** The designation printed on the sheet — "C", "Rev 2", "Addendum 1". */
+  revision: string;
+  filename: string;
+  contentType: string;
+  byteSize: number;
+  createdAt: string;
+}
+
+/** A document as the API returns it, with every version it has ever had. */
+export interface DocumentResponse {
+  id: string;
+  projectId: string;
+  title: string;
+  /**
+   * Stored and linked but deliberately not parsed. Stamped when the document
+   * is recorded and never edited, so an 86-sheet set is out of reach of
+   * extraction from the moment it exists.
+   */
+  referencedFile: boolean;
+  createdAt: string;
+  versions: DocumentVersionResponse[];
+}
+
+/**
+ * A version read through the structure it is linked to — a submission, a
+ * register entry — carrying the document it is a version of.
+ */
+export interface LinkedDocumentVersion extends DocumentVersionResponse {
+  document: {
+    id: string;
+    projectId: string;
+    title: string;
+    referencedFile: boolean;
+    createdAt: string;
+  };
+}
+
+export interface DocumentVersionBody {
+  revision: string;
+  filename: string;
+  contentType: string;
+  /** The bytes, base64. The row keeps the key; the store keeps these. */
+  bytes: string;
+}
+
+export interface DocumentBody {
+  title: string;
+  referencedFile: boolean;
+  /**
+   * Named in the same call that records the document, so a document is never
+   * a title with no bytes — ADR-0026's shape for what a set rests on and
+   * ADR-0036's for an entry's first handoff.
+   */
+  version: DocumentVersionBody;
+}
+
+/**
+ * What a test overrides, with the version's fields overridable one at a time
+ * — a test about a blank revision should not have to restate the bytes.
+ */
+export type DocumentPatch = Partial<Omit<DocumentBody, 'version'>> & {
+  version?: Partial<DocumentVersionBody>;
+};
+
+/**
+ * Sixty-nine bytes of real PDF.
+ *
+ * Nothing in this product ever decodes it — no route reads a document's
+ * contents, which is the whole of why this ticket is not gated on employer
+ * consent — so what matters is only that it is a real, non-empty, byte-exact
+ * payload to compare against.
+ */
+export const A_PAGE =
+  'JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCnRyYWlsZXI8PC9Sb290IDEgMCBSPj4KJSVFT0YK';
+
+export function documentVersionBody(
+  patch: Partial<DocumentVersionBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    revision: 'C',
+    filename: 'T-1 Electrical.pdf',
+    contentType: 'application/pdf',
+    bytes: A_PAGE,
+    ...patch,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/**
+ * A valid create body, so a test about the title does not have to restate the
+ * bytes. The default is a referenced file, which is what the ticket is about.
+ */
+export function documentBody(
+  patch: DocumentPatch = {},
+): Record<string, unknown> {
+  const { version, ...rest } = patch;
+  const body: Record<string, unknown> = {
+    title: 'Electrical drawing set',
+    referencedFile: true,
+    version: documentVersionBody(version),
+    ...rest,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function addDocument(
+  api: TestApi,
+  projectId: string,
+  patch: DocumentPatch = {},
+): Promise<DocumentResponse> {
+  const path = `/v1/projects/${projectId}/documents`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(documentBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as DocumentResponse;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function addDocumentVersion(
+  api: TestApi,
+  documentId: string,
+  patch: Partial<DocumentVersionBody> = {},
+): Promise<DocumentResponse> {
+  const path = `/v1/documents/${documentId}/versions`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(documentVersionBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as DocumentResponse;
+}

@@ -1,6 +1,6 @@
 # Project Context: Engineer Project Management OS
 
-*Last updated: 2026-08-31*
+*Last updated: 2026-09-01*
 
 ## What this is
 
@@ -14,7 +14,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ├── PRD and Architecture.md   ← requirements, architecture, milestones, backlog
 ├── docs/
-│   ├── adr/                  ← architecture decisions 0001-0038 (check Status lines)
+│   ├── adr/                  ← architecture decisions 0001-0039 (check Status lines)
 │   └── glossary.md           ← domain terms
 ```
 
@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Thirty-eight ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, and 0038 while building slice 15). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Thirty-nine ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, and 0039 while building slice 16). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -65,6 +65,7 @@ in my court past its clock as the daily layer under it.
 | 0036 | Ball-in-court is a history and not a field, because an arithmetic reads it — the entry has no status column and no `ball_in_court` column, and *ball-in-court* is the last handoff derived on every read; whether the ball is ours is a stored boolean beside the party's name and never a reading of it; both registers are written with the project and there is no route that creates one; the register kind is a database enum, reversing 0031's run for the reason 0031 gave; the link to the issuance that responded is a column on the entry, because a column on the submission would need the update route 0026 made impossible |
 | 0037 | The clock is elapsed in-court time summed from the handoff history and stored nowhere — `clock_started` is refused, because the ball reaches us more than once and there is no single moment a clock began; *past its clock* is three facts and one of them is that the ball is ours now, which is how a disposition takes an entry off the list without stopping anything; recording a disposition writes the outcome and hands the ball back in one transaction, and the party is supplied rather than read off the entry's fixed cast; the turnaround target is a duration in whole days, never a date, and is set once; the clock is a list whose length is the count, as exposure is; a next round is a new entry pointing backwards and inherits nothing |
 | 0038 | The morning screen serves **no endpoint**: a payload carrying both counts is the first object a score could be computed from without adding a query, so the screen reads the two lists it already links to and renders their lengths. `/` is the landing view re-headed, not a route of its own, with the project list a section beneath the two counts. Both cards render at zero, unlike the project screen's strips, because here the count *is* the screen |
+| 0039 | A **referenced file** is a column on a document and not the sketch's third table — the glossary calls one *a document*, so a second record would give "is this one?" two answers; it is required with no default, because a default classifies by omission and the omitted answer puts an 86-sheet set in front of extraction. `documents` is the identity and `document_versions` holds the file, departing from 0028's one-table chain because two versions share their whole identity where two links of a supersede chain share nothing; `revision` unique within its document is the whole of "a new version never overwrites a prior one". A submission's sheet list points at a **version** through a join written after the issuance, so the text column stands and 0026's per-sheet migration is still priced rather than taken. Extraction targets are a **read**, so the exclusion is one predicate rather than a `where` clause in a worker that does not exist. Not gated on employer consent: nothing here reads a document's contents |
 
 ## Stack
 
@@ -91,11 +92,12 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | 0m | Registers, entries and the ball-in-court history (issue #14) | **Done** 2026-08-31 |
 | 0n | The clock, dispositions and the past-its-clock view (issue #15) | **Done** 2026-08-31 |
 | 0o | The morning screen: exposure and clock as the landing view (issue #16) | **Done** 2026-08-31 |
+| 0p | Referenced files: documents, immutable versions, retrieval by identity (issue #17) | **Done** 2026-09-01 |
 | 1 | T-1 open items entered | Unblocked — no code needed |
 | 2 | Open items + submissions (provisional, supersede) | **Done** — issues #4, #5, #6, #7 |
 | 3 | Site visit capture (voice, photos, stable issue IDs, the report) | **Done** — issues #9, #10, #11, #12 and #13 |
 | 4 | Registers: submittals, RFIs, clock, dispositions | **Done** — issues #14 and #15 |
-| 5 | Ingest: forward-to-email, extraction, human-confirmed | Not started |
+| 5 | Ingest: forward-to-email, extraction, human-confirmed | Referenced files done (issue #17, outside the consent gate); the rest gated |
 | 6 | Curated project memory | Not started |
 
 ## Open decisions (deferred to implementation)

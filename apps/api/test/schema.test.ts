@@ -39,8 +39,21 @@ test('no users, roles, permissions or tenants table is introduced', async () => 
   expect(tables).toContain('register_entries');
   expect(tables).toContain('ball_in_court_events');
   expect(tables).toContain('register_entry_open_items');
+  expect(tables).toContain('documents');
+  expect(tables).toContain('document_versions');
+  expect(tables).toContain('submission_document_versions');
+  expect(tables).toContain('register_entry_document_versions');
   expect(tables).not.toContain('users');
   expect(tables).not.toContain('roles');
   expect(tables).not.toContain('permissions');
   expect(tables).not.toContain('tenants');
+
+  // ADR-0019: no vector search, and no keyword index either — retrieval is by
+  // identity. Issue #17 is the first slice that could have wanted one, since
+  // it is the first that stores a corpus. Only a table can be seen from here;
+  // a `tsvector` column and a GIN index cannot, and widening what this test
+  // may read is not worth the one thing it would add.
+  expect(tables).not.toContain('embeddings');
+  expect(tables).not.toContain('document_embeddings');
+  expect(tables).not.toContain('search_index');
 });
