@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useLiveList } from './live-list';
 import { held, hold, release, type HeldRecording } from './recordings';
 import { ObservationFields } from './site-visit-form';
 import { asTypedInstant } from './wall-clock';
@@ -257,18 +258,7 @@ export function VoiceRecorder({
   );
 }
 
-/**
- * Progress while the vendor works, over server-sent events.
- *
- * The state is seeded from what the server rendered and corrected by the
- * stream afterwards — never the other way round. A value set from an effect or
- * a ref during the hydration commit is discarded (ADR-0028), so anything the
- * first paint must show has to arrive as a prop.
- *
- * When a recording reaches a state the page renders differently, this asks the
- * server for the page again: the draft's review form is server-rendered, and
- * its action is bound to an id that only the server knows.
- */
+/** Progress while the vendor works, over server-sent events. */
 export function CaptureProgress({
   siteVisitId,
   initial,
@@ -276,26 +266,11 @@ export function CaptureProgress({
   siteVisitId: string;
   initial: VoiceCapture[];
 }) {
-  const [live, setLive] = useState(initial);
-  const router = useRouter();
-  const rendered = useRef(summarise(initial));
-
-  useEffect(() => {
-    const source = new EventSource(
-      `/site-visits/${siteVisitId}/voice-captures/stream`,
-    );
-    source.onmessage = (event) => {
-      const captures = JSON.parse(event.data as string) as VoiceCapture[];
-      setLive(captures);
-
-      const now = summarise(captures);
-      if (now !== rendered.current) {
-        rendered.current = now;
-        router.refresh();
-      }
-    };
-    return () => source.close();
-  }, [siteVisitId, router]);
+  const live = useLiveList(
+    `/site-visits/${siteVisitId}/voice-captures/stream`,
+    initial,
+    summarise,
+  );
 
   if (live.length === 0) {
     return <span className="text-muted-foreground text-sm">nothing spoken yet</span>;

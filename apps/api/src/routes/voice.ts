@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { type PrismaClient } from '../../generated/prisma/client.js';
 import { type RouteDependencies, violates } from '../http.js';
 import { noSuchSiteVisit, noSuchVoiceCapture } from '../refusals.js';
+import { progressStreams } from '../stream.js';
 import { TRANSCRIBE, type TranscribeJob } from '../worker.js';
 import { voiceCaptureOnTheWire, voiceCapturesMade } from '../wire.js';
 import {
@@ -86,43 +87,11 @@ function capturesOn(prisma: PrismaClient, siteVisitId: string) {
     .then((rows) => rows.map(voiceCaptureOnTheWire));
 }
 
-/**
- * How often the progress stream looks for a change.
- *
- * A poll behind a push, and deliberately: the state lives in PostgreSQL, and
- * a second transport carrying the same fact — Redis pub/sub, or BullMQ's own
- * events — would be a second thing that can be right when the row is wrong.
- * What the browser gets is still a push, which is what the criterion asks for.
- * Half a second is under the threshold at which a screen reads as live and far
- * above the cost of one indexed query for one walk.
- */
-const PROGRESS_POLL_MS = 500;
-
-/** So a proxy between here and the phone does not time the stream out. */
-const PROGRESS_HEARTBEAT_MS = 15_000;
-
 export function voiceRoutes(
   v1: FastifyInstance,
   { prisma, queue, objectStore, timeSource }: RouteDependencies,
 ): void {
-  /**
-   * How to stop each stream open right now, so shutdown does not wait on them.
-   *
-   * The stop function and not the reply: ending the socket is only half of it,
-   * and a hook that did only that would leave this stream's timers running
-   * against a response that had ended — where the heartbeat's write raises
-   * `'error'` on a `ServerResponse` nobody is listening to, which takes the
-   * process down.
-   */
-  const streaming = new Set<() => void>();
-  // `preClose` and not `onClose`: Fastify closes the HTTP server between the
-  // two, and a hijacked event-stream socket is not idle — so an `onClose` hook
-  // would be waiting to end the very streams the server was waiting on.
-  v1.addHook('preClose', async () => {
-    for (const stop of [...streaming]) {
-      stop();
-    }
-  });
+  const stream = progressStreams(v1);
 
   /**
    * Recording an observation by speaking (story 51).
@@ -393,16 +362,9 @@ export function voiceRoutes(
    * Progress while it runs, so a slow transcription does not look like a
    * broken feature (the ticket; story 90's shape, applied here).
    *
-   * Server-sent events, which the PRD left as "SSE or WebSocket" and never
-   * decided. SSE, because this is one direction and one kind of fact — the
-   * browser has nothing to say back — and because it needs no plugin, which
-   * keeps ADR-0023's single `register` call the only place a prefix can be
-   * added (ADR-0033).
-   *
-   * Every event carries the whole list rather than a delta. A walk has a
-   * handful of recordings, the client then needs no reducer and cannot
-   * drift, and a reconnecting phone is correct on its first event rather
-   * than after replaying what it missed.
+   * The stream itself is `stream.ts`, which a walk's reports reach for too
+   * (issue #13). What is this record's is the reader: the recordings on this
+   * walk, in the order they were made.
    */
   v1.get<{ Params: { id: string } }>(
     '/site-visits/:id/voice-captures/stream',
@@ -415,90 +377,7 @@ export function voiceRoutes(
         return noSuchSiteVisit(reply);
       }
 
-      reply.hijack();
-      reply.raw.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-store',
-        connection: 'keep-alive',
-        // Nginx and friends buffer a response body by default, which turns
-        // a live stream into one silent block at the end.
-        'x-accel-buffering': 'no',
-      });
-      /**
-       * Nothing is written to a response that has ended.
-       *
-       * Both writers go through here: the heartbeat fires on a timer of its
-       * own and is not inside the chain the poll's `catch` guards, so without
-       * this a stream stopped between two beats would write once more.
-       */
-      const write = (chunk: string): void => {
-        if (reply.raw.writableEnded || reply.raw.destroyed) {
-          return;
-        }
-        reply.raw.write(chunk);
-      };
-
-      let last = '';
-      // One read at a time. The interval does not await, so a query slower
-      // than the tick would otherwise let two reads finish out of order and
-      // leave `last` holding the older of them.
-      let reading = false;
-      const push = async () => {
-        if (reading) {
-          return;
-        }
-        reading = true;
-        try {
-          const payload = JSON.stringify(await capturesOn(prisma, walk.id));
-          if (payload !== last) {
-            last = payload;
-            write(`data: ${payload}\n\n`);
-          }
-        } finally {
-          reading = false;
-        }
-      };
-
-      // The first event is the state right now, so a screen that opens on a
-      // finished transcription is not left waiting for a change that has
-      // already happened.
-      await push();
-
-      const poll = setInterval(() => {
-        void push().catch(() => {
-          // The database went away or the socket did. Either way this stream
-          // has nothing further to say, and the client reconnects.
-          stop();
-        });
-      }, PROGRESS_POLL_MS);
-      const beat = setInterval(() => {
-        write(': still here\n\n');
-      }, PROGRESS_HEARTBEAT_MS);
-      // Neither timer is a reason for the process to stay up.
-      poll.unref();
-      beat.unref();
-
-      let stopped = false;
-      function stop() {
-        // Idempotent: the client closing and the server shutting down can
-        // both reach here, and in either order.
-        if (stopped) {
-          return;
-        }
-        stopped = true;
-        clearInterval(poll);
-        clearInterval(beat);
-        streaming.delete(stop);
-        reply.raw.end();
-      }
-
-      streaming.add(stop);
-      request.raw.on('close', stop);
-      // The first read is awaited above, so a client that gave up during it
-      // has already fired `close` and would never fire it again.
-      if (request.raw.destroyed) {
-        stop();
-      }
+      return stream(request, reply, () => capturesOn(prisma, walk.id));
     },
   );
 }

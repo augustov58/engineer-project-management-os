@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0031; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0035; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -27,11 +27,13 @@ issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
 (submissions and per-project phases, issue #5), slice 5 (provisional state and exposure,
 issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption records,
 issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues with
-stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11) and slice 11 (voice capture, issue #12) are
-built. `apps/api/src/server.ts` was split across thirteen files afterwards, as its own
-change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
-the MVP is ticketed as GitHub issues #2-#22. Step 1, entering T-1's own open items, needs no further code and is
-the author's to do. Work one ticket at a time, and only when asked.
+stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11), slice 11
+(voice capture, issue #12) and slice 12 (the site visit report, issue #13) are
+built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
+as its own change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
+issues #9, #10, #11, #12 and #13 — and step 1, entering T-1's own open items, needs no
+further code and is the author's to do. Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
 See [README.md](./README.md).
@@ -45,9 +47,9 @@ See [README.md](./README.md).
 - Never call `new Date()` or `Date.now()` for a timestamp that gets persisted or aged, and never give such a column a database default — read the injected `TimeSource` (ADR-0022). Aging is tested by advancing a fake, never by sleeping.
 - Tests drive the HTTP API against a real PostgreSQL and assert only on responses and subsequent reads. Build fixtures through the API, not by inserting rows.
 - The one sanctioned exception is a schema invariant no route can expose — "no `users` table exists" (ADR-0012). `apps/api/test/schema.test.ts` reads `information_schema` through the harness's `tableNames()` and nothing else; it may not read domain data or write rows.
-- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the ten route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
+- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the eleven route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
 - A record type is a file under `apps/api/src/routes/`, named for the record and matching the test file that drives it (ADR-0033). Its schemas, its refusals that nothing else uses and its derive-on-read helpers live beside its routes. `server.ts` is the boundary and nothing else: the ajv setting, the prefix, and the list of record types.
-- `http.ts`, `refusals.ts` and `wire.ts` are **leaves** — they import Prisma and Fastify types and nothing from a route module, which is what stops `site-visits`, `photos` and `issues` importing each other in a cycle (ADR-0033). A thing used by exactly one record lives with that record and moves into a leaf only when a second record reaches for it. `wire.ts` holds only the read shapes two or more records return; `withDerivedState` and `withLines` are used by one each and stayed put.
+- `http.ts`, `refusals.ts`, `wire.ts` and `stream.ts` are **leaves** — they import Prisma and Fastify types and nothing from a route module, which is what stops `site-visits`, `photos` and `issues` importing each other in a cycle (ADR-0033). A thing used by exactly one record lives with that record and moves into a leaf only when a second record reaches for it: the SSE machinery was written inside `routes/voice.ts` and became `stream.ts` when a walk's reports reached for it (ADR-0035), which is exactly the trigger ADR-0033 names, and the 24 voice tests pass unchanged against it. `wire.ts` holds only the read shapes two or more records return; `withDerivedState` and `withLines` are used by one each and stayed put.
 - An open item is unresolved exactly when `resolved_at` is null (ADR-0024). Exposure, provisional state and the pending items view all read that one column — do not add a status field beside it.
 - What a submission rests on is the `submission_open_items` join, never a second subject on
   the open item (ADR-0026). An open item's subject stays `PROJECT`; raising one against a
@@ -137,7 +139,8 @@ See [README.md](./README.md).
 - An **issue owns no content**. No summary column and no location, whatever the PRD sketch
   names (ADR-0031): an issue re-observed on three walks has three locations, and one column
   would have to pick a walk and be silently wrong about the other two. What was seen, when
-  and where is read through the sightings, and issue #13 has the whole list to choose from.
+  and where is read through the sightings, and what a report prints is the walk's own — the
+  choice issue #13 made out of that list (ADR-0035).
 - A sighting is a row in `issue_observations`, and `observation_id` is **unique** — one
   observation, at most one issue (ADR-0031). A double tap that promoted twice would burn an
   identifier that can never be given back, since a number is never reused; two problems seen
@@ -206,9 +209,10 @@ See [README.md](./README.md).
   they are for a submission and an issue, and a test asserts it.
 - Photo binning runs **in the request**, not on BullMQ, despite the PRD diagram and the spec
   stack line putting it on a worker (ADR-0032). It is date comparison and one regular
-  expression. **Transcription is the one thing on the queue** (ADR-0034) — a vendor call of
-  unbounded duration, which is the case 0032's reasoning does not cover; do not read that
-  drift as a general licence to keep work in the request.
+  expression. **Transcription and rendering a report are what is on the queue** (ADR-0034,
+  ADR-0035) — a vendor call of unbounded duration, and a browser launched to lay out a
+  paginated document, which are the two cases 0032's reasoning does not cover; everything
+  else still runs in the request, and do not read those two as a general licence.
 - A photograph's bytes are written to the store **before** the row that points at them, and
   never inside a transaction with it (ADR-0032). `put` is a network write against the S3
   adapter, and holding a database connection across it blows Prisma's interactive-transaction
@@ -257,7 +261,8 @@ See [README.md](./README.md).
   PostgreSQL and pushes the whole list; Redis pub/sub and BullMQ events were both refused as
   a second transport for a fact that lives in one table. The route uses `reply.hijack()` and
   no Fastify plugin, so ADR-0023's single `register` call stays the only place a prefix
-  could be added.
+  could be added. The machinery is `stream.ts` since slice 12 and a walk's reports open a
+  stream through the same function (ADR-0035); what a record supplies is the reader.
 - The transcription vendor sits behind a `Transcriber` port with **no adapter written**
   (ADR-0034). The default refuses and says so; `TRANSCRIBER=stub` returns one fixed
   self-describing line so the review screen can be exercised, is off by default, and must
@@ -267,6 +272,66 @@ See [README.md](./README.md).
   do not restate the one-axis schema in `routes/voice.ts`.
 - `getUserMedia` needs a secure context, so recording does not work on a phone over
   `http://<address>:3000`. The screen says so; the fix is TLS or a tunnel, not code.
+- A **site visit report** is a record of a **rendering**, not a document kept up to date
+  (ADR-0035). Nothing edits one; `POST /v1/site-visits/:id/reports` writes another row every
+  time it is called, which is ADR-0028's reissue shape and ADR-0029's rerun shape arriving
+  for a third record. There is therefore **no retry route** — the departure from a voice
+  capture, whose audio is irreplaceable and whose phone has already let go of it, where a
+  report's every input is still in the database. Generating again is also how a report is
+  regenerated once a finding that had no photograph has one (story 66).
+- A report's state is **four stamps** derived on read — `rendering_since`, `rendered_at` +
+  `storage_key`, `failed_at` + `failure`, and *queued* is all four null — with no status
+  column beside them (ADR-0035). Fourth record asked and fourth to refuse: ADR-0024 made
+  `resolved_at` the whole of unresolved, ADR-0031 made `closed_at` the whole of closed, and
+  ADR-0034 read a capture the same way. Nothing here is ever cleared, unlike a retried
+  capture's failure, because a second attempt is a second row and this one keeps saying what
+  happened to the first.
+- A report **owns nothing it prints** (ADR-0035). The project metadata, the per-floor
+  schedule, the observations and the findings are read at the moment of rendering and copied
+  into no column, so a report cannot come to disagree with the record it is a rendering of.
+- An issue's identifier prints as **`Issue N`** — the record's name and the integer
+  (ADR-0035). This is the one format decision ADR-0031 and ADR-0032 both deferred to issue
+  #13 by name, and it invents nothing: it is ADR-0030's floor rule, where the column holds
+  `3` and the render supplies the word, and it is what the filename grammar already carries
+  in as `issue-7`. `T-1-007` is refused, as ADR-0031 refused `T-12-003` — a composed
+  identifier is a second format for a number that already has one, and the project is named
+  in the header block above every finding anyway.
+- The report prints **this walk's sightings, and all of them** (ADR-0035) — the other
+  question ADR-0031 handed to #13 by name. ADR-0032 had already reasoned the same way about
+  evidence: July's photograph does not evidence August's re-observation. It is the same
+  `where` clause `GET /v1/site-visits/:id/issues-without-photos` already uses.
+- **The renderer is not behind a port** (ADR-0035), deliberately departing from `TimeSource`,
+  `ObjectStore` and `Transcriber`. Each of those defers a pick no test can exercise — a
+  bucket that does not exist, a vendor account nobody has chosen. Chrome needs no account, no
+  key, no network and no per-call cost, and puppeteer pins its own, so a port would defer
+  nothing and would cost the acceptance test its subject: the ticket requires asserting on
+  the resulting *document*. The test for a port is whether the thing behind it is a **pick**.
+- Rendering runs **on BullMQ** (ADR-0035) — ADR-0034's case and not ADR-0032's, because it
+  launches a browser, decodes every photograph on the walk and lays out a paginated
+  document. One queue and a second job name, dispatched on `job.name` inside `buildWorker`;
+  concurrency stays 1, because one browser printing at a time is the right number on one
+  machine.
+- `site_visit_reports.storage_key` is **nullable**, which inverts ADR-0032's bytes-before-row
+  order for the only reason that could (ADR-0035): the queue sits between the row and the
+  document. The invariant itself holds — the key is written in the same statement as
+  `rendered_at`, after the object is stored, so a key never points at bytes that are not
+  there. There is no `content_type` column: a report is always `application/pdf`, and a
+  column holding one value forever is a place for it to one day hold another.
+- **`letter-spacing` above about a tenth of an em destroys a PDF's text layer.** Chrome emits
+  every glyph as its own text run, so a tracked-out heading prints as `N O TA B L E …` —
+  unsearchable and uncopyable in the one artifact this product issues outside itself
+  (ADR-0035). Measured on this stack: it breaks at `0.11em` and is fine at `0.09em`. Screen
+  CSS habits do not carry to a document.
+- Photographs are inlined into the report as **data URIs** and bounded to 70mm tall
+  (ADR-0035). The renderer is handed one string and needs nothing reachable over the network,
+  where a linked `<img>` would need the API reachable from inside the process serving it; the
+  bound is there because a portrait phone photograph is otherwise a page each. Every value
+  printed is **HTML-escaped** — what was observed is free text the engineer spoke, and this
+  is the one place in the product where that text becomes markup.
+- `startTestApi({ worker: false })` **substitutes nothing** — it does not start a worker,
+  which is a state production has too: the API up with a job still sitting in Redis. It is
+  how *queued* became a state a test can stand in and look at, for work with no vendor seam
+  to hold open the way `heldTranscriber` holds a transcription.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

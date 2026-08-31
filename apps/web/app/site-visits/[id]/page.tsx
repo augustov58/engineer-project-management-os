@@ -12,6 +12,7 @@ import {
   commitVoiceCapture,
   completeFloor,
   endSiteVisit,
+  generateSiteVisitReport,
   raiseIssue,
   recordObservation,
   reobserveIssue,
@@ -27,6 +28,7 @@ import {
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { clock, day } from '../../open-item';
 import { PhotoBindings, PhotoForm } from '../../photo-form';
+import { ReportProgress, ReportState } from '../../report-form';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
 import {
   CaptureProgress,
@@ -80,6 +82,11 @@ export default async function SiteVisitRecord({
   async function end() {
     'use server';
     await endSiteVisit(id, projectId);
+  }
+
+  async function generate() {
+    'use server';
+    await generateSiteVisitReport(id, projectId);
   }
 
   return (
@@ -506,6 +513,60 @@ export default async function SiteVisitRecord({
           <PhotoForm add={addPhoto.bind(null, id, projectId)} />
         </CardContent>
       </Card>
+
+      {/*
+        The write-up, last on the page because it is the last thing that
+        happens on a walk — and after the photographs, because the warning
+        above is what story 66 asks be read *before* a report is generated.
+
+        Generating again is another report and never an edit: a finding that
+        had no photograph gets one, and this button is pressed a second time.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Report</h2>
+          <ReportProgress siteVisitId={id} initial={visit.reports} />
+        </div>
+
+        {visit.reports.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {visit.reports.map((report) => (
+              <li
+                key={report.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 p-3"
+              >
+                <ReportState report={report} />
+                <span className="text-muted-foreground text-sm">
+                  {clock(report.createdAt)}
+                </span>
+                {report.state === 'rendered' && (
+                  <a
+                    href={`/site-visit-reports/${report.id}/pdf`}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-sm font-medium underline underline-offset-4"
+                  >
+                    Open the PDF
+                  </a>
+                )}
+                {report.failure !== null && (
+                  <span className="text-destructive text-sm">
+                    {report.failure}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form action={generate}>
+          <Button type="submit" variant="secondary">
+            {visit.reports.length === 0
+              ? 'Generate the report'
+              : 'Generate it again'}
+          </Button>
+        </form>
+      </section>
 
       <p className="text-muted-foreground text-sm">
         Visit recorded {day(visit.createdAt)}.

@@ -7,7 +7,7 @@
  * and a leaf is what stops `site-visits` and `photos` importing each other.
  */
 
-import { Prisma } from '../generated/prisma/client.js';
+import { Prisma, type SiteVisitReport } from '../generated/prisma/client.js';
 
 /**
  * A project as it goes out, which is the whole row **minus**
@@ -60,8 +60,13 @@ export function withDate<T extends { startedAt: Date }>(visit: T) {
  * The axis name is part of the segment rather than part of the stored value,
  * because Side and Sector are what the two axes *are*, and a column holding
  * "Side A" could be written with the wrong one.
+ *
+ * Exported for the report (issue #13), which prints the same grammar onto the
+ * page. There must be exactly one of it: two copies could drift, and "composed
+ * on every read so the parts and the string cannot disagree" would then be
+ * true of each copy and false of the pair.
  */
-function renderLocation(observation: {
+export function renderLocation(observation: {
   floor: string;
   qualifier: string;
   side: string | null;
@@ -228,4 +233,50 @@ export function voiceCaptureOnTheWire(capture: StoredCapture) {
     state: transcriptionState(capture),
     observation: observation === null ? null : withLocation(observation),
   };
+}
+
+/** A walk's reports, in the order they were asked for (issue #13). */
+export const reportsMade = {
+  orderBy: [{ createdAt: 'asc' }],
+} satisfies Prisma.SiteVisit$reportsArgs;
+
+/**
+ * What has happened to a report, derived on every read from the four stamps
+ * and stored nowhere.
+ *
+ * `transcriptionState`'s shape directly above, and for the same reasons: a
+ * status column would be a second answer that could disagree with the stamps,
+ * which ADR-0024, ADR-0031 and ADR-0034 each refused for a different record.
+ *
+ * Failed is read first, as it is there — but for a different reason worth
+ * saying, because the one above it does not apply. A recording clears its
+ * failure on retry, so a row carrying both is one that failed after starting;
+ * a report clears nothing, because a second attempt is a second row. A report
+ * that failed carries its start for good, and *failed* is what it is.
+ */
+function renderingState(report: {
+  renderingSince: Date | null;
+  renderedAt: Date | null;
+  failedAt: Date | null;
+}): 'queued' | 'rendering' | 'rendered' | 'failed' {
+  if (report.failedAt !== null) {
+    return 'failed';
+  }
+  if (report.renderedAt !== null) {
+    return 'rendered';
+  }
+  return report.renderingSince === null ? 'queued' : 'rendering';
+}
+
+/**
+ * A report on the wire: what state it is in and how big the document is —
+ * never the key its bytes are under.
+ *
+ * Here rather than in `routes/reports.ts` because two records return it: a
+ * walk lists its reports, and the report routes return one. That is the same
+ * reason `photoOnTheWire` and `voiceCaptureOnTheWire` are here (ADR-0033).
+ */
+export function reportOnTheWire(report: SiteVisitReport) {
+  const { storageKey: _key, ...onTheWire } = report;
+  return { ...onTheWire, state: renderingState(report) };
 }

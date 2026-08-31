@@ -2,6 +2,7 @@ packages:
   - apps/*
 
 onlyBuiltDependencies:
+  - puppeteer
   - esbuild
   - '@prisma/client'
   - '@prisma/engines'
