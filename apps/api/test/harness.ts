@@ -929,3 +929,144 @@ export async function generateReport(
   }
   return (await response.json()) as SiteVisitReportResponse;
 }
+
+/** One handoff, as the API returns it (issue #14). */
+export interface BallInCourtResponse {
+  id: string;
+  registerEntryId: string;
+  /** Who holds it. Free text, as every party in this product is. */
+  party: string;
+  /**
+   * Whether that party is us. The fact issue #15's accrual reads, stored
+   * rather than derived from the name.
+   */
+  inOurCourt: boolean;
+  /** From when. The start of an interval the next handoff ends. */
+  heldSince: string;
+  createdAt: string;
+}
+
+/** A register entry as the API returns it. */
+export interface RegisterEntryResponse {
+  id: string;
+  registerId: string;
+  /** Whose log it is in, and whose job — both off the register. */
+  kind: 'SUBMITTAL' | 'RFI';
+  projectId: string;
+  /** What it is filed under. The engineer's, never allocated. */
+  number: string;
+  subject: string;
+  fromParty: string;
+  toParty: string;
+  /** Both null on a submittal; the response lands after the question. */
+  question: string | null;
+  response: string | null;
+  /** The issuance that answered it, if one has (story 81). */
+  submissionId: string | null;
+  createdAt: string;
+  /**
+   * Whose move it is now: the last handoff, derived on every read and stored
+   * nowhere.
+   */
+  ballInCourt: BallInCourtResponse | null;
+  /** Every handoff, in the order the ball moved. This list is the history. */
+  handoffs: BallInCourtResponse[];
+  /** What is being chased for this entry, oldest first. */
+  openItems: OpenItemResponse[];
+}
+
+/** A register as the API returns it. */
+export interface RegisterResponse {
+  id: string;
+  projectId: string;
+  kind: 'SUBMITTAL' | 'RFI';
+  createdAt: string;
+  entries: RegisterEntryResponse[];
+}
+
+export interface HandoffBody {
+  party: string;
+  inOurCourt: boolean;
+  heldSince?: string;
+}
+
+export interface RegisterEntryBody {
+  number: string;
+  subject: string;
+  fromParty: string;
+  toParty: string;
+  question?: string;
+  ballInCourt: HandoffBody;
+}
+
+/**
+ * A valid handoff, so a test about one field does not have to restate the
+ * other two. The patch is untyped rather than `Partial<HandoffBody>` because
+ * one test sends a court that is not a boolean, which is exactly the body the
+ * schema exists to refuse.
+ */
+export function handoffBody(patch: Record<string, unknown> = {}): HandoffBody {
+  const body: Record<string, unknown> = {
+    party: 'Acme Mechanical',
+    inOurCourt: false,
+    ...patch,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body as unknown as HandoffBody;
+}
+
+export function registerEntryBody(
+  patch: Partial<RegisterEntryBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    number: 'SUB-001',
+    subject: 'Rooftop unit shop drawings',
+    fromParty: 'Acme Mechanical',
+    toParty: 'Us',
+    ballInCourt: handoffBody({ party: 'Us', inOurCourt: true }),
+    ...patch,
+  };
+
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/** The two logs a project is created with, submittals first. */
+export async function listRegisters(
+  api: TestApi,
+  projectId: string,
+): Promise<RegisterResponse[]> {
+  const path = `/v1/projects/${projectId}/registers`;
+  const response = await api.fetch(path);
+  if (response.status !== 200) {
+    throw new Error(`fixture failed: GET ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as RegisterResponse[];
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function createRegisterEntry(
+  api: TestApi,
+  registerId: string,
+  patch: Partial<RegisterEntryBody> = {},
+): Promise<RegisterEntryResponse> {
+  const path = `/v1/registers/${registerId}/entries`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(registerEntryBody(patch)),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as RegisterEntryResponse;
+}

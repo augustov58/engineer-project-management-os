@@ -50,6 +50,10 @@ model Project {
   siteVisits  SiteVisit[]
   issues      Issue[]
 
+  /// The two correspondence logs, written with the project and never
+  /// afterwards (issue #14). Both always exist: see `Register`.
+  registers Register[]
+
   @@map("projects")
 }
 
@@ -152,6 +156,11 @@ model Submission {
 
   openItems         SubmissionOpenItem[]
   assumptionRecords AssumptionRecord[]
+
+  /// The register entries this issuance responded to (story 81). The arrow
+  /// points from the entry, so linking one writes nothing here — which is
+  /// what keeps "no route updates a submission" true (ADR-0026).
+  respondsTo RegisterEntry[]
 
   @@index([projectId, issuedAt])
   @@map("submissions")
@@ -256,6 +265,10 @@ model OpenItem {
   /// The findings this item is being chased for (issue #10). Not the subject —
   /// see ADR-0026, and the same reasoning as `submissions` above.
   issues IssueOpenItem[]
+
+  /// The register entries this item is being chased for (story 79). Not the
+  /// subject either, for the third time and for ADR-0031's reasons.
+  registerEntries RegisterEntryOpenItem[]
 
   @@index([subjectType, subjectId])
   @@map("open_items")
@@ -882,4 +895,210 @@ model SiteVisitReport {
 
   @@index([siteVisitId, createdAt])
   @@map("site_visit_reports")
+}
+
+/// Which correspondence type a register logs (story 70).
+///
+/// A database enum, and the second one here — where the closed sets since
+/// ADR-0024 have been text with a CHECK. That rule has a reason, and the
+/// reason is absent here: `Physical / Safety` cannot be named as a Prisma enum
+/// member, so an issue's category would have arrived on the wire as
+/// `PHYSICAL_SAFETY` with the real words in a lookup beside it. `SUBMITTAL`
+/// and `RFI` name themselves. `open_item_subject` is therefore the live
+/// precedent — a set closed by what the product *is*, where adding a third
+/// correspondence type is a migration rather than a string a caller invents.
+///
+/// Singular, because it names what an entry is and not what the log is
+/// called: a screen writes "the RFIs register" out of `RFI`, the way it writes
+/// "Floor 3" out of `3` (ADR-0030).
+enum RegisterKind {
+  SUBMITTAL
+  RFI
+
+  @@map("register_kind")
+}
+
+/// The log of one correspondence type on one job (glossary, story 70).
+///
+/// Two rows per project and exactly two, written in the same transaction as
+/// the project itself. There is no create route and no delete: which
+/// correspondence types exist is a fact about the product rather than a choice
+/// about a job, so asking an engineer to make a submittals register before
+/// logging a submittal would be a step with no decision in it. A phase is the
+/// opposite case and is created by hand for that reason (ADR-0026).
+///
+/// The register carries no state of its own. It is a scope — the thing an
+/// entry's number is unique within — and everything anybody reads off it is
+/// its entries.
+model Register {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  kind RegisterKind
+
+  /// Entry order. The same instant as the project's, since both are written by
+  /// the one call from the one injected TimeSource.
+  createdAt DateTime @map("created_at")
+
+  entries RegisterEntry[]
+
+  /// One register of each kind per job, which is the whole of "a submittals
+  /// register and an RFIs register per project" — held by the database rather
+  /// than by the route that writes them.
+  @@unique([projectId, kind])
+  @@map("registers")
+}
+
+/// One piece of correspondence in a register: a submittal under review, or an
+/// RFI awaiting an answer (issue #14).
+///
+/// It owns what it is *about* — the number it is filed under, its subject, the
+/// parties, an RFI's question and answer — and owns nothing about whose move
+/// it is. That is the handoff history underneath it, and the current holder is
+/// derived from the last row of it on every read, the shape ADR-0027 gave
+/// *currently provisional* and ADR-0028 gave *superseded*.
+///
+/// There is deliberately no status column, for the fourth record running
+/// (ADR-0024, ADR-0031, ADR-0034, ADR-0035). The clock and the disposition
+/// arrive in issue #15; neither is here.
+model RegisterEntry {
+  id String @id @default(uuid())
+
+  registerId String   @map("register_id")
+  register   Register @relation(fields: [registerId], references: [id])
+
+  /// What the entry is filed under — "RFI-012", "23 05 93-1.1". Free text and
+  /// the engineer's, not allocated: these numbers come off the contractor's
+  /// transmittal and the job's own conventions, so a sequence of ours would be
+  /// a second identifier for a thing that already has one. That is the
+  /// opposite of an issue's number (ADR-0031), which exists precisely because
+  /// a finding arrives with none.
+  ///
+  /// Capped at the revision's 32, being the other short designation (as
+  /// `FLOOR` is). Unique within the register, so the same number may be both
+  /// a submittal and an RFI on one job and never twice in one log.
+  number String
+
+  /// The one line that says what it is about. Capped at the project name's
+  /// 200: it is a subject line, and the substance of an RFI is `question`.
+  subject String
+
+  /// Who it came from and who it is directed to — "Acme Mechanical", "the
+  /// architect". Both free text capped at 120, matching an open item's
+  /// `waiting_on` and a submission's `recipient`: ADR-0012 removed roles as
+  /// identity, and the corpus closes exactly two sets, neither of them this.
+  ///
+  /// The fixed cast of the entry, and not whose move it is: the ball moves
+  /// back and forth between them and out to a third party, which is what the
+  /// handoff history records and these two columns must not be read as.
+  fromParty String @map("from_party")
+  toParty   String @map("to_party")
+
+  /// What was asked, and what was answered (story 78). Both null on a
+  /// submittal; on an RFI the question arrives with the row and the response
+  /// lands later, through a route that refuses a second one.
+  ///
+  /// Which of the two kinds may carry them is enforced at the boundary and not
+  /// by a CHECK, unlike the one-axis rule (ADR-0030) and the category
+  /// (ADR-0031): the kind lives on the register, and a CHECK cannot read
+  /// another row. Copying `kind` down here to make one possible would be the
+  /// second place the same fact lives that this schema refuses everywhere
+  /// else. The one invariant a CHECK *can* reach is written in the migration:
+  /// a response without a question is impossible.
+  question String?
+  response String?
+
+  /// The issuance that answered this entry, if one has (story 81, story 35).
+  ///
+  /// The arrow points this way and not from the submission, which the two
+  /// stories together could be read as asking for. A column on `submissions`
+  /// would have to be written after the set went out, and there is no route
+  /// that updates a submission — a fact ADR-0026 made true by construction and
+  /// a test asserts. Story 35 reads through this same column in reverse.
+  submissionId String?     @map("submission_id")
+  submission   Submission? @relation(fields: [submissionId], references: [id])
+
+  /// Entry order, so two entries logged in the same minute do not list at
+  /// random.
+  createdAt DateTime @map("created_at")
+
+  handoffs  BallInCourtEvent[]
+  openItems RegisterEntryOpenItem[]
+
+  @@unique([registerId, number])
+  @@index([registerId, createdAt])
+  @@map("register_entries")
+}
+
+/// One handoff: from this moment, the ball is in the named party's court
+/// (stories 71, 80).
+///
+/// A history and not a column, which the PRD settled on 2026-08-24 and gave
+/// the reason for: the clock accrues only while the ball is ours, so elapsed
+/// in-court time is computable *only* from the sequence. A single
+/// `ball_in_court` field makes turnaround unauditable in exactly the dispute
+/// it exists to settle.
+///
+/// This is the transition log ADR-0031 refused for an issue, and it is here
+/// for the reason that refusal names. A finding's history was already the
+/// sightings, so a status trail would have been a second record of the same
+/// thing; nothing else here records whose move it was when. The test that it
+/// has not become the `tasks` record by the back door is that the entry above
+/// still has **no status column**: whose move it is now is read off the last
+/// of these rows and stored nowhere.
+model BallInCourtEvent {
+  id String @id @default(uuid())
+
+  registerEntryId String        @map("register_entry_id")
+  entry           RegisterEntry @relation(fields: [registerEntryId], references: [id])
+
+  /// Who holds it — "Acme Mechanical", "the architect", "us". Free text
+  /// capped at 120, matching every other party in the product.
+  party String
+
+  /// Whether that party is us. The second fact, and not one derived from the
+  /// first: issue #15 sums the intervals where this is true, and reading it
+  /// off the name would make the product's central number a string comparison
+  /// against a value the engineer typed — where ADR-0024 could reserve the
+  /// word `nobody` because nothing counts on it. A job that calls us by the
+  /// firm's name still accrues.
+  inOurCourt Boolean @map("in_our_court")
+
+  /// From when. Settable, because handoffs are entered from a transmittal log
+  /// after the fact; otherwise the injected TimeSource, and never a database
+  /// default (ADR-0022 names this slice).
+  ///
+  /// `since` and not `at`, matching an open item's `waiting_since`: the row is
+  /// the start of an interval that the next row ends, which is the shape
+  /// issue #15's accrual reads.
+  heldSince DateTime @map("held_since")
+
+  /// Entry order, and the tie-break when two handoffs carry the same instant —
+  /// so "who holds it now" is total rather than arbitrary.
+  createdAt DateTime @map("created_at")
+
+  @@index([registerEntryId, heldSince])
+  @@map("ball_in_court_events")
+}
+
+/// An open item being chased for a register entry (story 79).
+///
+/// A join, not a subject — the third record to be asked and the third to
+/// answer the same way (ADR-0026, ADR-0031). The item's `subject_type` stays
+/// `PROJECT` and its `subject_id` stays the job, so "cannot review this until
+/// the load data arrives" reaches the pending items view carrying the job it
+/// is on. Nothing in that view changed to make this work, which is the sign
+/// the shape is right.
+model RegisterEntryOpenItem {
+  registerEntryId String        @map("register_entry_id")
+  entry           RegisterEntry @relation(fields: [registerEntryId], references: [id])
+
+  openItemId String   @map("open_item_id")
+  openItem   OpenItem @relation(fields: [openItemId], references: [id])
+
+  @@id([registerEntryId, openItemId])
+  @@index([openItemId])
+  @@map("register_entry_open_items")
 }

@@ -10,6 +10,7 @@ import { openItemRoutes } from './routes/open-items.js';
 import { phaseRoutes } from './routes/phases.js';
 import { photoRoutes } from './routes/photos.js';
 import { projectRoutes } from './routes/projects.js';
+import { registerRoutes } from './routes/registers.js';
 import { reportRoutes } from './routes/reports.js';
 import { siteVisitRoutes } from './routes/site-visits.js';
 import { submissionRoutes } from './routes/submissions.js';
@@ -36,8 +37,9 @@ const API_PREFIX = '/v1';
  * on, the prefix every path is carried by, and the record types the API is
  * made of. A record's own routes, schemas and helpers live in its file under
  * `routes/`, one per record type (ADR-0033). The test files line up with them
- * but are not one-to-one: `submissions.ts` is driven by three of them, and
- * phases are exercised through `submissions.test.ts`.
+ * but are not one-to-one: `submissions.ts` is driven by three of them, phases
+ * are exercised through `submissions.test.ts`, and `registers.ts` carries the
+ * entries and handoffs beneath a register as well as the register itself.
  */
 export function buildServer({
   prisma,
@@ -58,7 +60,7 @@ export function buildServer({
   const dependencies = { prisma, queue, objectStore, timeSource };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The eleven below are plain functions
+  // spelled into every path (ADR-0023). The twelve below are plain functions
   // and not plugins on purpose: a plugin would open an encapsulation context of
   // its own, and there is nothing here that wants one.
   app.register(
@@ -74,6 +76,7 @@ export function buildServer({
       photoRoutes(v1, dependencies);
       voiceRoutes(v1, dependencies);
       reportRoutes(v1, dependencies);
+      registerRoutes(v1, dependencies);
     },
     { prefix: API_PREFIX },
   );

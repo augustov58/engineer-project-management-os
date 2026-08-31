@@ -40,8 +40,23 @@ export function projectRoutes(
     { schema: { body: projectBodySchema } },
     async (request, reply) => {
       try {
+        const now = timeSource.now();
         const project = await prisma.project.create({
-          data: { ...request.body, createdAt: timeSource.now() },
+          data: {
+            ...request.body,
+            createdAt: now,
+            // Both correspondence logs, written with the job and never
+            // afterwards (issue #14). Which types exist is a fact about the
+            // product rather than a choice about a job, so there is no route
+            // that creates one and no state in which a project has only one:
+            // `@@unique([projectId, kind])` is what keeps that true.
+            registers: {
+              create: [
+                { kind: 'SUBMITTAL', createdAt: now },
+                { kind: 'RFI', createdAt: now },
+              ],
+            },
+          },
         });
         return reply.code(201).send(projectOnTheWire(project));
       } catch (error) {

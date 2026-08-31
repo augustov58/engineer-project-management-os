@@ -536,3 +536,94 @@ export async function getIssue(
 export function listIssuesWithoutPhotos(siteVisitId: string): Promise<Issue[]> {
   return read<Issue[]>(`/site-visits/${siteVisitId}/issues-without-photos`);
 }
+
+/** One handoff: from this moment, the ball is in the named party's court. */
+export interface BallInCourt {
+  id: string;
+  registerEntryId: string;
+  party: string;
+  /** Whether that party is us. The fact the clock will read (issue #15). */
+  inOurCourt: boolean;
+  heldSince: string;
+  createdAt: string;
+}
+
+export interface RegisterEntry {
+  id: string;
+  registerId: string;
+  /** Whose log it is in, and whose job — both read off the register. */
+  kind: RegisterKind;
+  projectId: string;
+  /** What it is filed under. The engineer's, never allocated. */
+  number: string;
+  subject: string;
+  fromParty: string;
+  toParty: string;
+  /** Both null on a submittal; the response lands after the question. */
+  question: string | null;
+  response: string | null;
+  /** The issuance that answered it, if one has. */
+  submissionId: string | null;
+  createdAt: string;
+  /** Whose move it is now: the last handoff, derived and stored nowhere. */
+  ballInCourt: BallInCourt | null;
+  /** Every handoff, in the order the ball moved. This list is the history. */
+  handoffs: BallInCourt[];
+  /** What is being chased for this entry, oldest first. */
+  openItems: OpenItem[];
+}
+
+export type RegisterKind = 'SUBMITTAL' | 'RFI';
+
+export interface Register {
+  id: string;
+  projectId: string;
+  kind: RegisterKind;
+  createdAt: string;
+  entries: RegisterEntry[];
+}
+
+/**
+ * What each log is called on screen.
+ *
+ * The register's kind names what an entry *is* — the column holds `RFI` and
+ * the render supplies the rest, which is ADR-0030's floor rule and the one
+ * ADR-0035 printed `Issue N` by.
+ */
+export const REGISTER_NAMES: Record<RegisterKind, string> = {
+  SUBMITTAL: 'Submittals',
+  RFI: 'RFIs',
+};
+
+/** Both logs for a job, submittals first. There are always exactly two. */
+export function listRegisters(projectId: string): Promise<Register[]> {
+  return read<Register[]>(`/projects/${projectId}/registers`);
+}
+
+/** Undefined rather than throwing, so the page can render a 404. */
+export async function getRegister(id: string): Promise<Register | undefined> {
+  const path = `/registers/${id}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<Register>;
+}
+
+/** Undefined rather than throwing, so the page can render a 404. */
+export async function getRegisterEntry(
+  id: string,
+): Promise<RegisterEntry | undefined> {
+  const path = `/register-entries/${id}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<RegisterEntry>;
+}

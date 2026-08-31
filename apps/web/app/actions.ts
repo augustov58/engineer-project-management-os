@@ -1097,3 +1097,166 @@ export async function generateSiteVisitReport(
   await sendOrThrow(`/site-visits/${siteVisitId}/reports`);
   revalidateSiteVisit(siteVisitId, projectId);
 }
+
+// ── Registers, entries and the ball-in-court history (issue #14) ───────────
+
+/** Every screen a register entry appears on. */
+function revalidateRegisterEntry(entryId: string, registerId: string, projectId: string): void {
+  revalidatePath(`/register-entries/${entryId}`);
+  revalidatePath(`/registers/${registerId}`);
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/pending');
+}
+
+/**
+ * A handoff, read the same way whether it starts an entry or moves one on.
+ *
+ * The checkbox is the whole of whose court it is. It is not read off the party
+ * name: a job that calls us by the firm's name still accrues, and issue #15
+ * sums exactly this field.
+ */
+function handoffPayload(formData: FormData): Record<string, unknown> {
+  const since = omitIfBlank(formData, 'heldSince');
+  return {
+    party: formData.get('party'),
+    inOurCourt: formData.get('inOurCourt') !== null,
+    // A date input gives a day; the record keeps an instant.
+    heldSince: since === undefined ? undefined : `${since}T00:00:00.000Z`,
+  };
+}
+
+/**
+ * Log a piece of correspondence. The first handoff is part of the same call:
+ * an entry logged is already sitting in somebody's court.
+ */
+export async function createRegisterEntry(
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const question = omitIfBlank(formData, 'question');
+  const error = await refusal(
+    await send(`/registers/${registerId}/entries`, {
+      number: formData.get('number'),
+      subject: formData.get('subject'),
+      fromParty: formData.get('fromParty'),
+      toParty: formData.get('toParty'),
+      ...(question === undefined ? {} : { question }),
+      ballInCourt: handoffPayload(formData),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/registers/${registerId}`);
+  revalidatePath(`/projects/${projectId}`);
+  return { added: previous.added + 1 };
+}
+
+/** Hand the ball on. Every handoff is a row and none is ever rewritten. */
+export async function recordHandoff(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/register-entries/${entryId}/handoffs`, handoffPayload(formData)),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateRegisterEntry(entryId, registerId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/** What came back. Recorded once; the API refuses a second. */
+export async function recordResponse(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/register-entries/${entryId}/response`, {
+      response: formData.get('response'),
+    }),
+    200,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateRegisterEntry(entryId, registerId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/** The issuance that answered the entry, so the two are one story. */
+export async function linkSubmission(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/register-entries/${entryId}/submission`, {
+      submissionId: formData.get('submissionId'),
+    }),
+    200,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateRegisterEntry(entryId, registerId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/** "Cannot review this until the load data arrives", where the clock runs. */
+export async function createOpenItemOnRegisterEntry(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/register-entries/${entryId}/open-items`, openItemPayload(formData)),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateRegisterEntry(entryId, registerId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/** An item already on the job, chased for this entry as well. */
+export async function attachOpenItemToRegisterEntry(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  const openItemId = formData.get('openItemId');
+  if (openItemId === null || openItemId === '') {
+    return;
+  }
+
+  await sendOrThrow(
+    `/register-entries/${entryId}/open-items/${openItemId}`,
+    undefined,
+    // Already on this entry is the second half of a double click.
+    { tolerated: 'that open item is already on this entry' },
+  );
+  revalidateRegisterEntry(entryId, registerId, projectId);
+}

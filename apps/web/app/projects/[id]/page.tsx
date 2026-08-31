@@ -15,8 +15,10 @@ import {
   listIssues,
   listOpenItems,
   listPhases,
+  listRegisters,
   listSiteVisits,
   listSubmissions,
+  REGISTER_NAMES,
 } from '../../api';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
@@ -47,6 +49,7 @@ export default async function ProjectRecord({
     exposure,
     siteVisits,
     issues,
+    registers,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -57,6 +60,9 @@ export default async function ProjectRecord({
     listExposure(id),
     listSiteVisits(id),
     listIssues(id),
+    // Always two, written with the job: there is no state in which one is
+    // missing and none in which a third appears (issue #14).
+    listRegisters(id),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -317,6 +323,36 @@ export default async function ProjectRecord({
             ))}
           </ul>
         )}
+      </section>
+
+      {/*
+        The two correspondence logs. There is no form here and no button that
+        makes one: both exist from the moment the job does, because which
+        correspondence types there are is a fact about the product rather than
+        a choice about a job.
+      */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Registers</h2>
+
+        <ul className="divide-y rounded-lg border">
+          {registers.map((register) => (
+            <li key={register.id}>
+              <Link
+                href={`/registers/${register.id}`}
+                className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
+              >
+                <span className="font-medium">
+                  {REGISTER_NAMES[register.kind]}
+                </span>
+                <span className="text-muted-foreground text-sm">
+                  {register.entries.length === 0
+                    ? 'nothing logged yet'
+                    : `${register.entries.length} logged`}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {resolved.length > 0 && (
