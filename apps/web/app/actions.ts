@@ -1373,3 +1373,199 @@ export async function createNextRound(
   revalidateRegisterEntry(entryId, registerId, projectId);
   return { added: previous.added + 1 };
 }
+
+// ── Documents ─────────────────────────────────────────────────────────────
+
+/**
+ * The type a browser could not name for itself, by extension.
+ *
+ * The same fallback a photograph has, and the three here are exactly the three
+ * the API stores. Anything else is sent as the empty string rather than
+ * omitted, so the API refuses it by the same rule as any other bad type.
+ */
+const DOCUMENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
+function documentTypeOf(file: File): string {
+  if (file.type !== '') {
+    return file.type;
+  }
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return DOCUMENT_TYPE_BY_EXTENSION[extension] ?? '';
+}
+
+/**
+ * One version, read the same way whether it is a document's first or a later
+ * revision — so the two writers of that table cannot drift apart.
+ *
+ * Undefined when nothing was picked, which the callers answer for: a document
+ * is recorded with its bytes or not at all, and an empty file part would reach
+ * the API as a body it refuses for a reason nobody could act on.
+ */
+async function versionPayload(
+  formData: FormData,
+): Promise<Record<string, unknown> | undefined> {
+  const file = formData.get('file');
+  if (!(file instanceof File) || file.size === 0) {
+    return undefined;
+  }
+  return {
+    revision: formData.get('revision'),
+    filename: file.name,
+    contentType: documentTypeOf(file),
+    bytes: Buffer.from(await file.arrayBuffer()).toString('base64'),
+  };
+}
+
+/**
+ * Whether the engineer said this is a referenced file.
+ *
+ * A tri-state on purpose, and never a checkbox: unticked and unanswered would
+ * be the same value, and the unanswered one would classify an 86-sheet set as
+ * something extraction may be pointed at. The API refuses a body with no
+ * answer for that reason, and this refuses one before it is sent.
+ */
+function referencedFileAnswer(formData: FormData): boolean | undefined {
+  const answer = formData.get('referencedFile');
+  if (answer === 'true') {
+    return true;
+  }
+  return answer === 'false' ? false : undefined;
+}
+
+/** Every screen a document appears on. */
+function revalidateDocuments(projectId: string): void {
+  revalidatePath(`/projects/${projectId}`);
+  // A version pointed at by an issuance or an entry shows on those screens,
+  // and both read the title and whether it is a referenced file off it.
+  revalidatePath('/submissions/[id]', 'page');
+  revalidatePath('/register-entries/[id]', 'page');
+}
+
+/** Storing a document against a job, with its first version (story 94). */
+export async function addDocument(
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const version = await versionPayload(formData);
+  if (version === undefined) {
+    return { added: previous.added, error: 'no file was chosen' };
+  }
+
+  const referencedFile = referencedFileAnswer(formData);
+  if (referencedFile === undefined) {
+    return {
+      added: previous.added,
+      error: 'say whether this is a referenced file',
+    };
+  }
+
+  const error = await refusal(
+    await send(`/projects/${projectId}/documents`, {
+      title: formData.get('title'),
+      referencedFile,
+      version,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateDocuments(projectId);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * A newer revision of a document already stored (story 96).
+ *
+ * Nothing is written to the revisions before it, so what a submission was
+ * issued against stays exactly what it was.
+ */
+export async function addDocumentVersion(
+  documentId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const version = await versionPayload(formData);
+  if (version === undefined) {
+    return { added: previous.added, error: 'no file was chosen' };
+  }
+
+  const error = await refusal(
+    await send(`/documents/${documentId}/versions`, version),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateDocuments(projectId);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * Marking a document as a referenced file after the fact.
+ *
+ * One way. There is no action here that unmarks one and no route behind it:
+ * a correction may always take a document out of extraction's reach and may
+ * never put one into it.
+ */
+export async function markReferencedFile(
+  documentId: string,
+  projectId: string,
+): Promise<void> {
+  await sendOrThrow(`/documents/${documentId}/referenced-file`, undefined, {
+    // Already a referenced file is the second half of a double click, and the
+    // re-render shows what is actually true.
+    tolerated: 'that document is already a referenced file',
+  });
+  revalidateDocuments(projectId);
+}
+
+/** The defined set points at the actual document (story 95). */
+export async function linkDocumentToSubmission(
+  submissionId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  const versionId = formData.get('documentVersionId');
+  if (versionId === null || versionId === '') {
+    return;
+  }
+
+  await sendOrThrow(
+    `/submissions/${submissionId}/documents/${versionId}`,
+    undefined,
+    // Already on this submission is the second half of a double click.
+    { tolerated: 'that document is already on this submission' },
+  );
+  revalidatePath(`/submissions/${submissionId}`);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** What a piece of correspondence arrived with, or was answered by. */
+export async function linkDocumentToRegisterEntry(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  const versionId = formData.get('documentVersionId');
+  if (versionId === null || versionId === '') {
+    return;
+  }
+
+  await sendOrThrow(
+    `/register-entries/${entryId}/documents/${versionId}`,
+    undefined,
+    // Already on this entry is the second half of a double click.
+    { tolerated: 'that document is already on this entry' },
+  );
+  revalidateRegisterEntry(entryId, registerId, projectId);
+}

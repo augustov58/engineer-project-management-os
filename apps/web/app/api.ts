@@ -682,3 +682,65 @@ export async function getRegisterEntry(
   }
   return response.json() as Promise<RegisterEntry>;
 }
+
+/** One immutable revision of a document. Never its storage key. */
+export interface DocumentVersion {
+  id: string;
+  documentId: string;
+  /** The designation printed on the sheet — "C", "Rev 2", "Addendum 1". */
+  revision: string;
+  filename: string;
+  contentType: string;
+  byteSize: number;
+  createdAt: string;
+}
+
+/** A document stored against a job, with every version it has ever had. */
+export interface StoredDocument {
+  id: string;
+  projectId: string;
+  title: string;
+  /** Stored and linked but deliberately not parsed. Stamped once (issue #17). */
+  referencedFile: boolean;
+  createdAt: string;
+  versions: DocumentVersion[];
+}
+
+/** A version read through what points at it, carrying its document. */
+export interface LinkedDocumentVersion extends DocumentVersion {
+  document: {
+    id: string;
+    projectId: string;
+    title: string;
+    referencedFile: boolean;
+    createdAt: string;
+  };
+}
+
+/** What a document is called on screen, by what may be done to it. */
+export function documentKind(document: { referencedFile: boolean }): string {
+  return document.referencedFile ? 'Referenced file' : 'Document';
+}
+
+/**
+ * What is stored against a job. Retrieval is by identity — through the
+ * project, the submission or the entry the document belongs to — and there is
+ * no search box anywhere in this product (ADR-0019).
+ */
+export function listDocuments(projectId: string): Promise<StoredDocument[]> {
+  return read<StoredDocument[]>(`/projects/${projectId}/documents`);
+}
+
+/** What this issuance's sheet list points at (story 95). */
+export function listSubmissionDocuments(
+  submissionId: string,
+): Promise<LinkedDocumentVersion[]> {
+  return read<LinkedDocumentVersion[]>(`/submissions/${submissionId}/documents`);
+}
+
+/** What this piece of correspondence arrived with, or was answered by. */
+export function listRegisterEntryDocuments(
+  entryId: string,
+): Promise<LinkedDocumentVersion[]> {
+  return read<LinkedDocumentVersion[]>(`/register-entries/${entryId}/documents`);
+}

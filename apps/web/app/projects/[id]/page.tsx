@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  addDocument,
   archiveProject,
   createOpenItem,
   createSiteVisit,
@@ -12,6 +13,7 @@ import {
 import {
   getProject,
   listClock,
+  listDocuments,
   listExposure,
   listIssues,
   listOpenItems,
@@ -21,6 +23,8 @@ import {
   listSubmissions,
   REGISTER_NAMES,
 } from '../../api';
+import { DocumentForm } from '../../document-form';
+import { DocumentList } from '../../documents';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
 import { SiteVisitForm } from '../../site-visit-form';
@@ -52,6 +56,7 @@ export default async function ProjectRecord({
     issues,
     registers,
     onTheClock,
+    documents,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -67,6 +72,9 @@ export default async function ProjectRecord({
     listRegisters(id),
     // The same call the count links to, as exposure's is (issue #15).
     listClock(id),
+    // What is stored against this job, reached through the job itself —
+    // there is no search box here or anywhere else (ADR-0019).
+    listDocuments(id),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -377,6 +385,39 @@ export default async function ProjectRecord({
           ))}
         </ul>
       </section>
+
+      {/*
+        What is stored against the job. There is no count strip here: exposure
+        and the clock are the two daily counts and a third figure beside them
+        is what ADR-0016 keeps this product from growing — how many documents
+        there are is not something to act on in the morning.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Documents</h2>
+          <span className="text-muted-foreground text-sm">
+            {documents.length === 0
+              ? 'nothing stored yet'
+              : `${documents.filter((one) => one.referencedFile).length} referenced of ${documents.length}`}
+          </span>
+        </div>
+
+        <DocumentList documents={documents} projectId={id} />
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Store a document</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            The file goes to object storage and the record keeps what it is and
+            where. A revision is never overwritten, so what a submission was
+            issued against stays answerable.
+          </p>
+          <DocumentForm submit={addDocument.bind(null, id)} />
+        </CardContent>
+      </Card>
 
       {resolved.length > 0 && (
         <section className="space-y-3">

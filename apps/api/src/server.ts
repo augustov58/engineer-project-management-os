@@ -4,6 +4,7 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import type { ObjectStore } from './object-store.js';
 import { systemTimeSource, type TimeSource } from './time-source.js';
 import { assumptionRecordRoutes } from './routes/assumption-records.js';
+import { documentRoutes } from './routes/documents.js';
 import { healthRoutes } from './routes/health.js';
 import { issueRoutes } from './routes/issues.js';
 import { openItemRoutes } from './routes/open-items.js';
@@ -19,7 +20,7 @@ import { voiceRoutes } from './routes/voice.js';
 export interface ServerDependencies {
   prisma: PrismaClient;
   queue: Queue;
-  /** Where a photograph's bytes go. No default: there is no sensible one. */
+  /** Where a file's bytes go. No default: there is no sensible one. */
   objectStore: ObjectStore;
   /** Defaults to the real clock; tests pass a fake and advance it by hand. */
   timeSource?: TimeSource;
@@ -60,7 +61,7 @@ export function buildServer({
   const dependencies = { prisma, queue, objectStore, timeSource };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The twelve below are plain functions
+  // spelled into every path (ADR-0023). The thirteen below are plain functions
   // and not plugins on purpose: a plugin would open an encapsulation context of
   // its own, and there is nothing here that wants one.
   app.register(
@@ -77,6 +78,7 @@ export function buildServer({
       voiceRoutes(v1, dependencies);
       reportRoutes(v1, dependencies);
       registerRoutes(v1, dependencies);
+      documentRoutes(v1, dependencies);
     },
     { prefix: API_PREFIX },
   );

@@ -8,16 +8,21 @@ import {
   captureAssumptionRecord,
   createOpenItemOnSubmission,
   detachOpenItem,
+  linkDocumentToSubmission,
   reissueSubmission,
 } from '../../actions';
 import {
   getSubmission,
   listAssumptionRecords,
+  listDocuments,
   listOpenItems,
   listPhases,
+  listSubmissionDocuments,
 } from '../../api';
 import { AssumptionRecordEntry } from '../../assumption-record';
 import { AssumptionRecordForm } from '../../assumption-record-form';
+import { LinkDocumentForm } from '../../document-form';
+import { LinkedDocumentList } from '../../documents';
 import { selectClassName } from '../../native-select';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { day, OpenItemEntry } from '../../open-item';
@@ -38,11 +43,16 @@ export default async function SubmissionRecord({
 
   const projectId = submission.project.id;
   const attached = new Set(submission.openItems.map((item) => item.id));
-  const [onTheProject, phases, assumptionRecords] = await Promise.all([
-    listOpenItems(projectId),
-    listPhases(projectId),
-    listAssumptionRecords(id),
-  ]);
+  const [onTheProject, phases, assumptionRecords, onTheSet, documents] =
+    await Promise.all([
+      listOpenItems(projectId),
+      listPhases(projectId),
+      listAssumptionRecords(id),
+      // What this issuance's sheet list points at (story 95), and everything
+      // on the job it could point at.
+      listSubmissionDocuments(id),
+      listDocuments(projectId),
+    ]);
   // Only what is still unresolved is worth offering: attaching an answered
   // item to a set going out is not the thing this control is for.
   const attachable = onTheProject.filter((item) => !attached.has(item.id));
@@ -151,6 +161,38 @@ export default async function SubmissionRecord({
         <pre className="overflow-x-auto rounded-lg border p-4 font-mono text-sm">
           {submission.sheetList}
         </pre>
+      </section>
+
+      {/*
+        What the defined set above points at (story 95).
+
+        A **version**, so "which version did we issue against" is answerable —
+        and a join, so linking one writes nothing to the submission and the
+        issuance stays exactly what it was. It is deliberately not a link to a
+        single sheet: the sheet list is one block of text, and rows per sheet
+        are a migration ADR-0026 priced and did not take.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Documents</h2>
+          <span className="text-muted-foreground text-sm">
+            {onTheSet.length === 0
+              ? 'nothing pointed at'
+              : `${onTheSet.length} pointed at`}
+          </span>
+        </div>
+
+        <LinkedDocumentList
+          versions={onTheSet}
+          empty="The sheets above name the set; nothing here points at the file it is in."
+        />
+
+        <LinkDocumentForm
+          link={linkDocumentToSubmission.bind(null, id, projectId)}
+          documents={documents}
+          linked={onTheSet}
+          label="A document this set was issued against"
+        />
       </section>
 
       {/*

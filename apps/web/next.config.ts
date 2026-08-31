@@ -40,12 +40,21 @@ const nextConfig: NextConfig = {
    * phone fits in — the picker would have refused every real file while
    * accepting the one-pixel PNG the API tests use.
    *
-   * Sixteen covers the twelve-mebibyte file the API caps at plus the multipart
-   * overhead around it. It is a per-*photograph* limit and not a per-selection
-   * one, because the form sends one request per file: a hundred of them in one
-   * body is not a request anybody should make.
+   * Sixty-four covers the largest thing this product takes, which is a
+   * document version: the API caps one at forty-eight mebibytes, being the
+   * 86-sheet drawing set issue #17 names by hand. Photographs still send one
+   * request per file — a hundred of them in one body is not a request anybody
+   * should make — and a document is one file, so this is a per-*file* limit
+   * either way.
+   *
+   * It is **one number for every server action**, which Next gives no way to
+   * scope per route, so raising it for documents raised it for photographs
+   * too. That costs nothing at the record: `photoRoutes` sets its own
+   * `bodyLimit` at twelve mebibytes and refuses a larger file whatever this
+   * says. What changed is only where an oversized photograph is refused —
+   * by the API rather than by the Next server, after buffering more of it.
    */
-  experimental: { serverActions: { bodySizeLimit: '16mb' } },
+  experimental: { serverActions: { bodySizeLimit: '64mb' } },
 };
 
 export default nextConfig;

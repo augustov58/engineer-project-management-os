@@ -54,6 +54,11 @@ model Project {
   /// afterwards (issue #14). Both always exist: see `Register`.
   registers Register[]
 
+  /// What has been stored against this job (issue #17). Retrieval is by
+  /// identity — this project, this submission, this entry — and never by
+  /// similarity to a query (ADR-0019).
+  documents Document[]
+
   @@map("projects")
 }
 
@@ -161,6 +166,14 @@ model Submission {
   /// points from the entry, so linking one writes nothing here — which is
   /// what keeps "no route updates a submission" true (ADR-0026).
   respondsTo RegisterEntry[]
+
+  /// The document versions this issuance's sheet list points at (story 95).
+  ///
+  /// A join and never a column here, for the reason `supersedes_id` points
+  /// backwards and `register_entries.submission_id` points inwards: a column
+  /// on this table could only be written after the set went out, and no route
+  /// updates a submission (ADR-0026).
+  documentVersions SubmissionDocumentVersion[]
 
   @@index([projectId, issuedAt])
   @@map("submissions")
@@ -1076,6 +1089,10 @@ model RegisterEntry {
   handoffs  BallInCourtEvent[]
   openItems RegisterEntryOpenItem[]
 
+  /// The document versions this piece of correspondence arrived with, or was
+  /// answered by (story 97). The `register_entry_open_items` shape exactly.
+  documentVersions RegisterEntryDocumentVersion[]
+
   @@unique([registerId, number])
   @@index([registerId, createdAt])
   @@map("register_entries")
@@ -1150,4 +1167,180 @@ model RegisterEntryOpenItem {
   @@id([registerEntryId, openItemId])
   @@index([openItemId])
   @@map("register_entry_open_items")
+}
+
+/// A document stored against a job, and — where it is a **referenced file** —
+/// deliberately not parsed (issue #17, stories 94-97).
+///
+/// This row is the **identity**, not the file: the title the job knows it by
+/// and whether it is a referenced file, and nothing that changes from one
+/// version to the next. It is the scope a version's `revision` is unique
+/// within, which is what `Register` is to an entry's `number` (ADR-0036), and
+/// it carries no state at all.
+///
+/// The bytes are on `DocumentVersion` and never here, so a document that has
+/// been reissued three times is one record with three versions rather than
+/// three records that could disagree about what the document *is*. That is
+/// the departure from ADR-0028's `supersedes_id` chain and ADR-0035's
+/// another-row-every-time, and the reason for it: those records share nothing
+/// between links, and this one shares its whole identity.
+///
+/// [[PRD and Architecture]]'s data model sketch names three tables —
+/// `documents`, `document_versions`, `referenced_files`. The third is refused
+/// here, as `clock_started` was (ADR-0037) and the sketch's summary column
+/// was (ADR-0031): [[glossary]] defines a referenced file as *a document*
+/// stored and linked but deliberately not parsed, so a second table would
+/// make one document two records and give "is this one?" two answers that
+/// could differ.
+model Document {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// What the job calls it — "Electrical drawing set", "Division 26
+  /// specification". ADR-0008's `title`, entered by hand, which that ADR's
+  /// own consequence names as the path a failed extraction degrades to.
+  ///
+  /// Not unique on a project. Two sets really can be called the same thing,
+  /// and a constraint here would refuse the second rather than the mistake.
+  /// Capped at the project name's 200.
+  title String
+  /// Whether this is stored and linked but **deliberately not parsed** — a
+  /// drawing set, a spec book. An 86-sheet 48"x36" set is not an extraction
+  /// target ([[glossary]]), and pretending otherwise is how a document
+  /// pipeline becomes a liability.
+  ///
+  /// Required in the body that records the document and never edited
+  /// afterwards, the shape `issued_provisional` has. A default would classify
+  /// by omission, and the omitted answer would be the dangerous one: between
+  /// recording and marking, a large-format set would be a target.
+  ///
+  /// A boolean and not a `document_type` enum, though ADR-0008 names one
+  /// (drawing / spec / other). What this ticket asks about a document is the
+  /// one thing that changes what may be done to it; a discipline and a type
+  /// are extraction's fields and are not entered here (ADR-0019: nothing is
+  /// stored that nothing reads).
+  referencedFile Boolean @map("referenced_file")
+
+  /// Entry order, so two documents stored in the same minute do not list at
+  /// random.
+  createdAt DateTime @map("created_at")
+
+  versions DocumentVersion[]
+
+  @@index([projectId, createdAt])
+  @@map("documents")
+}
+
+/// One immutable revision of a document, in object storage ([[glossary]]:
+/// *Document version*).
+///
+/// **Nothing edits one and nothing deletes one.** A newer revision is a new
+/// row; the row it follows is not touched, which is what makes "which version
+/// did we issue against" answerable years later — ADR-0028's reissue and
+/// ADR-0035's re-render arriving for a third record, and ADR-0008's "the
+/// original file in S3 is immutable" made structural.
+///
+/// The bytes are **not here**. They go to the injected `ObjectStore` and this
+/// row keeps the key, which is the ticket's own criterion and the third record
+/// to use that port after a photograph (ADR-0032) and a recording (ADR-0034).
+model DocumentVersion {
+  id String @id @default(uuid())
+
+  documentId String   @map("document_id")
+  document   Document @relation(fields: [documentId], references: [id])
+
+  /// The designation printed on the sheet — "C", "Rev 2", "Addendum 1".
+  ///
+  /// ADR-0008's extracted field `revision`, entered by hand. The engineer's
+  /// and never allocated, which is a register entry's `number` (ADR-0036) and
+  /// the opposite of an issue's identifier (ADR-0031): a drawing set arrives
+  /// stamped, and a sequence of ours would be a second name for something
+  /// that already has one.
+  ///
+  /// Unique within its document, which is the whole of "a new version never
+  /// overwrites a prior one" — held by the database rather than by a guard.
+  /// [[glossary]]'s **Revision** strikes *version* as a synonym for a
+  /// submission's revision; that entry is about an issuance, and this column
+  /// carries the word the sheet does. Capped at the submission revision's 32,
+  /// being the same kind of short designation.
+  revision String
+
+  /// The name the file arrived with, kept verbatim.
+  ///
+  /// Bookkeeping here and not the mechanism it is on a photograph
+  /// (ADR-0032): a document is reached through the structure it belongs to,
+  /// so nothing is parsed out of this. It is what the engineer recognises in
+  /// a list.
+  filename String
+
+  /// One of the document types the boundary admits, held so the bytes can be
+  /// served back as what they are. A CHECK names the set, since the read
+  /// route hands this straight to a browser.
+  contentType String @map("content_type")
+
+  /// What was stored, so a list can be rendered without reading every object.
+  byteSize Int @map("byte_size")
+
+  /// Where the bytes are in the object store. Never on the wire, and stored
+  /// rather than derived from the id, so the S3 adapter can key its objects
+  /// however it likes.
+  storageKey String @unique @map("storage_key")
+
+  /// When this version was recorded. Entry order and not the date printed on
+  /// the sheet: the revision is what names it, and a date nothing reads would
+  /// be a column to keep wrong.
+  createdAt DateTime @map("created_at")
+
+  submissions     SubmissionDocumentVersion[]
+  registerEntries RegisterEntryDocumentVersion[]
+
+  @@unique([documentId, revision])
+  @@index([documentId, createdAt])
+  @@map("document_versions")
+}
+
+/// What a submission's sheet list points at (story 95).
+///
+/// The `submission_open_items` shape: a row written **after** the issuance,
+/// which writes nothing to the submission and therefore does not edit one —
+/// the property ADR-0026 made true by construction and ADR-0028 leaned on.
+///
+/// It points at a **version** and not at a document, which is what makes
+/// "which version did we issue against" answerable. It does **not** point at
+/// a *sheet*: ADR-0026 and [[glossary]] both price linking to one line of the
+/// sheet list as a migration off that text column, and nothing in this ticket
+/// addresses a single sheet.
+///
+/// Many-to-many, as `submission_open_items` is: one drawing set backs several
+/// issuances, and one issuance's defined set is drawings and specs together.
+model SubmissionDocumentVersion {
+  submissionId String     @map("submission_id")
+  submission   Submission @relation(fields: [submissionId], references: [id])
+
+  documentVersionId String          @map("document_version_id")
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id])
+
+  @@id([submissionId, documentVersionId])
+  @@index([documentVersionId])
+  @@map("submission_document_versions")
+}
+
+/// What a register entry arrived with, or was answered by (story 97).
+///
+/// The same shape as the join above and as `register_entry_open_items`, and
+/// here for the same reason: retrieval is by identity, so a submittal package
+/// is found through the entry it was logged as, never by remembering the
+/// filename.
+model RegisterEntryDocumentVersion {
+  registerEntryId String        @map("register_entry_id")
+  entry           RegisterEntry @relation(fields: [registerEntryId], references: [id])
+
+  documentVersionId String          @map("document_version_id")
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id])
+
+  @@id([registerEntryId, documentVersionId])
+  @@index([documentVersionId])
+  @@map("register_entry_document_versions")
 }

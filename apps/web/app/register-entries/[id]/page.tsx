@@ -8,6 +8,7 @@ import {
   attachOpenItemToRegisterEntry,
   createNextRound,
   createOpenItemOnRegisterEntry,
+  linkDocumentToRegisterEntry,
   linkSubmission,
   recordDisposition,
   recordHandoff,
@@ -18,12 +19,16 @@ import {
   getProject,
   getRegister,
   getRegisterEntry,
+  listDocuments,
   listOpenItems,
   listPhases,
+  listRegisterEntryDocuments,
   listSubmissions,
   REGISTER_NAMES,
   REVISE_AND_RESUBMIT,
 } from '../../api';
+import { LinkDocumentForm } from '../../document-form';
+import { LinkedDocumentList } from '../../documents';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import {
   DispositionForm,
@@ -51,12 +56,17 @@ export default async function RegisterEntryRecord({
     notFound();
   }
 
-  const [project, phases, submissions, unresolved] = await Promise.all([
-    getProject(entry.projectId),
-    listPhases(entry.projectId),
-    listSubmissions(entry.projectId),
-    listOpenItems(entry.projectId),
-  ]);
+  const [project, phases, submissions, unresolved, onTheEntry, documents] =
+    await Promise.all([
+      getProject(entry.projectId),
+      listPhases(entry.projectId),
+      listSubmissions(entry.projectId),
+      listOpenItems(entry.projectId),
+      // What this piece of correspondence arrived with, or was answered by
+      // (story 97), and everything on the job it could point at.
+      listRegisterEntryDocuments(id),
+      listDocuments(entry.projectId),
+    ]);
   if (project === undefined) {
     notFound();
   }
@@ -333,6 +343,39 @@ export default async function RegisterEntryRecord({
             )}
           </Link>
         )}
+      </section>
+
+      {/*
+        The submittal package, the marked-up sketch — whatever this entry
+        arrived with. Reached through the entry it was logged as, which is the
+        whole of retrieval here (ADR-0019).
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Documents</h2>
+          <span className="text-muted-foreground text-sm">
+            {onTheEntry.length === 0
+              ? 'nothing pointed at'
+              : `${onTheEntry.length} pointed at`}
+          </span>
+        </div>
+
+        <LinkedDocumentList
+          versions={onTheEntry}
+          empty="Nothing stored on this job is pointed at from this entry."
+        />
+
+        <LinkDocumentForm
+          link={linkDocumentToRegisterEntry.bind(
+            null,
+            entry.id,
+            entry.registerId,
+            project.id,
+          )}
+          documents={documents}
+          linked={onTheEntry}
+          label="A document this entry arrived with"
+        />
       </section>
 
       <section className="space-y-3">

@@ -1,9 +1,9 @@
 /**
  * The refusals more than one route module reaches for.
  *
- * The fourteen 404s are here as a **set** rather than by the count rule ADR-0033
+ * The sixteen 404s are here as a **set** rather than by the count rule ADR-0033
  * otherwise applies — most are used by one record, but a route naming the
- * record it could not find is the thing that must not drift into fourteen
+ * record it could not find is the thing that must not drift into sixteen
  * differently worded bodies. Below them are the two async checks a record
  * makes before writing that another record makes too.
  *
@@ -99,6 +99,25 @@ export function noSuchRegister(reply: FastifyReply) {
 /** The one 404 body for register entries, matching the others. */
 export function noSuchRegisterEntry(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no register entry with that id' });
+}
+
+/** The one 404 body for documents, matching the others. */
+export function noSuchDocument(reply: FastifyReply) {
+  return reply.code(404).send({ message: 'no document with that id' });
+}
+
+/**
+ * The one 404 body for document versions, matching the others — and exported
+ * as a constant too, because `versionRefusal` in `routes/documents.ts` answers
+ * the same miss in the `Refusal` shape and the two sentences must stay one
+ * sentence. `NO_SUCH_OBSERVATION` is here for that reason and is the
+ * precedent.
+ */
+export const NO_SUCH_DOCUMENT_VERSION = 'no document version with that id';
+
+/** The one 404 body for document versions, matching the others. */
+export function noSuchDocumentVersion(reply: FastifyReply) {
+  return reply.code(404).send({ message: NO_SUCH_DOCUMENT_VERSION });
 }
 
 /** The one 404 body for site visit reports, matching the others. */
