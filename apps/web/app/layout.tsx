@@ -35,6 +35,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               >
                 Exposure
               </Link>
+              <Link
+                href="/clock"
+                className="hover:text-foreground transition-colors"
+              >
+                Clock
+              </Link>
             </div>
           </nav>
         </header>

@@ -963,12 +963,27 @@ export interface RegisterEntryResponse {
   response: string | null;
   /** The issuance that answered it, if one has (story 81). */
   submissionId: string | null;
+  /** The contractual turnaround in whole days, or none set (story 73). */
+  turnaroundDays: number | null;
+  /** The outcome of a review and the day it was reached; both or neither. */
+  disposition: string | null;
+  disposedAt: string | null;
+  /** The round this one follows, and the one that followed it (story 77). */
+  previousRoundId: string | null;
+  nextRoundId: string | null;
   createdAt: string;
   /**
    * Whose move it is now: the last handoff, derived on every read and stored
    * nowhere.
    */
   ballInCourt: BallInCourtResponse | null;
+  /**
+   * Elapsed in-court time in milliseconds: the sum of the intervals the ball
+   * was ours, with the open one running to now. Derived on every read.
+   */
+  inCourtMs: number;
+  /** Sitting in our court, with a target, and over it (stories 43, 74). */
+  pastClock: boolean;
   /** Every handoff, in the order the ball moved. This list is the history. */
   handoffs: BallInCourtResponse[];
   /** What is being chased for this entry, oldest first. */
@@ -996,7 +1011,13 @@ export interface RegisterEntryBody {
   fromParty: string;
   toParty: string;
   question?: string;
+  turnaroundDays?: number;
   ballInCourt: HandoffBody;
+}
+
+/** An entry on the clock, carrying the job it is on (issue #15). */
+export interface ClockRow extends RegisterEntryResponse {
+  project: { id: string; projectNumber: string; name: string };
 }
 
 /**

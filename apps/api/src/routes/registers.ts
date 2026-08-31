@@ -1,9 +1,18 @@
-/** Registers: the log of one correspondence type, and whose move it is (issue #14). */
+/**
+ * Registers: the log of one correspondence type, whose move it is (issue #14),
+ * and how long it has been ours (issue #15).
+ */
 
 import type { FastifyInstance } from 'fastify';
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import type { TimeSource } from '../time-source.js';
-import { NOT_BLANK, type RouteDependencies, instant, isUniqueViolation } from '../http.js';
+import {
+  NOT_BLANK,
+  type RouteDependencies,
+  instant,
+  isUniqueViolation,
+  violates,
+} from '../http.js';
 import {
   noSuchProject,
   noSuchRegister,
@@ -13,6 +22,44 @@ import {
   refuse,
 } from '../refusals.js';
 import { openItemBodySchema } from './open-items.js';
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * The closed set of five, byte-exact and in the order every source writes them
+ * (story 75).
+ *
+ * Refused here at the boundary and again by a CHECK underneath — the double
+ * enforcement ADR-0030 gave the one-axis rule and ADR-0031 gave an issue's
+ * category, and what "enforce them in the schema, not only in the interface"
+ * asks for. One string is stored, sent, selected and printed, playing all four
+ * parts, which is why this is not a database enum: three of the five cannot be
+ * named as Prisma enum members at all (ADR-0036).
+ */
+const DISPOSITIONS = [
+  'Approved',
+  'Approved as Noted',
+  'Revise and Resubmit',
+  'Rejected',
+  'For Record Only',
+] as const;
+
+type Disposition = (typeof DISPOSITIONS)[number];
+
+/**
+ * The contractual turnaround, in whole days (story 73).
+ *
+ * A duration and never a date: the day it falls due is a function of this and
+ * of when the ball reached us, which the handoff history already holds. An
+ * integer, because contracts name whole days. Bounded below at one — a
+ * turnaround of zero is not a target — and above at a year, past which the
+ * number is a typo rather than a term.
+ */
+const TURNAROUND_DAYS = {
+  type: 'integer',
+  minimum: 1,
+  maximum: 365,
+} as const;
 
 /**
  * A handoff: from this moment, the ball is in the named party's court.
@@ -48,6 +95,11 @@ const handoffBodySchema = {
  * register. Caps follow the corpus — 32 for a designation written by hand, 200
  * for a subject line, 120 for a party, and the sheet list's 2000 for the one
  * field that holds more than a phrase.
+ *
+ * `turnaroundDays` is optional here and settable afterwards, because the
+ * contractual number is known when the entry is logged about as often as it is
+ * looked up later — the shape ADR-0026 gave what a set rests on, which is
+ * named in the same call and attachable after it.
  */
 const entryBodySchema = {
   type: 'object',
@@ -59,6 +111,7 @@ const entryBodySchema = {
     fromParty: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
     toParty: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
     question: { type: 'string', pattern: NOT_BLANK, maxLength: 2000 },
+    turnaroundDays: TURNAROUND_DAYS,
     ballInCourt: handoffBodySchema,
   },
 } as const;
@@ -85,6 +138,42 @@ const linkSubmissionBodySchema = {
   properties: { submissionId: { type: 'string' } },
 } as const;
 
+/** Which job's clock, or every live one's. Exposure's querystring exactly. */
+const clockQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { projectId: { type: 'string' } },
+} as const;
+
+/** The contractual number the clock is measured against (story 73). */
+const turnaroundBodySchema = {
+  type: 'object',
+  required: ['turnaroundDays'],
+  additionalProperties: false,
+  properties: { turnaroundDays: TURNAROUND_DAYS },
+} as const;
+
+/**
+ * The outcome of a review, and where the ball goes (stories 75, 76).
+ *
+ * The handoff is part of this body and not a second call, which is what makes
+ * closing the loop one action — and the party is **supplied** rather than read
+ * off `fromParty`. The entry's two parties are its fixed cast and are
+ * deliberately not read as whose move it is (ADR-0036): a submittal reviewed
+ * for a contractor may go back to the architect, and a route that guessed
+ * would write a handoff nobody asked for into the record a dispute is settled
+ * from.
+ */
+const dispositionBodySchema = {
+  type: 'object',
+  required: ['disposition', 'ballInCourt'],
+  additionalProperties: false,
+  properties: {
+    disposition: { type: 'string', enum: DISPOSITIONS },
+    ballInCourt: handoffBodySchema,
+  },
+} as const;
+
 interface HandoffBody {
   party: string;
   inOurCourt: boolean;
@@ -97,6 +186,7 @@ interface EntryBody {
   fromParty: string;
   toParty: string;
   question?: string;
+  turnaroundDays?: number;
   ballInCourt: HandoffBody;
 }
 
@@ -116,6 +206,11 @@ const entryInclude = {
     orderBy: { openItem: { waitingSince: 'asc' } },
     select: { openItem: true },
   },
+  // The round that followed this one, if a resubmittal came back. Selected
+  // rather than included: `previous_round_id` is unique, so there is at most
+  // one and its id is the whole of what a screen needs to link forward — the
+  // shape `supersededById` has on a submission (ADR-0028).
+  nextRound: { select: { id: true } },
   register: { select: { kind: true, projectId: true } },
 } satisfies Prisma.RegisterEntryInclude;
 
@@ -124,8 +219,12 @@ type StoredEntry = Prisma.RegisterEntryGetPayload<{
 }>;
 
 /**
- * An entry on the wire: whose move it is now, and the whole of how it got
- * there.
+ * An entry on the wire: whose move it is now, how long it has been ours, and
+ * the whole of how it got there.
+ *
+ * `…OnTheWire` rather than `withBallInCourt`, matching `photoOnTheWire` and
+ * `reportOnTheWire`: it attaches five facts now, not one, and a name for the
+ * first of them would not describe it.
  *
  * *Ball-in-court* is the last handoff, derived on every read and stored
  * nowhere — the shape ADR-0027 gave *currently provisional* and ADR-0028 gave
@@ -136,22 +235,92 @@ type StoredEntry = Prisma.RegisterEntryGetPayload<{
  * The kind and the job come off the register rather than being columns here:
  * a screen needs both to render an entry at all, and neither can drift from
  * the row it is read from.
+ *
+ * `inCourtMs` and `pastClock` are derived here too, for the same reason and by
+ * the same rule (issue #15). Neither is a column: a stored elapsed time would
+ * be wrong a millisecond after it was written, and a stored *past its clock*
+ * would be wrong for however long nothing rewrote it.
  */
-function withBallInCourt(entry: StoredEntry) {
-  const { handoffs, openItems, register, ...rest } = entry;
+function entryOnTheWire(entry: StoredEntry, timeSource: TimeSource) {
+  const { handoffs, openItems, nextRound, register, ...rest } = entry;
+  // `?? null` for the wire and not as a defence: an entry is created with
+  // its first handoff in the same transaction and nothing deletes one, so
+  // the list is never empty — but `at(-1)` is typed `| undefined`, and an
+  // undefined would drop the key out of the JSON entirely and take the
+  // exact-key-set test with it.
+  const ballInCourt = handoffs.at(-1) ?? null;
+  const inCourt = inCourtMs(handoffs, timeSource.now());
   return {
     ...rest,
     kind: register.kind,
     projectId: register.projectId,
-    // `?? null` for the wire and not as a defence: an entry is created with
-    // its first handoff in the same transaction and nothing deletes one, so
-    // the list is never empty — but `at(-1)` is typed `| undefined`, and an
-    // undefined would drop the key out of the JSON entirely and take the
-    // exact-key-set test with it.
-    ballInCourt: handoffs.at(-1) ?? null,
+    nextRoundId: nextRound === null ? null : nextRound.id,
+    ballInCourt,
+    inCourtMs: inCourt,
+    pastClock: isPastClock(rest.turnaroundDays, ballInCourt, inCourt),
     handoffs,
     openItems: openItems.map((row) => row.openItem),
   };
+}
+
+/**
+ * Elapsed in-court time: the sum of the intervals in which the ball was ours
+ * (story 72).
+ *
+ * Each handoff opens an interval that the next one closes, and the last is
+ * still open, so it runs to now. Only the intervals whose handoff says
+ * `inOurCourt` are added — the boolean and never the party's name, because a
+ * job that calls us by the firm's name still accrues and a third party named
+ * "us" does not (ADR-0036). Time spent waiting on somebody else is not counted
+ * against us, which is the whole of what the clock is for.
+ *
+ * **No interval may end after now.** A transmittal log is written up by hand,
+ * so a handoff can carry a date that has not arrived — and then the interval
+ * it closes would credit time nobody has spent yet, which on an entry still in
+ * our court would put it past its clock on days that have not happened. Both
+ * clamps are for that one case: `min` keeps an interval from ending in the
+ * future, and `max` keeps one that starts there from subtracting. Between two
+ * handoffs in the past neither can bind, because the list arrives ordered by
+ * `heldSince`.
+ */
+function inCourtMs(
+  handoffs: { inOurCourt: boolean; heldSince: Date }[],
+  now: Date,
+): number {
+  let total = 0;
+  for (const [index, handoff] of handoffs.entries()) {
+    if (!handoff.inOurCourt) {
+      continue;
+    }
+    // The last interval is open and runs to now; a closed one runs to the
+    // handoff that ended it, or to now if that has not arrived.
+    const closed = handoffs[index + 1]?.heldSince;
+    const ends = Math.min(closed?.getTime() ?? now.getTime(), now.getTime());
+    total += Math.max(0, ends - handoff.heldSince.getTime());
+  }
+  return total;
+}
+
+/**
+ * Whether this entry is sitting in our court past its clock (stories 43, 74).
+ *
+ * Three facts and all three are required. The ball has to be **ours now** —
+ * "nothing sitting in my court past its clock" is the outcome test, and an
+ * entry we handed back is not sitting in our court however long it took us,
+ * which is also why recording a disposition takes one off this list without
+ * anything having to stop a clock. There has to be a target, because past
+ * *what* is otherwise a guess and story 73 exists to remove the guess. And the
+ * elapsed time has to exceed it: exactly the target is not past it.
+ */
+function isPastClock(
+  turnaroundDays: number | null,
+  ballInCourt: { inOurCourt: boolean } | null,
+  inCourt: number,
+): boolean {
+  if (turnaroundDays === null || ballInCourt === null) {
+    return false;
+  }
+  return ballInCourt.inOurCourt && inCourt > turnaroundDays * DAY;
 }
 
 /** A register with its entries, newest logged last. */
@@ -161,8 +330,42 @@ const registerInclude = {
 
 function withEntries(
   register: Prisma.RegisterGetPayload<{ include: typeof registerInclude }>,
+  timeSource: TimeSource,
 ) {
-  return { ...register, entries: register.entries.map(withBallInCourt) };
+  return {
+    ...register,
+    entries: register.entries.map((entry) =>
+      entryOnTheWire(entry, timeSource),
+    ),
+  };
+}
+
+/**
+ * The same entry, carrying the job it is on — what a cross-project view needs
+ * and a single register's screen already knows.
+ *
+ * Exposure's shape: `{ id, projectNumber, name }`, so the two daily lists say
+ * which job in the same words.
+ */
+const clockInclude = {
+  ...entryInclude,
+  register: {
+    select: {
+      kind: true,
+      projectId: true,
+      project: { select: { id: true, projectNumber: true, name: true } },
+    },
+  },
+} satisfies Prisma.RegisterEntryInclude;
+
+function withProject(
+  entry: Prisma.RegisterEntryGetPayload<{ include: typeof clockInclude }>,
+  timeSource: TimeSource,
+) {
+  return {
+    ...entryOnTheWire(entry, timeSource),
+    project: entry.register.project,
+  };
 }
 
 /**
@@ -177,20 +380,31 @@ function findEntry(prisma: PrismaClient, id: string) {
     where: { id },
     select: {
       id: true,
+      registerId: true,
       response: true,
       submissionId: true,
+      turnaroundDays: true,
+      disposition: true,
+      // Whether a round already follows this one. Selected rather than
+      // counted: `previous_round_id` is unique, so there is at most one and
+      // its existence is the whole of the refusal.
+      nextRound: { select: { id: true } },
       register: { select: { kind: true, projectId: true } },
     },
   });
 }
 
 /** The entry as it goes out, read back after whatever just changed. */
-async function readEntry(prisma: PrismaClient, id: string) {
+async function readEntry(
+  prisma: PrismaClient,
+  id: string,
+  timeSource: TimeSource,
+) {
   const entry = await prisma.registerEntry.findUniqueOrThrow({
     where: { id },
     include: entryInclude,
   });
-  return withBallInCourt(entry);
+  return entryOnTheWire(entry, timeSource);
 }
 
 /** A handoff row from the body every writer of that table validates. */
@@ -230,7 +444,7 @@ export function registerRoutes(
         orderBy: { kind: 'asc' },
         include: registerInclude,
       });
-      return registers.map(withEntries);
+      return registers.map((one) => withEntries(one, timeSource));
     },
   );
 
@@ -241,7 +455,9 @@ export function registerRoutes(
         where: { id: request.params.id },
         include: registerInclude,
       });
-      return register === null ? noSuchRegister(reply) : withEntries(register);
+      return register === null
+        ? noSuchRegister(reply)
+        : withEntries(register, timeSource);
     },
   );
 
@@ -289,7 +505,7 @@ export function registerRoutes(
           },
           include: entryInclude,
         });
-        return reply.code(201).send(withBallInCourt(logged));
+        return reply.code(201).send(entryOnTheWire(logged, timeSource));
       } catch (error) {
         // Unqualified, and safe to be: `(register_id, number)` is the only
         // constraint this insert can hit.
@@ -312,7 +528,7 @@ export function registerRoutes(
       });
       return entry === null
         ? noSuchRegisterEntry(reply)
-        : withBallInCourt(entry);
+        : entryOnTheWire(entry, timeSource);
     },
   );
 
@@ -340,7 +556,7 @@ export function registerRoutes(
           ...handoffData(request.body, timeSource),
         },
       });
-      return reply.code(201).send(await readEntry(prisma, entry.id));
+      return reply.code(201).send(await readEntry(prisma, entry.id, timeSource));
     },
   );
 
@@ -376,7 +592,7 @@ export function registerRoutes(
         where: { id: entry.id },
         data: { response: request.body.response },
       });
-      return readEntry(prisma, entry.id);
+      return readEntry(prisma, entry.id, timeSource);
     },
   );
 
@@ -426,7 +642,177 @@ export function registerRoutes(
         where: { id: entry.id },
         data: { submissionId: submission.id },
       });
-      return readEntry(prisma, entry.id);
+      return readEntry(prisma, entry.id, timeSource);
+    },
+  );
+
+  /**
+   * The contractual number "past its clock" is measured against (story 73).
+   *
+   * Set once and refused a second time, the shape this record already gives a
+   * response and a link. A target is not an opinion that gets revised: moving
+   * it moves which entries were past their clock, backwards through every day
+   * the number was different, and the daily layer is only worth trusting if it
+   * cannot be made to have said something else. A wrong one is corrected the
+   * way everything else here is — by another entry, or not at all.
+   *
+   * It may also be named in the call that logs the entry, which is where it is
+   * usually known.
+   */
+  v1.post<{ Params: { id: string }; Body: { turnaroundDays: number } }>(
+    '/register-entries/:id/turnaround',
+    { schema: { body: turnaroundBodySchema } },
+    async (request, reply) => {
+      const entry = await findEntry(prisma, request.params.id);
+      if (entry === null) {
+        return noSuchRegisterEntry(reply);
+      }
+      if (entry.turnaroundDays !== null) {
+        return reply
+          .code(409)
+          .send({ message: 'that entry already has a turnaround target' });
+      }
+
+      await prisma.registerEntry.update({
+        where: { id: entry.id },
+        data: { turnaroundDays: request.body.turnaroundDays },
+      });
+      return readEntry(prisma, entry.id, timeSource);
+    },
+  );
+
+  /**
+   * The outcome of a review: stop the clock and hand the ball back, in one
+   * action (stories 75, 76).
+   *
+   * One call and one transaction, because they are one thing that happened. It
+   * stops the clock by **handing the ball back** and not by writing a stop:
+   * accrual reads the handoffs, so a ball that is no longer ours no longer
+   * accrues and the entry drops off the past-its-clock list on the next read.
+   * ADR-0036 left room for exactly this — "a terminal event is still
+   * expressible" — and taking it means there is no `clock_stopped` column to
+   * disagree with the history.
+   *
+   * `disposed_at` is stamped from the handoff's own instant, so a review
+   * entered from a transmittal log a week later is dated when it happened and
+   * not when it was typed. The two are written together and neither derives
+   * the other afterwards: a later handoff moves the ball again and the
+   * disposition stands, which is the shape ADR-0027 gave `issued_provisional`.
+   *
+   * Recorded once and refused a second time (ADR-0031's close): a second call
+   * would silently overwrite the outcome of a review, and the outcome is the
+   * thing the closed set exists to keep comparable.
+   */
+  v1.post<{
+    Params: { id: string };
+    Body: { disposition: Disposition; ballInCourt: HandoffBody };
+  }>(
+    '/register-entries/:id/disposition',
+    { schema: { body: dispositionBodySchema } },
+    async (request, reply) => {
+      const entry = await findEntry(prisma, request.params.id);
+      if (entry === null) {
+        return noSuchRegisterEntry(reply);
+      }
+      // Only a submittal is reviewed to a disposition, and the kind lives on
+      // the register — so this is the boundary's, as the question rule is.
+      if (entry.register.kind !== 'SUBMITTAL') {
+        return reply
+          .code(409)
+          .send({ message: 'only a submittal has a disposition' });
+      }
+      if (entry.disposition !== null) {
+        return reply
+          .code(409)
+          .send({ message: 'that entry already has a disposition' });
+      }
+
+      const handoff = handoffData(request.body.ballInCourt, timeSource);
+      await prisma.$transaction([
+        prisma.registerEntry.update({
+          where: { id: entry.id },
+          data: {
+            disposition: request.body.disposition,
+            disposedAt: handoff.heldSince,
+          },
+        }),
+        prisma.ballInCourtEvent.create({
+          data: { registerEntryId: entry.id, ...handoff },
+        }),
+      ]);
+      return readEntry(prisma, entry.id, timeSource);
+    },
+  );
+
+  /**
+   * The round that came back, connected to the one it follows (story 77).
+   *
+   * A new row pointing backwards and nothing written to the round it replaces
+   * — ADR-0028's reissue, arriving for a second record. The successor starts
+   * its own clock from its own first handoff and takes its own turnaround
+   * target, inheriting neither: carrying a number forward would be the product
+   * asserting a contractual term nobody typed.
+   *
+   * Not narrowed to a Revise and Resubmit. It is that disposition the screen
+   * offers this on, but a transmittal log is written up after the fact and out
+   * of order (ADR-0036), so requiring the review to have been entered first
+   * would refuse a legitimate backfill. What is refused is a second next round,
+   * by the unique column and not by this guard, which is only what makes the
+   * message say why.
+   */
+  v1.post<{ Params: { id: string }; Body: EntryBody }>(
+    '/register-entries/:id/next-round',
+    { schema: { body: entryBodySchema } },
+    async (request, reply) => {
+      const previous = await findEntry(prisma, request.params.id);
+      if (previous === null) {
+        return noSuchRegisterEntry(reply);
+      }
+      if (previous.register.kind !== 'SUBMITTAL') {
+        return reply
+          .code(409)
+          .send({ message: 'only a submittal has another round' });
+      }
+      if (previous.nextRound !== null) {
+        return reply
+          .code(409)
+          .send({ message: 'that entry already has a next round' });
+      }
+
+      const { ballInCourt, question, ...entry } = request.body;
+      if (question !== undefined) {
+        return reply.code(409).send({ message: 'a submittal has no question' });
+      }
+
+      try {
+        const logged = await prisma.registerEntry.create({
+          data: {
+            ...entry,
+            question: null,
+            registerId: previous.registerId,
+            previousRoundId: previous.id,
+            createdAt: timeSource.now(),
+            handoffs: { create: handoffData(ballInCourt, timeSource) },
+          },
+          include: entryInclude,
+        });
+        return reply.code(201).send(entryOnTheWire(logged, timeSource));
+      } catch (error) {
+        // Qualified, unlike the plain create: this insert can hit two unique
+        // constraints, and answering the wrong sentence to a collision is a
+        // lie at the one moment anybody reads it.
+        if (violates(error, 'previous_round_id')) {
+          return reply
+            .code(409)
+            .send({ message: 'that entry already has a next round' });
+        }
+        if (violates(error, 'number')) {
+          return reply
+            .code(409)
+            .send({ message: 'that number is already in this register' });
+        }
+        throw error;
+      }
     },
   );
 
@@ -510,4 +896,67 @@ export function registerRoutes(
     },
   );
 
+  /**
+   * The clock: every entry sitting in our court past its turnaround, longest
+   * first (stories 43, 74).
+   *
+   * A **list and not a number**, the shape ADR-0027 gave exposure and for its
+   * reason: every count on every screen is this list's length, so clicking a
+   * count lands on exactly the entries it counted and there is no figure in
+   * the payload to combine with exposure into a score (ADR-0016).
+   *
+   * Longest in our court first, which is what "oldest first" means for a
+   * record whose age is the time it has spent with us — the same sense the
+   * pending items view sorts by, and the same number the entry's own badge
+   * shows. Not "furthest past its target", which would reorder a 7-day RFI
+   * above a 14-day submittal that has been here nine days longer. `createdAt`
+   * breaks a tie so the order is total.
+   *
+   * Archived projects drop out of the across-every-project list and keep their
+   * own, the line the glossary draws under **Pending items** and exposure
+   * draws in the same place: this is one of the two daily counts, and a
+   * finished job is not part of today's work. Asked about one job directly, an
+   * archived one still answers.
+   *
+   * The filter cannot be a `where` clause: elapsed in-court time is a sum over
+   * a child table's intervals with an open last one, so the rows are read and
+   * the arithmetic decides. There are two registers per job.
+   */
+  v1.get<{ Querystring: { projectId?: string } }>(
+    '/clock',
+    { schema: { querystring: clockQuerySchema } },
+    async (request, reply) => {
+      const { projectId } = request.query;
+      if (projectId !== undefined) {
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { id: true },
+        });
+        // Nothing to act on and no such job are not the same answer, and an
+        // empty list would read as the first.
+        if (project === null) {
+          return noSuchProject(reply);
+        }
+      }
+
+      const entries = await prisma.registerEntry.findMany({
+        where: {
+          register:
+            projectId === undefined
+              ? { project: { archivedAt: null } }
+              : { projectId },
+        },
+        include: clockInclude,
+      });
+
+      return entries
+        .map((entry) => withProject(entry, timeSource))
+        .filter((entry) => entry.pastClock)
+        .sort(
+          (a, b) =>
+            b.inCourtMs - a.inCourtMs ||
+            a.createdAt.getTime() - b.createdAt.getTime(),
+        );
+    },
+  );
 }

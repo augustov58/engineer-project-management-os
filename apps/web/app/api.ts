@@ -564,13 +564,54 @@ export interface RegisterEntry {
   response: string | null;
   /** The issuance that answered it, if one has. */
   submissionId: string | null;
+  /** The contractual turnaround in whole days, or none set (story 73). */
+  turnaroundDays: number | null;
+  /** The outcome of a review and the day it was reached; both or neither. */
+  disposition: Disposition | null;
+  disposedAt: string | null;
+  /** The round this one follows, and the one that followed it (story 77). */
+  previousRoundId: string | null;
+  nextRoundId: string | null;
   createdAt: string;
   /** Whose move it is now: the last handoff, derived and stored nowhere. */
   ballInCourt: BallInCourt | null;
+  /**
+   * Elapsed in-court time in milliseconds: the sum of the intervals the ball
+   * was ours, derived on every read. The badge and the clock screen read the
+   * same number, so they cannot disagree about the same entry.
+   */
+  inCourtMs: number;
+  /** Sitting in our court, with a target, and over it (stories 43, 74). */
+  pastClock: boolean;
   /** Every handoff, in the order the ball moved. This list is the history. */
   handoffs: BallInCourt[];
   /** What is being chased for this entry, oldest first. */
   openItems: OpenItem[];
+}
+
+/**
+ * The closed-set outcome of a submittal review (story 75).
+ *
+ * The words themselves and never a code: one string is stored, sent, selected
+ * and printed, which is why the API keeps this as text with a CHECK rather
+ * than a database enum (ADR-0036).
+ */
+export const DISPOSITIONS = [
+  'Approved',
+  'Approved as Noted',
+  'Revise and Resubmit',
+  'Rejected',
+  'For Record Only',
+] as const;
+
+export type Disposition = (typeof DISPOSITIONS)[number];
+
+/** The one that brings a submittal back for another round (story 77). */
+export const REVISE_AND_RESUBMIT: Disposition = 'Revise and Resubmit';
+
+/** An entry on the clock, carrying the job it is on. Exposure's shape. */
+export interface ClockRow extends RegisterEntry {
+  project: { id: string; projectNumber: string; name: string };
 }
 
 export type RegisterKind = 'SUBMITTAL' | 'RFI';
@@ -594,6 +635,20 @@ export const REGISTER_NAMES: Record<RegisterKind, string> = {
   SUBMITTAL: 'Submittals',
   RFI: 'RFIs',
 };
+
+/**
+ * The clock: every entry sitting in our court past its turnaround, longest
+ * first, across every live project or within one (ADR-0016).
+ *
+ * The count is `.length`. There is no separate count call, so the number on a
+ * screen and the rows it links to cannot disagree — and there is nothing in
+ * the payload to combine with exposure into a score.
+ */
+export function listClock(projectId?: string): Promise<ClockRow[]> {
+  return read<ClockRow[]>(
+    projectId === undefined ? '/clock' : `/clock?projectId=${projectId}`,
+  );
+}
 
 /** Both logs for a job, submittals first. There are always exactly two. */
 export function listRegisters(projectId: string): Promise<Register[]> {
