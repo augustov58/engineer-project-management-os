@@ -20,8 +20,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               Engineer PM OS
             </Link>
             <div className="text-muted-foreground flex items-center gap-4 text-sm">
+              {/*
+                `/` is the morning screen (story 47), and the project list is
+                the section under its two counts — so the nav says what the
+                landing view is rather than naming one section of it.
+              */}
               <Link href="/" className="hover:text-foreground transition-colors">
-                Projects
+                This morning
               </Link>
               <Link
                 href="/pending"

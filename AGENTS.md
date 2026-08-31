@@ -29,13 +29,15 @@ issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption record
 issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues with
 stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11), slice 11
 (voice capture, issue #12), slice 12 (the site visit report, issue #13), slice 13
-(registers, entries and the ball-in-court history, issue #14) and slice 14
-(the clock and dispositions, issue #15) are
+(registers, entries and the ball-in-court history, issue #14), slice 14
+(the clock and dispositions, issue #15) and slice 15 (the morning screen, issue #16) are
 built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
 issues #9, #10, #11, #12 and #13 — and **step 4, registers, is complete** — issues #14 and
-#15. Step 5, ingest, is next and is gated on the consent item in the vault's ADR README.
+#15. Issue #16, the morning screen, sits outside the six steps and is the daily layer steps
+2 and 4 fed; it is done. Step 5, ingest, is gated on the consent item in the vault's ADR
+README, so issues #17 and #18 are the reachable work.
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
@@ -432,6 +434,17 @@ See [README.md](./README.md).
   departing from ADR-0028's carry-forward, because carrying a contractual term forward would
   assert a number nobody typed. The form offers the previous round's value as a default, which
   is where a convenience belongs.
+- The **morning screen** is `/`, and it serves **no endpoint** (ADR-0038). The two counts are
+  `listExposure()` and `listClock()` read unfiltered and rendered as `.length`. Do not add a
+  `GET /v1/morning` returning both: a payload carrying both counts is the first object in
+  this product from which a score could be computed without adding a query, which is exactly
+  what ADR-0027 and ADR-0037 each made one count a list to prevent. `/` is the landing view
+  re-headed and not a route of its own — the project list is a section beneath the counts,
+  and the nav item for `/` is named for the screen rather than for that section.
+- Both morning-screen cards render **at zero**, where the project screen's two count strips
+  are gated on being non-empty (ADR-0038). Different questions: on a project screen an empty
+  count is noise, and on the morning screen the count *is* the screen, so a card that
+  vanished would read as one that had not loaded. This asymmetry is intended.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

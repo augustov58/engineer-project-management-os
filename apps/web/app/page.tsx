@@ -4,7 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { listClock, listExposure, listProjects, type Project } from './api';
 import { NewProjectForm } from './new-project-form';
 
-/** Read on every request: this screen is the engineer's live-project count. */
+/**
+ * Read on every request. Both counts are computed queries over the records
+ * they summarise, so the screen is right the moment an open item resolves or a
+ * disposition lands — there is nothing here to refresh (story 48).
+ */
 export const dynamic = 'force-dynamic';
 
 function ProjectList({
@@ -48,20 +52,27 @@ export default async function Home() {
 
   return (
     <div className="space-y-8">
+      {/*
+        The morning screen, and it is the landing view rather than a page the
+        engineer has to remember to open (story 47). The daily layer leads and
+        the project list follows it, because what to do this morning is read
+        off the two counts and the jobs are where you go next.
+      */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">This morning</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          {live.length === 0
-            ? 'No live projects.'
-            : `${live.length} live${archived.length > 0 ? `, ${archived.length} archived` : ''}`}
+          The daily layer, across every live project. Two counts, never
+          combined into one.
         </p>
       </div>
 
       {/*
-        The two daily counts across every live project, side by side and never
-        combined into one (ADR-0016). Each is a count you can act on where a
-        percentage is not, and each links to exactly the records it counted,
-        because the number is that list's length.
+        The two counts, side by side and never combined (ADR-0016). Each is a
+        count you can act on where a percentage is not, and each links to
+        exactly the records it counted, because the number is that list's
+        length. Both are shown at zero: "nothing on the clock" is the answer
+        the screen exists to give on a good morning, and a card that vanished
+        would read as a screen that had not loaded.
       */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Link
@@ -92,7 +103,18 @@ export default async function Home() {
         </Link>
       </div>
 
-      {live.length > 0 && <ProjectList projects={live} />}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-medium">Projects</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {live.length === 0
+              ? 'No live projects.'
+              : `${live.length} live${archived.length > 0 ? `, ${archived.length} archived` : ''}`}
+          </p>
+        </div>
+
+        {live.length > 0 && <ProjectList projects={live} />}
+      </section>
 
       <Card>
         <CardHeader>
