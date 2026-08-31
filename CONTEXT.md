@@ -1,6 +1,6 @@
 # Project Context: Engineer Project Management OS
 
-*Last updated: 2026-08-29*
+*Last updated: 2026-08-31*
 
 ## What this is
 
@@ -14,7 +14,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ├── PRD and Architecture.md   ← requirements, architecture, milestones, backlog
 ├── docs/
-│   ├── adr/                  ← architecture decisions 0001-0035 (check Status lines)
+│   ├── adr/                  ← architecture decisions 0001-0036 (check Status lines)
 │   └── glossary.md           ← domain terms
 ```
 
@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Thirty-five ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, and 0035 while building slice 12). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Thirty-six ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, and 0036 while building slice 13). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -62,6 +62,7 @@ in my court past its clock as the daily layer under it.
 | 0033 | A record type is a file under `apps/api/src/routes/`, named to match the test file that drives it; `http.ts`, `refusals.ts` and `wire.ts` are leaves that import no route module, which is what stops the records that read each other forming a cycle; the route modules are plain functions and not plugins |
 | 0034 | A draft is a record of its own, never a state of an observation; the transcript is verbatim and a correction never rewrites it; the state is four stamps with no status column beside them; transcription is the first thing on the queue; a resend after a signal drop is answered with the row rather than refused |
 | 0035 | A report is a record of a rendering — nothing edits one and generating again is another row, so there is no retry route; its state is four stamps and it owns nothing it prints; an issue's identifier prints as `Issue N` and a report prints this walk's sightings, the two questions ADR-0031 deferred to issue #13 by name; the renderer is deliberately not behind a port, because a port defers a pick and a browser engine is not one |
+| 0036 | Ball-in-court is a history and not a field, because an arithmetic reads it — the entry has no status column and no `ball_in_court` column, and *ball-in-court* is the last handoff derived on every read; whether the ball is ours is a stored boolean beside the party's name and never a reading of it; both registers are written with the project and there is no route that creates one; the register kind is a database enum, reversing 0031's run for the reason 0031 gave; the link to the issuance that responded is a column on the entry, because a column on the submission would need the update route 0026 made impossible |
 
 ## Stack
 
@@ -85,10 +86,11 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | 0j | Photo binning by timestamp and filename (issue #11) | **Done** 2026-08-28 |
 | 0k | Voice capture to draft observation (issue #12) | **Done** 2026-08-29 |
 | 0l | The site visit report, rendered to PDF (issue #13) | **Done** 2026-08-29 |
+| 0m | Registers, entries and the ball-in-court history (issue #14) | **Done** 2026-08-31 |
 | 1 | T-1 open items entered | Unblocked — no code needed |
 | 2 | Open items + submissions (provisional, supersede) | **Done** — issues #4, #5, #6, #7 |
 | 3 | Site visit capture (voice, photos, stable issue IDs, the report) | **Done** — issues #9, #10, #11, #12 and #13 |
-| 4 | Registers: submittals, RFIs, clock, dispositions | Not started |
+| 4 | Registers: submittals, RFIs, clock, dispositions | **In progress** — issue #14 done; the clock and dispositions are issue #15 |
 | 5 | Ingest: forward-to-email, extraction, human-confirmed | Not started |
 | 6 | Curated project memory | Not started |
 

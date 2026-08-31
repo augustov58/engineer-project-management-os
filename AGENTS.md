@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0035; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0036; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -28,11 +28,13 @@ issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
 issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption records,
 issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues with
 stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11), slice 11
-(voice capture, issue #12) and slice 12 (the site visit report, issue #13) are
+(voice capture, issue #12), slice 12 (the site visit report, issue #13) and slice 13
+(registers, entries and the ball-in-court history, issue #14) are
 built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
-issues #9, #10, #11, #12 and #13 — and step 1, entering T-1's own open items, needs no
+issues #9, #10, #11, #12 and #13 — **step 4, registers, is under way**: issue #14 is built and
+the clock and dispositions are issue #15. Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
@@ -47,7 +49,7 @@ See [README.md](./README.md).
 - Never call `new Date()` or `Date.now()` for a timestamp that gets persisted or aged, and never give such a column a database default — read the injected `TimeSource` (ADR-0022). Aging is tested by advancing a fake, never by sleeping.
 - Tests drive the HTTP API against a real PostgreSQL and assert only on responses and subsequent reads. Build fixtures through the API, not by inserting rows.
 - The one sanctioned exception is a schema invariant no route can expose — "no `users` table exists" (ADR-0012). `apps/api/test/schema.test.ts` reads `information_schema` through the harness's `tableNames()` and nothing else; it may not read domain data or write rows.
-- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the eleven route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
+- Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the twelve route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
 - A record type is a file under `apps/api/src/routes/`, named for the record and matching the test file that drives it (ADR-0033). Its schemas, its refusals that nothing else uses and its derive-on-read helpers live beside its routes. `server.ts` is the boundary and nothing else: the ajv setting, the prefix, and the list of record types.
 - `http.ts`, `refusals.ts`, `wire.ts` and `stream.ts` are **leaves** — they import Prisma and Fastify types and nothing from a route module, which is what stops `site-visits`, `photos` and `issues` importing each other in a cycle (ADR-0033). A thing used by exactly one record lives with that record and moves into a leaf only when a second record reaches for it: the SSE machinery was written inside `routes/voice.ts` and became `stream.ts` when a walk's reports reached for it (ADR-0035), which is exactly the trigger ADR-0033 names, and the 24 voice tests pass unchanged against it. `wire.ts` holds only the read shapes two or more records return; `withDerivedState` and `withLines` are used by one each and stayed put.
 - An open item is unresolved exactly when `resolved_at` is null (ADR-0024). Exposure, provisional state and the pending items view all read that one column — do not add a status field beside it.
@@ -332,6 +334,46 @@ See [README.md](./README.md).
   which is a state production has too: the API up with a job still sitting in Redis. It is
   how *queued* became a state a test can stand in and look at, for work with no vendor seam
   to hold open the way `heldTranscriber` holds a transcription.
+- **Ball-in-court is a history and never a field** (ADR-0036). `ball_in_court_events` is one
+  row per handoff; *ball-in-court* is the last of them, derived on every read and stored
+  nowhere, the shape ADR-0027 gave *currently provisional*. `register_entries` has **no status
+  column and no `ball_in_court` column**, and their absence is the test that this has not
+  become the transition log ADR-0031 refused — it is here because an arithmetic reads it
+  (issue #15 sums the intervals where the ball was ours), which a current value cannot produce
+  at all. Do not add either column.
+- A handoff carries `party` **and** `in_our_court`, and neither derives from the other
+  (ADR-0036). The clock reads the boolean; the screen shows the name. Do not read "ours" off
+  the name the way ADR-0024 reserved `nobody` on `waiting_on`: nothing computes from `nobody`,
+  and a job that calls us by the firm's name still accrues. Ordered by `held_since` then
+  `created_at`, because a transmittal log is written up out of order. Handing the ball to
+  whoever already holds it is two intervals and is not refused.
+- Both registers are written **in the same transaction as the project** and there is no create
+  route and no delete (ADR-0036). `@@unique([project_id, kind])` is what makes "exactly two"
+  a fact the database keeps. A register carries no state: it is the scope an entry's number is
+  unique within.
+- `register_kind` is a **database enum**, deliberately reversing the text-with-a-CHECK run
+  (ADR-0036). ADR-0031's reason was that `Physical / Safety` cannot be a Prisma enum member;
+  `SUBMITTAL` and `RFI` name themselves, so `open_item_subject` is the live precedent. The
+  disposition arriving in issue #15 is text with a CHECK, by that same reasoning.
+- A register entry's `number` is the **engineer's and never allocated** — the opposite of an
+  issue's identifier (ADR-0031) — and is unique within its register, not within the job. The
+  first handoff is named in the same call that logs the entry (ADR-0026's shape), so the
+  derived current holder is never nobody. Nothing edits an entry: `PATCH`, `PUT` and `DELETE`
+  are 404 and a test asserts it.
+- The link to the issuance that responded is `register_entries.submission_id`, **never a column
+  on the submission** (ADR-0036). Story 35 reads the same column in reverse; a column on
+  `submissions` could only be written after the set went out, which is the update route
+  ADR-0026 made impossible by construction. Set once; a second link is refused rather than
+  repointed, as a second response is.
+- Which kind carries a question is enforced **at the boundary only** (ADR-0036), unlike
+  ADR-0030's one-axis rule and ADR-0031's category. The kind lives on `registers` and a CHECK
+  cannot read another row; copying it onto the entry would be the second place the same fact
+  lives. The one CHECK that is reachable is written: a response without a question is
+  impossible.
+- An open item on a register entry is the `register_entry_open_items` join and the item's
+  subject stays `PROJECT` (ADR-0036) — the third record to answer this way. The spec's
+  `### Core records` line still names a register entry as a `subject_type`; it is overruled.
+  If a change touches the pending items view to make story 79 work, it is wrong.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills
