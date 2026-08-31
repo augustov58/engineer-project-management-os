@@ -1106,13 +1106,29 @@ function revalidateRegisterEntry(entryId: string, registerId: string, projectId:
   revalidatePath(`/registers/${registerId}`);
   revalidatePath(`/projects/${projectId}`);
   revalidatePath('/pending');
+  // Every one of these writes can move an entry on or off the daily list:
+  // a handoff changes whose court it is, a disposition hands the ball back,
+  // and a turnaround target is what "past" is measured against.
+  revalidatePath('/clock');
+}
+
+/**
+ * The turnaround target, where one was typed.
+ *
+ * Omitted rather than sent as null when the field is blank: the API refuses a
+ * second target, so a form that sent one every time would make setting it
+ * later impossible after the first save.
+ */
+function turnaroundPayload(formData: FormData): Record<string, unknown> {
+  const days = omitIfBlank(formData, 'turnaroundDays');
+  return days === undefined ? {} : { turnaroundDays: Number(days) };
 }
 
 /**
  * A handoff, read the same way whether it starts an entry or moves one on.
  *
  * The checkbox is the whole of whose court it is. It is not read off the party
- * name: a job that calls us by the firm's name still accrues, and issue #15
+ * name: a job that calls us by the firm's name still accrues, and the clock
  * sums exactly this field.
  */
 function handoffPayload(formData: FormData): Record<string, unknown> {
@@ -1143,6 +1159,7 @@ export async function createRegisterEntry(
       fromParty: formData.get('fromParty'),
       toParty: formData.get('toParty'),
       ...(question === undefined ? {} : { question }),
+      ...turnaroundPayload(formData),
       ballInCourt: handoffPayload(formData),
     }),
     201,
@@ -1153,6 +1170,7 @@ export async function createRegisterEntry(
 
   revalidatePath(`/registers/${registerId}`);
   revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/clock');
   return { added: previous.added + 1 };
 }
 
@@ -1259,4 +1277,99 @@ export async function attachOpenItemToRegisterEntry(
     { tolerated: 'that open item is already on this entry' },
   );
   revalidateRegisterEntry(entryId, registerId, projectId);
+}
+
+// ── The clock and dispositions (issue #15) ────────────────────────────────
+
+/**
+ * The contractual number the clock is measured against (story 73).
+ *
+ * Set once; the API refuses a second. Moving a target would move which entries
+ * were past their clock backwards through every day the number was different.
+ */
+export async function setTurnaround(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/register-entries/${entryId}/turnaround`, {
+      turnaroundDays: Number(formData.get('turnaroundDays')),
+    }),
+    200,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateRegisterEntry(entryId, registerId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * The outcome of a review: stop the clock and hand the ball back, in one call
+ * (stories 75, 76).
+ *
+ * The party is typed rather than taken from the entry's `fromParty`. The two
+ * parties on an entry are its fixed cast and are not read as whose move it is
+ * (ADR-0036): a submittal reviewed for a contractor may go back to the
+ * architect, and guessing would write a handoff nobody asked for into the
+ * record a dispute is settled from.
+ */
+export async function recordDisposition(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/register-entries/${entryId}/disposition`, {
+      disposition: formData.get('disposition'),
+      ballInCourt: handoffPayload(formData),
+    }),
+    200,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateRegisterEntry(entryId, registerId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * The round that came back, connected to the one it follows (story 77).
+ *
+ * A new entry pointing backwards; nothing is written to the round it replaces.
+ * Its number is typed and never derived — an entry's number is the engineer's
+ * and comes off the transmittal, so a convention invented here would be a
+ * second identifier for a thing that already has one (ADR-0036).
+ */
+export async function createNextRound(
+  entryId: string,
+  registerId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/register-entries/${entryId}/next-round`, {
+      number: formData.get('number'),
+      subject: formData.get('subject'),
+      fromParty: formData.get('fromParty'),
+      toParty: formData.get('toParty'),
+      ...turnaroundPayload(formData),
+      ballInCourt: handoffPayload(formData),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateRegisterEntry(entryId, registerId, projectId);
+  return { added: previous.added + 1 };
 }

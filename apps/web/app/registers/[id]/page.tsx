@@ -6,7 +6,7 @@ import { createRegisterEntry } from '../../actions';
 import { getProject, getRegister, REGISTER_NAMES } from '../../api';
 import { NewRegisterEntryForm } from '../../register-forms';
 import { day } from '../../open-item';
-import { BallInCourtBadge } from '../../ball-in-court';
+import { BallInCourtBadge, ClockBadge } from '../../ball-in-court';
 
 /** The point of this screen is what is in whose court right now. */
 export const dynamic = 'force-dynamic';
@@ -82,6 +82,7 @@ export default async function RegisterLog({
                       {day(entry.createdAt)}
                     </span>
                     <BallInCourtBadge ballInCourt={entry.ballInCourt} />
+                    <ClockBadge entry={entry} />
                     {unresolved.length > 0 && (
                       <Badge variant="secondary">
                         {unresolved.length} unresolved

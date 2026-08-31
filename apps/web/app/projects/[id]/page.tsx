@@ -11,6 +11,7 @@ import {
 } from '../../actions';
 import {
   getProject,
+  listClock,
   listExposure,
   listIssues,
   listOpenItems,
@@ -50,6 +51,7 @@ export default async function ProjectRecord({
     siteVisits,
     issues,
     registers,
+    onTheClock,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -63,6 +65,8 @@ export default async function ProjectRecord({
     // Always two, written with the job: there is no state in which one is
     // missing and none in which a third appears (issue #14).
     listRegisters(id),
+    // The same call the count links to, as exposure's is (issue #15).
+    listClock(id),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -333,6 +337,25 @@ export default async function ProjectRecord({
       */}
       <section className="space-y-3">
         <h2 className="text-lg font-medium">Registers</h2>
+
+        {/*
+          This project's clock, the second of the two daily counts and never
+          combined with the first (ADR-0016). The number is the length of the
+          list it links to, so clicking it lands on exactly what it counted.
+        */}
+        {onTheClock.length > 0 && (
+          <Link
+            href={`/clock?projectId=${id}`}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-baseline gap-2 rounded-lg border border-dashed px-4 py-2 text-sm transition-colors"
+          >
+            <span className="text-foreground font-medium tabular-nums">
+              {onTheClock.length}
+            </span>
+            {onTheClock.length === 1
+              ? 'entry is sitting in our court past its turnaround'
+              : 'entries are sitting in our court past their turnaround'}
+          </Link>
+        )}
 
         <ul className="divide-y rounded-lg border">
           {registers.map((register) => (

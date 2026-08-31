@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { selectClassName } from './native-select';
 import type { AddState } from './actions';
-import type { RegisterKind, Submission } from './api';
+import { DISPOSITIONS, type RegisterKind, type Submission } from './api';
 
 type Submit = (previous: AddState, formData: FormData) => Promise<AddState>;
 
@@ -97,9 +97,18 @@ function HandoffFields({ legend }: { legend: string }) {
 export function NewRegisterEntryForm({
   submit,
   kind,
+  submitLabel,
+  defaultTurnaroundDays,
 }: {
   submit: Submit;
   kind: RegisterKind;
+  submitLabel?: string;
+  /**
+   * Offered rather than carried: a resubmittal is usually under the same
+   * contractual turnaround, but the field is the engineer's to change and the
+   * product asserts no term nobody typed.
+   */
+  defaultTurnaroundDays?: number;
 }) {
   const [state, action, pending] = useActionState(submit, { added: 0 });
 
@@ -157,6 +166,24 @@ export function NewRegisterEntryForm({
         </div>
       </div>
 
+      <div className="space-y-1.5 sm:max-w-56">
+        <Label htmlFor="turnaroundDays">Turnaround target</Label>
+        <Input
+          id="turnaroundDays"
+          name="turnaroundDays"
+          type="number"
+          min={1}
+          max={365}
+          step={1}
+          defaultValue={defaultTurnaroundDays}
+          placeholder="14"
+        />
+        <p className="text-muted-foreground text-xs">
+          Whole days, off the contract. Left blank it can be set later &mdash;
+          once, either way.
+        </p>
+      </div>
+
       {kind === 'RFI' && (
         <div className="space-y-1.5">
           <Label htmlFor="question">Question</Label>
@@ -179,7 +206,9 @@ export function NewRegisterEntryForm({
       <Submitted
         pending={pending}
         error={state.error}
-        label={kind === 'RFI' ? 'Log the RFI' : 'Log the submittal'}
+        label={
+          submitLabel ?? (kind === 'RFI' ? 'Log the RFI' : 'Log the submittal')
+        }
       />
     </form>
   );
@@ -281,5 +310,100 @@ export function LinkSubmissionForm({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * The contractual number "past its clock" is measured against (story 73).
+ *
+ * Offered only where none is set. It is set once and the API refuses a second,
+ * because moving a target moves which entries were past their clock backwards
+ * through every day the number was different.
+ */
+export function TurnaroundForm({ submit }: { submit: Submit }) {
+  const [state, action, pending] = useActionState(submit, { added: 0 });
+
+  return (
+    <div className="space-y-1">
+      <form
+        key={state.added}
+        action={action}
+        className="flex flex-wrap items-end gap-2"
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor="turnaroundDays">Turnaround target, in days</Label>
+          <Input
+            id="turnaroundDays"
+            name="turnaroundDays"
+            type="number"
+            required
+            min={1}
+            max={365}
+            step={1}
+            className="w-28"
+            placeholder="14"
+          />
+        </div>
+        <Button type="submit" variant="secondary" disabled={pending}>
+          Set it
+        </Button>
+      </form>
+      {state.error !== undefined && (
+        <p role="alert" className="text-destructive text-sm">
+          {state.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The outcome of a review: stop the clock and hand the ball back, in one form
+ * (stories 75, 76).
+ *
+ * The handoff is part of it and not a second step, which is what "closing the
+ * loop is one action" means. The party is typed rather than filled in from the
+ * entry: a submittal reviewed for a contractor may go back to the architect,
+ * and the two parties on an entry are its fixed cast rather than whose move it
+ * is (ADR-0036).
+ */
+export function DispositionForm({ submit }: { submit: Submit }) {
+  const [state, action, pending] = useActionState(submit, { added: 0 });
+
+  return (
+    <form key={state.added} action={action} className="space-y-3">
+      <div className="space-y-1.5">
+        <Label htmlFor="disposition">Disposition</Label>
+        {/* Native, because the action reads this out of FormData (ADR-0025). */}
+        <select
+          id="disposition"
+          name="disposition"
+          required
+          defaultValue=""
+          className={`${selectClassName} w-full sm:w-72`}
+        >
+          <option value="" disabled>
+            The outcome of the review&hellip;
+          </option>
+          {DISPOSITIONS.map((one) => (
+            <option key={one} value={one}>
+              {one}
+            </option>
+          ))}
+        </select>
+        <p className="text-muted-foreground text-xs">
+          Five and no more, so outcomes stay comparable across jobs. Recorded
+          once.
+        </p>
+      </div>
+
+      <HandoffFields legend="Where the ball goes back to" />
+
+      <Submitted
+        pending={pending}
+        error={state.error}
+        label="Record it and hand it back"
+      />
+    </form>
   );
 }

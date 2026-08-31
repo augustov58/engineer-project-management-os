@@ -6,28 +6,36 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
   attachOpenItemToRegisterEntry,
+  createNextRound,
   createOpenItemOnRegisterEntry,
   linkSubmission,
+  recordDisposition,
   recordHandoff,
   recordResponse,
+  setTurnaround,
 } from '../../actions';
 import {
   getProject,
+  getRegister,
   getRegisterEntry,
   listOpenItems,
   listPhases,
   listSubmissions,
   REGISTER_NAMES,
+  REVISE_AND_RESUBMIT,
 } from '../../api';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import {
+  DispositionForm,
   HandoffForm,
   LinkSubmissionForm,
+  NewRegisterEntryForm,
   ResponseForm,
+  TurnaroundForm,
 } from '../../register-forms';
 import { selectClassName } from '../../native-select';
 import { clock, day, OpenItemEntry } from '../../open-item';
-import { BallInCourtBadge } from '../../ball-in-court';
+import { BallInCourtBadge, ClockBadge, inCourtDays } from '../../ball-in-court';
 
 /** The point of this screen is whose court it is in right now. */
 export const dynamic = 'force-dynamic';
@@ -53,6 +61,18 @@ export default async function RegisterEntryRecord({
     notFound();
   }
 
+  // The numbers of the rounds either side of this one: the entry carries
+  // their ids, and what anybody quotes is the number. Read only when there is
+  // a round to name — the register comes back with every entry it holds, and
+  // most entries are the only round there is.
+  const rounds =
+    entry.previousRoundId === null && entry.nextRoundId === null
+      ? undefined
+      : await getRegister(entry.registerId);
+  const numberById = new Map(
+    (rounds?.entries ?? []).map((one) => [one.id, one.number]),
+  );
+  const held = inCourtDays(entry.inCourtMs);
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
   const onThisEntry = new Set(entry.openItems.map((item) => item.id));
   const attachable = unresolved.filter((item) => !onThisEntry.has(item.id));
@@ -73,12 +93,53 @@ export default async function RegisterEntryRecord({
           </Badge>
           <h1 className="text-2xl font-medium">{entry.subject}</h1>
           <BallInCourtBadge ballInCourt={entry.ballInCourt} />
+          <ClockBadge entry={entry} />
         </div>
         <p className="text-muted-foreground mt-1 text-sm">
           From {entry.fromParty} to {entry.toParty} &middot; logged{' '}
           {day(entry.createdAt)}
         </p>
       </div>
+
+      {/*
+        The clock. Elapsed in-court time is the sum of the intervals the ball
+        was ours, read off the handoffs below and stored nowhere — so time
+        spent waiting on somebody else is never counted against us, and this
+        number and the clock screen cannot disagree.
+      */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Clock</h2>
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-3 rounded-lg border p-4">
+          <p className="text-sm">
+            <span className="text-xl font-medium tabular-nums">{held}</span>{' '}
+            <span className="text-muted-foreground">
+              {held === 1 ? 'day' : 'days'} in our court
+            </span>
+          </p>
+          {entry.turnaroundDays === null ? (
+            <TurnaroundForm
+              submit={setTurnaround.bind(
+                null,
+                entry.id,
+                entry.registerId,
+                project.id,
+              )}
+            />
+          ) : (
+            <p
+              className={
+                entry.pastClock
+                  ? 'text-destructive text-sm font-medium'
+                  : 'text-muted-foreground text-sm'
+              }
+            >
+              {entry.pastClock
+                ? `Past its clock — the target is ${entry.turnaroundDays} days.`
+                : `Against a ${entry.turnaroundDays}-day turnaround.`}
+            </p>
+          )}
+        </div>
+      </section>
 
       {entry.kind === 'RFI' && (
         <section className="space-y-3">
@@ -102,6 +163,97 @@ export default async function RegisterEntryRecord({
               )}
             />
           )}
+        </section>
+      )}
+
+      {/*
+        The outcome of a review, and the round that came back from it. Only a
+        submittal is reviewed to a disposition: an RFI is answered, which is
+        the section above.
+      */}
+      {entry.kind === 'SUBMITTAL' && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-medium">Review</h2>
+
+          {entry.previousRoundId !== null && (
+            <p className="text-muted-foreground text-sm">
+              Follows{' '}
+              <Link
+                href={`/register-entries/${entry.previousRoundId}`}
+                className="font-mono underline-offset-4 hover:underline"
+              >
+                {numberById.get(entry.previousRoundId) ?? 'the previous round'}
+              </Link>
+              .
+            </p>
+          )}
+
+          {entry.disposition === null ? (
+            <>
+              <p className="text-muted-foreground text-sm">
+                Recording the outcome stops the clock and hands the ball back,
+                in one action.
+              </p>
+              <DispositionForm
+                submit={recordDisposition.bind(
+                  null,
+                  entry.id,
+                  entry.registerId,
+                  project.id,
+                )}
+              />
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border p-4">
+              <Badge variant="secondary">{entry.disposition}</Badge>
+              {entry.disposedAt !== null && (
+                <span className="text-muted-foreground text-sm">
+                  {day(entry.disposedAt)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {entry.nextRoundId !== null && (
+            <p className="text-muted-foreground text-sm">
+              Followed by{' '}
+              <Link
+                href={`/register-entries/${entry.nextRoundId}`}
+                className="font-mono underline-offset-4 hover:underline"
+              >
+                {numberById.get(entry.nextRoundId) ?? 'the next round'}
+              </Link>
+              .
+            </p>
+          )}
+
+          {entry.disposition === REVISE_AND_RESUBMIT &&
+            entry.nextRoundId === null && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Log the round that comes back</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <NewRegisterEntryForm
+                    submit={createNextRound.bind(
+                      null,
+                      entry.id,
+                      entry.registerId,
+                      project.id,
+                    )}
+                    kind="SUBMITTAL"
+                    submitLabel="Log the next round"
+                    defaultTurnaroundDays={entry.turnaroundDays ?? undefined}
+                  />
+                  <p className="text-muted-foreground mt-3 text-sm">
+                    A new entry pointing back at this one, which is left
+                    exactly as it stands. Its number is yours to give &mdash;
+                    nothing here allocates one &mdash; and it starts its own
+                    clock from its own first handoff.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
         </section>
       )}
 

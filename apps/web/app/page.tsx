@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { listExposure, listProjects, type Project } from './api';
+import { listClock, listExposure, listProjects, type Project } from './api';
 import { NewProjectForm } from './new-project-form';
 
 /** Read on every request: this screen is the engineer's live-project count. */
@@ -39,10 +39,11 @@ function ProjectList({
 }
 
 export default async function Home() {
-  const [live, archived, exposure] = await Promise.all([
+  const [live, archived, exposure, onTheClock] = await Promise.all([
     listProjects(),
     listProjects(true),
     listExposure(),
+    listClock(),
   ]);
 
   return (
@@ -57,22 +58,39 @@ export default async function Home() {
       </div>
 
       {/*
-        Exposure across every live project, as a count you can act on and
-        never as a share of anything (ADR-0016). It links to exactly the
-        submissions it counted, because the number is that list's length.
+        The two daily counts across every live project, side by side and never
+        combined into one (ADR-0016). Each is a count you can act on where a
+        percentage is not, and each links to exactly the records it counted,
+        because the number is that list's length.
       */}
-      <Link
-        href="/exposure"
-        className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
-      >
-        <span className="text-2xl font-semibold tabular-nums">
-          {exposure.length}
-        </span>
-        <span className="text-muted-foreground text-sm">
-          issued {exposure.length === 1 ? 'submission' : 'submissions'}{' '}
-          currently standing on an unresolved open item
-        </span>
-      </Link>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link
+          href="/exposure"
+          className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
+        >
+          <span className="text-2xl font-semibold tabular-nums">
+            {exposure.length}
+          </span>
+          <span className="text-muted-foreground text-sm">
+            issued {exposure.length === 1 ? 'submission' : 'submissions'}{' '}
+            currently standing on an unresolved open item
+          </span>
+        </Link>
+
+        <Link
+          href="/clock"
+          className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
+        >
+          <span className="text-2xl font-semibold tabular-nums">
+            {onTheClock.length}
+          </span>
+          <span className="text-muted-foreground text-sm">
+            {onTheClock.length === 1
+              ? 'register entry sitting in our court past its turnaround'
+              : 'register entries sitting in our court past their turnaround'}
+          </span>
+        </Link>
+      </div>
 
       {live.length > 0 && <ProjectList projects={live} />}
 

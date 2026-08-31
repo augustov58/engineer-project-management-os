@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0036; check each `Status:` line, several are superseded and one is only Proposed.
+- `docs/adr/` - architecture decision records 0001-0037; check each `Status:` line, several are superseded and one is only Proposed.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -28,13 +28,15 @@ issue #3), slice 3 (open items and the pending items view, issue #4), slice 4
 issue #6), slice 6 (reissue and supersede, issue #7), slice 7 (assumption records,
 issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues with
 stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11), slice 11
-(voice capture, issue #12), slice 12 (the site visit report, issue #13) and slice 13
-(registers, entries and the ball-in-court history, issue #14) are
+(voice capture, issue #12), slice 12 (the site visit report, issue #13), slice 13
+(registers, entries and the ball-in-court history, issue #14) and slice 14
+(the clock and dispositions, issue #15) are
 built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
-issues #9, #10, #11, #12 and #13 — **step 4, registers, is under way**: issue #14 is built and
-the clock and dispositions are issue #15. Step 1, entering T-1's own open items, needs no
+issues #9, #10, #11, #12 and #13 — and **step 4, registers, is complete** — issues #14 and
+#15. Step 5, ingest, is next and is gated on the consent item in the vault's ADR README.
+Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
@@ -374,6 +376,62 @@ See [README.md](./README.md).
   subject stays `PROJECT` (ADR-0036) — the third record to answer this way. The spec's
   `### Core records` line still names a register entry as a `subject_type`; it is overruled.
   If a change touches the pending items view to make story 79 work, it is wrong.
+- The clock is an **arithmetic over the handoff history** and never a column (ADR-0037).
+  `inCourtMs` sums the intervals whose handoff says `in_our_court` — each opened by a handoff
+  and closed by the next, the last running to `timeSource.now()`. There is no `clock_started`,
+  though the PRD sketch names one: the ball reaches us more than once, so there is no single
+  moment a clock began, and a column meaning "the first time" would answer the wrong question
+  the second time. There is no `clock_stopped` either. The open interval clamps at zero,
+  because a handoff may be dated forward and a negative one would subtract time the entry
+  never spent with us.
+- *Past its clock* is **three facts** and the first is that the ball is **ours now**
+  (ADR-0037) — the outcome test is "nothing sitting in *my court* past its clock". That is
+  what takes a disposed entry off the list with nothing having to stop a clock, and what keeps
+  the predicate honest: an entry handed back is not sitting in our court however long it took
+  us, and what it took us stays on the record as `inCourtMs`. A target must be set (no target
+  is never past) and elapsed must *exceed* it (exactly the target is not past). `pastClock` is
+  computed in one place, so a badge and the view cannot disagree about the same entry.
+- Recording a disposition **stops the clock by handing the ball back** — the terminal event
+  ADR-0036 left room for, taken so that this slice adds no mechanism (ADR-0037). One call and
+  one transaction: it stamps `disposition` and `disposed_at` and writes a handoff. The
+  handoff's party is **supplied** and never read off `from_party`: an entry's two parties are
+  its fixed cast and ADR-0036 forbids reading them as whose move it is, so a route that
+  guessed would write a handoff nobody asked for into the record a dispute is settled from.
+  `disposed_at` comes from that handoff's own instant, so a review typed up a week later is
+  dated when it happened, and a later handoff moves the ball again while the disposition
+  stands.
+- The disposition is **text with a CHECK** naming the five, byte-exact: `Approved`,
+  `Approved as Noted`, `Revise and Resubmit`, `Rejected`, `For Record Only`. Never a database
+  enum — ADR-0031's reason, three of the five being un-nameable as Prisma enum members — and
+  refused at the boundary by the body schema's `enum` as well. Only a submittal has one,
+  enforced **at the boundary only**, as the question rule is: the kind lives on `registers`
+  and a CHECK cannot read another row. Recorded once; a second is refused rather than
+  overwriting the outcome of a review.
+- The turnaround target is `turnaround_days`, an **integer duration and never a date**
+  (ADR-0037). The glossary strikes *due date* under RFI, and the day a review falls due is a
+  function of this number and of when the ball reached us, which the history already holds.
+  Set once and a second is refused: moving a target moves which entries *were* past their
+  clock, backwards through every day the number was different, and the daily layer is only
+  worth trusting if it cannot be made to have said something else.
+- `GET /v1/clock` returns the **entries and not a number**, with `?projectId=` for one job —
+  exposure's shape exactly, including the 404 on an unknown project and archived projects
+  leaving the across-every-project list while keeping their own (ADR-0037). Sorted **longest
+  in our court first**, which is what "oldest first" means for a record whose age is the time
+  it has spent with us, and not furthest past its target, which would reorder a 7-day RFI
+  above a 14-day submittal that has been here nine days longer; `created_at` breaks a tie. The
+  filter runs in the application, not in a `where` clause, because the sum has an open last
+  interval — the one view here whose predicate cannot be pushed into the database.
+- A next round is `register_entries.previous_round_id`, unique, written by
+  `POST /v1/register-entries/:id/next-round` (ADR-0037) — ADR-0028's `supersedes_id` arriving
+  for a second record, with nothing written to the round it follows and `nextRoundId` on the
+  wire so a screen can link forward. Submittals only. It is **not** narrowed to a Revise and
+  Resubmit and requires no disposition at all: the screen offers it on that disposition, which
+  is the whole of story 77, but a transmittal log is written up out of order (ADR-0036) and
+  requiring the review first would refuse a legitimate backfill. The successor **inherits
+  nothing** — its own clock from its own first handoff, its own target — deliberately
+  departing from ADR-0028's carry-forward, because carrying a contractual term forward would
+  assert a number nobody typed. The form offers the previous round's value as a default, which
+  is where a convenience belongs.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Agent skills

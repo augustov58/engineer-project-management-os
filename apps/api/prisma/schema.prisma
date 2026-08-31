@@ -962,7 +962,9 @@ model Register {
 ///
 /// There is deliberately no status column, for the fourth record running
 /// (ADR-0024, ADR-0031, ADR-0034, ADR-0035). The clock and the disposition
-/// arrive in issue #15; neither is here.
+/// arrived in issue #15 as `turnaround_days`, `disposition` and `disposed_at`,
+/// and no status column came with them: whose move it is is still the last
+/// handoff and *past its clock* is still an arithmetic over the history.
 model RegisterEntry {
   id String @id @default(uuid())
 
@@ -1019,6 +1021,53 @@ model RegisterEntry {
   /// a test asserts. Story 35 reads through this same column in reverse.
   submissionId String?     @map("submission_id")
   submission   Submission? @relation(fields: [submissionId], references: [id])
+
+  /// The contractual turnaround, in whole days (story 73).
+  ///
+  /// A **duration and never a date**: it is the number the contract names, and
+  /// the day it falls due is a function of it and of when the ball reached us,
+  /// which the handoff history already holds. The glossary strikes *due date*
+  /// under RFI for the same reason. Named for its unit rather than the PRD
+  /// sketch's `turnaround_target`, which says nothing about what it is measured
+  /// in.
+  ///
+  /// Null is the ordinary state of an entry nobody has put a number on, and
+  /// such an entry is never past its clock — there is nothing to be past.
+  /// Set once and never edited; a CHECK keeps it positive.
+  turnaroundDays Int? @map("turnaround_days")
+
+  /// The closed-set outcome of a submittal review, and the day it was reached
+  /// (stories 75, 76).
+  ///
+  /// Text with a CHECK naming the five and never a database enum, which
+  /// ADR-0036 decided in advance and ADR-0031 reasoned: `Approved as Noted`,
+  /// `Revise and Resubmit` and `For Record Only` cannot be Prisma enum members,
+  /// so an enum would put `APPROVED_AS_NOTED` on the wire with the real words
+  /// in a lookup in the API and again in the frontend. One string is stored,
+  /// sent, selected and printed.
+  ///
+  /// Both null or both set, the shape ADR-0024 gave resolution and ADR-0031
+  /// gave a close. Which kind may carry one is the register's fact and so is
+  /// the boundary's, exactly as `question` and `response` are.
+  ///
+  /// Recording one does not stop the clock by being written: it stops because
+  /// the same call hands the ball back, and accrual reads the handoffs. There
+  /// is no `clock_started` and no `clock_stopped`, though the PRD sketch names
+  /// the first — either would be a second place a fact the history already
+  /// holds could live, and disagree with it.
+  disposition String?
+  disposedAt  DateTime? @map("disposed_at")
+
+  /// The round this entry follows, where a Revise and Resubmit brought one
+  /// back (story 77).
+  ///
+  /// Unique, which is the whole of "at most one next round" and makes the chain
+  /// linear — ADR-0028's `supersedes_id` exactly, and for its reason: the
+  /// successor is created already pointing backwards and nothing ever repoints
+  /// it, so a cycle cannot arise and the round it follows is never written to.
+  previousRoundId String?        @unique @map("previous_round_id")
+  previousRound   RegisterEntry? @relation("Rounds", fields: [previousRoundId], references: [id])
+  nextRound       RegisterEntry? @relation("Rounds")
 
   /// Entry order, so two entries logged in the same minute do not list at
   /// random.
