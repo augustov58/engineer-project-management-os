@@ -71,8 +71,8 @@ See [README.md](./README.md).
 - Tests drive the HTTP API against a real PostgreSQL and assert only on responses and subsequent reads. Build fixtures through the API, not by inserting rows.
 - The one sanctioned exception is a schema invariant no route can expose — "no `users` table exists" (ADR-0012). `apps/api/test/schema.test.ts` reads `information_schema` through the harness's `tableNames()` and nothing else; it may not read domain data or write rows.
 - Every route sits under `/v1` (ADR-0023), carried by the single `register` call in `apps/api/src/server.ts` rather than spelled into each path. That call is *one* call on purpose: the thirteen route modules it invokes are plain functions and not Fastify plugins, because a plugin would be a second place a prefix could be added and the ADR's guarantee would become a convention (ADR-0033).
-- A record type is a file under `apps/api/src/routes/`, named for the record and matching the test file that drives it (ADR-0033). Its schemas, its refusals that nothing else uses and its derive-on-read helpers live beside its routes. `server.ts` is the boundary and nothing else: the ajv setting, the prefix, and the list of record types.
-- `http.ts`, `refusals.ts`, `wire.ts` and `stream.ts` are **leaves** — they import Prisma and Fastify types and nothing from a route module, which is what stops `site-visits`, `photos` and `issues` importing each other in a cycle (ADR-0033). A thing used by exactly one record lives with that record and moves into a leaf only when a second record reaches for it: the SSE machinery was written inside `routes/voice.ts` and became `stream.ts` when a walk's reports reached for it (ADR-0035), which is exactly the trigger ADR-0033 names, and the 24 voice tests pass unchanged against it. `wire.ts` holds only the read shapes two or more records return; `withDerivedState` and `withLines` are used by one each and stayed put.
+- A record type is a file under `apps/api/src/routes/`, named for the record and matching the test file that drives it (ADR-0033). Its schemas, its refusals that nothing else uses and its derive-on-read helpers live beside its routes. `server.ts` is the boundary and nothing else: the ajv setting, the gate in front of every route (ADR-0020), the prefix, and the list of record types. The gate is there for the reason the prefix is — it applies to all of them and to nothing narrower — and its implementation is a leaf, so `server.ts` gains a call and not a mechanism.
+- `http.ts`, `refusals.ts`, `wire.ts`, `stream.ts` and `edge-gate.ts` are **leaves** — they import Prisma and Fastify types and nothing from a route module, which is what stops `site-visits`, `photos` and `issues` importing each other in a cycle (ADR-0033). A thing used by exactly one record lives with that record and moves into a leaf only when a second record reaches for it: the SSE machinery was written inside `routes/voice.ts` and became `stream.ts` when a walk's reports reached for it (ADR-0035), which is exactly the trigger ADR-0033 names, and the 24 voice tests pass unchanged against it. `wire.ts` holds only the read shapes two or more records return; `withDerivedState` and `withLines` are used by one each and stayed put.
 - An open item is unresolved exactly when `resolved_at` is null (ADR-0024). Exposure, provisional state and the pending items view all read that one column — do not add a status field beside it.
 - What a submission rests on is the `submission_open_items` join, never a second subject on
   the open item (ADR-0026). An open item's subject stays `PROJECT`; raising one against a
@@ -556,13 +556,21 @@ See [README.md](./README.md).
   stand in the gate's place (ADR-0042). `GET /v1/health` is **gated**, deliberately: a
   deployment's HTTP check must send the header or be a TCP check, because one named exception
   is a property a test can hold and two is the start of a list. Do not add a second.
+- **`apiFetch` in `apps/web/app/api.ts` is the only thing that reaches the API**, because it
+  is the only place the secret is attached (ADR-0020). `apiPath` returns a **path and not a
+  URL** so that a second door cannot be built out of it by accident. This is not style: the
+  secret was first spelled at each of twenty-five call sites, one was missed, and the
+  processing-location screen answered 401 with nothing in the suite to catch it — `apps/web`
+  has no tests, so construction is the only guarantee there is. Do not add a `fetch` to the
+  API anywhere else.
 - The agent's domain tools present the secret like any other caller: `caller(apiBaseUrl,
   edgeSecret)` in `agent.ts` calls the API over loopback HTTP, and loopback is not an
   exemption. `fakeAgentRunService` sends it too — `app.inject` runs the whole lifecycle, hooks
   included.
 - The gate test is **exhaustive and not representative**. `startTestApi` collects every route
   Fastify registers through an `onRoute` hook and exposes them as `routes()`; `edge-gate.test.ts`
-  walks all 142 and asserts the allowed set is exactly the ingest webhook. A route added in a
+  walks every one of them and asserts the allowed set is exactly the ingest webhook — no count
+  is written down, since the number is whatever the API currently registers. A route added in a
   later slice is covered without anybody remembering. Do not narrow that sweep to a sample.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 - A project's **memory** is `project_memory_versions` with **no identity table** — the project is the identity, since there is exactly one memory per job (ADR-0040). Nothing edits or deletes a version; the current memory is the latest, derived on every read. The size budget (4,000 characters) rides on every read and is **surfaced, never enforced**.

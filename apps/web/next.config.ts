@@ -20,19 +20,6 @@ function lanAddresses(): string[] {
 }
 
 /**
- * `next dev` already listens on every interface, but it refuses to serve its
- * own `/_next/*` assets to a browser whose origin is not on its allow list.
- * Loading the app from another device on the network therefore returned the
- * server-rendered HTML and then 403'd on every script: a page that looks
- * present and is entirely dead. Next allows `localhost` itself; this adds
- * this machine's own addresses.
- *
- * Development only, and it widens nothing else. The API, PostgreSQL and Redis
- * all stay bound to loopback, and every call to the API is made by the Next
- * server on this host rather than by the browser — so a second device needs
- * no access to port 3001 at all.
- */
-/**
  * The one shared secret in front of every route (ADR-0020).
  *
  * Checked here because this file is the only thing Next loads before it
@@ -51,6 +38,36 @@ if (
   );
 }
 
+/**
+ * And the value `.env.example` carries is refused in production, because it
+ * is in source and therefore known. `pnpm dev` copies that file to `.env`, so
+ * a deployment that shipped the working tree would otherwise pass every check
+ * above while being open to anybody who has read this repository. Next sets
+ * `NODE_ENV` itself for `build` and `start`, so this half always fires.
+ */
+if (
+  process.env.NODE_ENV === 'production' &&
+  process.env['EDGE_SECRET'] === 'development-only-not-a-secret'
+) {
+  throw new Error(
+    'EDGE_SECRET is the development value from apps/web/.env.example, which ' +
+      'is in source and so is known. Generate one at deploy time.',
+  );
+}
+
+/**
+ * `next dev` already listens on every interface, but it refuses to serve its
+ * own `/_next/*` assets to a browser whose origin is not on its allow list.
+ * Loading the app from another device on the network therefore returned the
+ * server-rendered HTML and then 403'd on every script: a page that looks
+ * present and is entirely dead. Next allows `localhost` itself; this adds
+ * this machine's own addresses.
+ *
+ * Development only, and it widens nothing else. The API, PostgreSQL and Redis
+ * all stay bound to loopback, and every call to the API is made by the Next
+ * server on this host rather than by the browser — so a second device needs
+ * no access to port 3001 at all.
+ */
 const nextConfig: NextConfig = {
   allowedDevOrigins: lanAddresses(),
 

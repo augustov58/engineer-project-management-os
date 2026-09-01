@@ -51,12 +51,16 @@ export function unlocked(presented: string | undefined): boolean {
 }
 
 /**
- * What every call this server makes to the API carries. Merged with a
- * caller's own headers rather than replacing them, so a JSON write keeps its
- * content type.
+ * A caller's headers with the secret added. Merged rather than replacing, so
+ * a JSON write keeps its content type, and the secret is set last so nothing
+ * can clear it by passing a header of the same name.
+ *
+ * Called in exactly one place — `apiFetch` in `./api` — which is what makes
+ * "every call carries it" a fact about the code rather than about twenty-five
+ * call sites being right (ADR-0020).
  */
-export function edgeHeaders(
-  extra: Record<string, string> = {},
-): Record<string, string> {
-  return { ...extra, [EDGE_SECRET_HEADER]: edgeSecret() };
+export function edgeHeaders(from?: HeadersInit): Headers {
+  const headers = new Headers(from);
+  headers.set(EDGE_SECRET_HEADER, edgeSecret());
+  return headers;
 }

@@ -197,7 +197,8 @@ export async function startTestApi(
       headers.set(EDGE_SECRET_HEADER, TEST_EDGE_SECRET);
       return fetch(`${baseUrl}${path}`, { ...init, headers });
     },
-    routes: () => routes,
+    // A copy: a caller sweeping this must not be able to edit what it swept.
+    routes: () => [...routes],
     tableNames: async () => {
       const rows = await runtime.prisma.$queryRaw<{ table_name: string }[]>`
         SELECT table_name FROM information_schema.tables

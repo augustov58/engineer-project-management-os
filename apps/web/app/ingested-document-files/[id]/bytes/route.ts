@@ -1,5 +1,4 @@
-import { apiPath } from '../../../api';
-import { edgeHeaders } from '../../../edge-secret';
+import { apiFetch } from '../../../api';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,9 +22,9 @@ export async function GET(
   // path before this sees them, so `..%2Fexposure%23` would arrive here as a
   // segment that walks up and out — turning this route into an open GET proxy
   // for every route on an API deliberately bound to loopback.
-  const upstream = await fetch(
-    apiPath(`/ingested-document-files/${encodeURIComponent(id)}/bytes`),
-    { cache: 'no-store', headers: edgeHeaders() },
+  const upstream = await apiFetch(
+    `/ingested-document-files/${encodeURIComponent(id)}/bytes`,
+    { cache: 'no-store' },
   );
 
   if (!upstream.ok) {

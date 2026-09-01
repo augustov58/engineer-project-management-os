@@ -34,8 +34,27 @@ function apiPort(): number {
  * The one secret in front of every route (ADR-0020). Required like the
  * database is: this deployment has no identity at all, so the application
  * refusing to boot without it is what stops it ever being served ungated.
+ *
+ * The value `.env.example` carries is refused in production, because it is in
+ * source and therefore known — the ticket asks that the real one be generated
+ * at deploy time and held in the secret manager, and a deployment that copied
+ * the example would otherwise satisfy every check while being open to anyone
+ * who has read this repository. Weaker here than in `apps/web`, where Next
+ * sets `NODE_ENV` itself: this half only fires if the deployment sets it.
  */
+const DEVELOPMENT_ONLY_SECRET = 'development-only-not-a-secret';
+
 const edgeSecret = requireEnv('EDGE_SECRET');
+
+if (
+  process.env['NODE_ENV'] === 'production' &&
+  edgeSecret === DEVELOPMENT_ONLY_SECRET
+) {
+  throw new Error(
+    'EDGE_SECRET is the development value from apps/api/.env.example, which is ' +
+      'in source and so is known. Generate one at deploy time.',
+  );
+}
 
 const runtime = createRuntime({
   databaseUrl: requireEnv('DATABASE_URL'),

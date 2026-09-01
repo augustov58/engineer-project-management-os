@@ -1,5 +1,4 @@
-import { apiPath } from '../../../../api';
-import { edgeHeaders } from '../../../../edge-secret';
+import { apiFetch } from '../../../../api';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,11 +19,10 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const upstream = await fetch(
-    apiPath(`/site-visits/${encodeURIComponent(id)}/voice-captures/stream`),
+  const upstream = await apiFetch(
+    `/site-visits/${encodeURIComponent(id)}/voice-captures/stream`,
     {
       cache: 'no-store',
-      headers: edgeHeaders(),
       // So closing the browser tab closes the API's stream too, rather than
       // leaving a poll running against a reader that has gone.
       signal: request.signal,

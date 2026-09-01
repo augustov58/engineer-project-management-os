@@ -10,16 +10,24 @@ const A_YEAR = 60 * 60 * 24 * 365;
 /**
  * Where to go once it is presented.
  *
- * Only a path on this deployment. `//elsewhere.example` is a URL a browser
- * reads as another origin, so anything that is not a single leading slash is
- * refused and the morning screen is used instead — otherwise the one page an
- * anonymous caller can reach would be a redirector to anywhere.
+ * Only a path on this deployment, and checked by **resolving** it rather than
+ * by inspecting its first characters. `//elsewhere.example` and
+ * `/\\elsewhere.example` are both read by a browser as another origin — the
+ * second because `URL` normalises a backslash to a slash — so a prefix test
+ * has to know every spelling and a resolution test knows none. Otherwise the
+ * one page an anonymous caller can reach would be a redirector to anywhere.
  */
 function destination(next: FormDataEntryValue | null): string {
-  if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//')) {
+  if (typeof next !== 'string' || !next.startsWith('/')) {
     return '/';
   }
-  return next;
+  // Any base will do: what is being asked is whether the value moves off it.
+  const base = 'https://gate.invalid';
+  const resolved = new URL(next, base);
+  if (resolved.origin !== base) {
+    return '/';
+  }
+  return resolved.pathname + resolved.search;
 }
 
 export async function unlock(
