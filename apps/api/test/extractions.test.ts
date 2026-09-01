@@ -9,6 +9,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'vitest';
+import { PROCESSING_LOCATION_IS_LOCAL } from '../src/refusals.js';
 import {
   EXTRACTION_DIRECTIVE,
   extractionPrompt,
@@ -28,6 +29,7 @@ import {
   fakeTimeSource,
   heldAgentRunService,
   refusingAgentRunService,
+  recordingOcrProvider,
   refusingOcrProvider,
   sseFrames,
   startTestApi,
@@ -1029,5 +1031,92 @@ describe('an extraction', () => {
       const response = await app.fetch(`/v1/extractions/${extraction.id}`, { method });
       expect(response.status).toBe(404);
     }
+  });
+});
+
+// ── The processing location gate (issue #21, story 91) ───────────────────────
+
+describe('a project set to local processing', () => {
+  async function goLocal(app: TestApi, projectId: string) {
+    const response = await app.fetch(
+      `/v1/projects/${projectId}/processing-location`,
+      {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ location: 'LOCAL' }),
+      },
+    );
+    expect(response.status).toBe(200);
+  }
+
+  test('refuses the ask over an arrival file, and the vendor is never asked', async () => {
+    const ocr = recordingOcrProvider();
+    const app = await api({ ocr });
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+    await goLocal(app, project.id);
+    const arrival = await addIngestedDocument(app, project.id);
+
+    const response = await post(
+      app,
+      `/v1/ingested-document-files/${arrival.files[0]!.id}/extractions`,
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      message: PROCESSING_LOCATION_IS_LOCAL,
+    });
+    // No row, so nothing to watch and no job to redeliver.
+    expect(await extractionsOn(app, project.id)).toEqual([]);
+    expect(ocr.calls).toBe(0);
+  });
+
+  test('refuses the ask over a stored document too', async () => {
+    const ocr = recordingOcrProvider();
+    const app = await api({ ocr });
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+    await goLocal(app, project.id);
+    const document = await addDocument(app, project.id, {
+      title: 'RFI 014 response',
+      referencedFile: false,
+    });
+    await addDocumentVersion(app, document.id, { revision: 'A' });
+
+    const response = await post(app, `/v1/documents/${document.id}/extractions`);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      message: PROCESSING_LOCATION_IS_LOCAL,
+    });
+    expect(ocr.calls).toBe(0);
+  });
+
+  test('fails a run already queued when the setting changed, without reaching the vendor', async () => {
+    // The case the second check exists for, and the only one the create
+    // routes cannot cover: the job is in Redis before consent is withdrawn.
+    // Concurrency is 1, so holding the first run open is what keeps the
+    // second one queued long enough for the switch to land underneath it.
+    const held = heldAgentRunService();
+    const ocr = recordingOcrProvider();
+    const app = await api({ ocr, agentRunService: held.service });
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+
+    const first = await arrivalExtraction(app, project.id);
+    await held.reached;
+    expect(ocr.calls).toBe(1);
+
+    // Asked while the project was still on cloud, so this is a 201.
+    const second = await arrivalExtraction(app, project.id);
+    expect(second.extraction.state).toBe('queued');
+
+    await goLocal(app, project.id);
+    held.release();
+
+    await reaches(app, first.extraction.id, 'finished');
+    const failed = await reaches(app, second.extraction.id, 'failed');
+
+    expect(failed.failure).toBe(PROCESSING_LOCATION_IS_LOCAL);
+    // Nothing about the document was read: no OCR call and no text kept.
+    expect(failed.ocrText).toBeNull();
+    expect(ocr.calls).toBe(1);
   });
 });

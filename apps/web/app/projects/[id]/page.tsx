@@ -42,6 +42,7 @@ import { SiteVisitForm } from '../../site-visit-form';
 import { SubmissionForm } from '../../submission-form';
 import { clock, day, OpenItemEntry } from '../../open-item';
 import { PhaseList } from '../../phases';
+import { ProcessingLocation } from '../../processing-location';
 
 /** Archived projects are readable here; only the list hides them. */
 export const dynamic = 'force-dynamic';
@@ -495,6 +496,13 @@ export default async function ProjectRecord({
               : `${extractions.filter((one) => one.state === 'pending').length} awaiting an answer`}
           </span>
         </div>
+
+        {/*
+          Above the list, because it governs it: a job on local processing
+          refuses the ask, so the setting is the first thing to read here
+          when nothing can be extracted (issue #21, ADR-0044).
+        */}
+        <ProcessingLocation project={project} />
 
         <ExtractionList projectId={id} initial={{ extractions }} />
       </section>

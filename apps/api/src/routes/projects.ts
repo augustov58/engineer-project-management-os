@@ -2,7 +2,11 @@
 
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { type RouteDependencies, isUniqueViolation } from '../http.js';
+import {
+  NOT_BLANK,
+  type RouteDependencies,
+  isUniqueViolation,
+} from '../http.js';
 import { noSuchProject } from '../refusals.js';
 import { projectOnTheWire } from '../wire.js';
 
@@ -19,6 +23,33 @@ const projectBodySchema = {
   properties: {
     projectNumber: { type: 'string', pattern: '^\\S+$', maxLength: 32 },
     name: { type: 'string', minLength: 1, maxLength: 200 },
+  },
+} as const;
+
+/**
+ * Where this job's client-originated documents are read, and what the firm
+ * signed to allow it (issue #21, stories 91 and 92).
+ *
+ * One route taking the setting's value, rather than two named actions the way
+ * a reissue or a disposition is: those are events, and this is one column with
+ * two values, so splitting it would put "exactly one of these holds" across
+ * two handlers. The sign-off travels in the call that switches to cloud —
+ * ADR-0026's shape, where what a change rests on is named in the call that
+ * makes it rather than attached afterwards.
+ *
+ * Flat, with the pairing enforced in the handler and not by an ajv `if`/`then`:
+ * no schema in this product carries a conditional, and the four refusals below
+ * each say which of the four things went wrong, which one `oneOf` failure
+ * could not.
+ */
+const processingLocationBodySchema = {
+  type: 'object',
+  required: ['location'],
+  additionalProperties: false,
+  properties: {
+    location: { type: 'string', enum: ['LOCAL', 'CLOUD'] },
+    signoffReference: { type: 'string', pattern: NOT_BLANK, maxLength: 200 },
+    signoffAt: { type: 'string', format: 'date-time' },
   },
 } as const;
 
@@ -47,6 +78,29 @@ const listQuerySchema = {
 function newIngestToken(): string {
   return randomBytes(24).toString('base64url');
 }
+
+/**
+ * One change to a project's processing location: what to write, the state
+ * that write is narrowed to, and how the audit and a lost race each say it.
+ */
+interface LocationChange {
+  data: {
+    processingLocation: 'LOCAL' | 'CLOUD';
+    cloudSignoffReference: string | null;
+    cloudSignoffAt: Date | null;
+  };
+  where: {
+    id: string;
+    cloudSignoffReference?: null;
+    processingLocation?: 'CLOUD';
+  };
+  action: string;
+  detail: string;
+  lost: string;
+}
+
+/** Thrown inside the transaction to roll it back as the 409 the read chose. */
+class StateMovedUnderneath extends Error {}
 
 export function projectRoutes(
   v1: FastifyInstance,
@@ -143,6 +197,147 @@ export function projectRoutes(
       return project === null
         ? noSuchProject(reply)
         : projectOnTheWire(project, ingestDomain);
+    },
+  );
+
+  /**
+   * Set where this job's documents are read (issue #21, stories 91 and 92).
+   *
+   * **Cloud is the default and this route is the only thing that gates it**,
+   * which is the whole shape of ADR-0044's resolution. ADR-0013 rejected
+   * local-first on operational grounds and is the qualifier ADR-0008 names, so
+   * a project reaches `CLOUD` by being created — never having been switched,
+   * and with no sign-off to show. The CHECK underneath can therefore only hold
+   * the pairing, and "a switch to cloud carries a sign-off" is a rule the
+   * boundary keeps alone. Under the glossary's rejected reading it would have
+   * been a database fact, and saying so here is the price being visible.
+   *
+   * A second sign-off is refused rather than overwriting the first, as a
+   * response, a disposition and a referenced-file marking all are — the record
+   * of what the firm agreed to is not a last-write-wins field. Recording one
+   * against a project still sitting at the default is *not* a second: it is the
+   * first, which is the only way a default-cloud project ever gets one.
+   *
+   * Switching to local is always available and needs nothing, which is the one
+   * asymmetry worth stating: consent can be withdrawn, and a route that could
+   * refuse to stop sending documents would be the wrong refusal to own. It
+   * clears the sign-off, so returning to cloud needs a fresh one — and what was
+   * cleared survives in the audit entry, which is why that entry carries the
+   * reference and the date rather than only naming the change.
+   */
+  v1.post<{
+    Params: { id: string };
+    Body: {
+      location: 'LOCAL' | 'CLOUD';
+      signoffReference?: string;
+      signoffAt?: string;
+    };
+  }>(
+    '/projects/:id/processing-location',
+    { schema: { body: processingLocationBodySchema } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { location, signoffReference, signoffAt } = request.body;
+
+      const project = await prisma.project.findUnique({
+        where: { id },
+        select: { processingLocation: true, cloudSignoffReference: true },
+      });
+      if (project === null) {
+        return noSuchProject(reply);
+      }
+
+      // The four things a change to this setting is, decided once in the
+      // branch that knows them rather than re-reading the discriminant at
+      // each use. `where` is what makes the refusals above bounds instead of
+      // checks: it narrows the write to the state they were read against, so
+      // a request that loses the race is refused rather than overwriting.
+      let change: LocationChange;
+      if (location === 'CLOUD') {
+        if (signoffReference === undefined || signoffAt === undefined) {
+          return reply.code(400).send({
+            message:
+              'switching to cloud processing needs the written sign-off reference and its date',
+          });
+        }
+        if (project.cloudSignoffReference !== null) {
+          return reply.code(409).send({
+            message: 'a written sign-off is already recorded on this project',
+          });
+        }
+        const signedAt = new Date(signoffAt);
+        change = {
+          data: {
+            processingLocation: 'CLOUD',
+            cloudSignoffReference: signoffReference,
+            cloudSignoffAt: signedAt,
+          },
+          where: { id, cloudSignoffReference: null },
+          action: 'processing location set to cloud',
+          detail: `the firm signed off in writing on ${signedAt.toISOString()}, reference ${signoffReference}`,
+          lost: 'a written sign-off is already recorded on this project',
+        };
+      } else {
+        if (signoffReference !== undefined || signoffAt !== undefined) {
+          return reply.code(400).send({
+            message: 'switching to local processing records no sign-off',
+          });
+        }
+        if (project.processingLocation === 'LOCAL') {
+          return reply
+            .code(409)
+            .send({ message: 'this project is already set to local processing' });
+        }
+        change = {
+          data: {
+            processingLocation: 'LOCAL',
+            cloudSignoffReference: null,
+            cloudSignoffAt: null,
+          },
+          where: { id, processingLocation: 'CLOUD' },
+          action: 'processing location set to local',
+          // The reference is named here because the columns are about to be
+          // emptied, and this row is the only place it will survive.
+          detail:
+            project.cloudSignoffReference === null
+              ? 'no sign-off had been recorded'
+              : `the recorded sign-off ${project.cloudSignoffReference} was cleared`,
+          lost: 'this project is already set to local processing',
+        };
+      }
+
+      // The change and the audit of it in one statement, so no path exists on
+      // which the setting moved and the log does not say so (ADR-0040's rule,
+      // reaching a record other than memory for the first time — ADR-0044).
+      const at = timeSource.now();
+      try {
+        const updated = await prisma.$transaction(async (tx) => {
+          const settled = await tx.project.updateMany({
+            where: change.where,
+            data: change.data,
+          });
+          if (settled.count === 0) {
+            throw new StateMovedUnderneath();
+          }
+          await tx.auditEntry.create({
+            data: {
+              projectId: id,
+              action: change.action,
+              detail: change.detail,
+              createdAt: at,
+            },
+          });
+          return tx.project.findUniqueOrThrow({ where: { id } });
+        });
+        return projectOnTheWire(updated, ingestDomain);
+      } catch (error) {
+        if (error instanceof StateMovedUnderneath) {
+          // The answer the read above would have given, for a request that
+          // lost the race rather than arriving late.
+          return reply.code(409).send({ message: change.lost });
+        }
+        throw error;
+      }
     },
   );
 

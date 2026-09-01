@@ -32,11 +32,11 @@ stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11),
 (registers, entries and the ball-in-court history, issue #14), slice 14
 (the clock and dispositions, issue #15), slice 15 (the morning screen, issue #16),
 slice 16 (referenced files, issue #17), slice 17 (project memory, issue #18), slice 18 (the ingest
-address and untrusted inbound mail, issue #19) and slice 19 (extraction to a draft,
-human-confirmed, issue #20) are
+address and untrusted inbound mail, issue #19), slice 19 (extraction to a draft,
+human-confirmed, issue #20) and slice 20 (the processing-location setting, issue #21) are
 built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033); slice 17 adds a
-fourteenth, slice 18 a fifteenth and slice 19 a sixteenth. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+fourteenth, slice 18 a fifteenth and slice 19 a sixteenth; slice 20 adds no file, the setting being a project column and a project route. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
 issues #9, #10, #11, #12 and #13 — **step 4, registers, is complete** — issues #14 and
 #15 — and **step 6, curated project memory, is complete** — issue #18. Issue #16, the
@@ -50,8 +50,10 @@ on nobody having built the feature. **Issue #20, extraction, landed the same way
 the record, the queued run, the proposal and the confirmation screen are all built, and the
 OCR vendor sits behind a port whose default refuses — so a run fails honestly with the
 vendor's sentence, and the gate now fires on writing the OCR adapter and naming a vendor.
-What remains of step 5 is issue #21 (the processing-location setting, blocked on that pick)
-and issue #22 (the edge gate).
+**Issue #21, the processing location, landed the same way** (ADR-0044) and settled the
+0013-vs-glossary contradiction the ticket carried as its own acceptance criterion — in
+ADR-0013's favour, so **cloud is the default**. What remains of step 5 is issue #22
+(the edge gate), plus the OCR adapter and its vendor pick.
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
@@ -633,6 +635,45 @@ See [README.md](./README.md).
   envelope — and never a rendering of the file: arrival bytes are served as
   `application/octet-stream` attachments on purpose (ADR-0042), and this screen does not
   poke that hole. The bytes are one click away.
+- **The processing-location default is cloud** (ADR-0044), settling the contradiction the
+  vault carried as open since 2026-08-24. ADR-0008 names ADR-0013 as its qualifier and the
+  glossary claimed the same role in the opposite direction, so the one 0008 points at holds;
+  the glossary entry and the PRD's third formulation are corrected and 0013 is unchanged. A
+  `processing_location` **database enum** on `projects` (ADR-0036's test, not ADR-0031's).
+  `LOCAL` is a **permission, not a selector**: there is no local OCR and `OcrProvider` takes
+  no project, so it means the port is never called and manual entry is the path. Do not
+  build a two-adapter selector for one adapter.
+- The sign-off gates the **switch**, not the state. Under a cloud default a project arrives
+  on `CLOUD` never having been switched, so "cloud implies a sign-off" is **false by design**
+  and no CHECK can hold it — the one that is written holds the pairing alone
+  (`reference IS NULL = at IS NULL`), and that weakening is what the resolution cost.
+  Switching to cloud requires `signoffReference` and `signoffAt` and refuses a second;
+  recording the first against a default project is not a second. Switching to **local
+  requires nothing and no consent fact can refuse it** — consent can be withdrawn, and that
+  asymmetry keeps ADR-0039's principle while inverting its mechanism. The one refusal it
+  has is the no-op, on a project already local. It **clears** the sign-off, safe
+  only because the audit entry carries the reference and the date.
+- `cloud_signoff_at` is **supplied and never the `TimeSource`'s** — `held_since`'s frame and
+  ADR-0037's answer for `disposed_at`. When the switch happened is the audit row's
+  `created_at`, which is the TimeSource's; the two are different facts and both are kept.
+- The gate runs **twice and both matter** (ADR-0042's shape). Both extraction create routes
+  refuse the ask before a row or a job exists; the **worker reads the setting again before
+  the bytes are fetched**, and that is the bound — a job enqueued while the project was on
+  cloud is already in Redis when consent is withdrawn. The setting is read on the row and
+  never carried on the job. One sentence, `PROCESSING_LOCATION_IS_LOCAL` in `refusals.ts`,
+  said by both. Do not collapse them into one.
+- Issue #21's second criterion — "switching a project to cloud requires a recorded written
+  sign-off" — is met **literally and not as an outcome**, and ADR-0044 says so rather than
+  counting it met. Its force came from local being the default; under a cloud default no
+  project need ever be switched, so **cloud processing with no recorded consent is the
+  ordinary case**. Whoever writes the OCR adapter must read each existing project's
+  location before the first run, not after.
+- The **audit widens exactly once** here (ADR-0044), which is the change ADR-0043 said would
+  be its own: one action, on the project's own setting, in the same transaction as the
+  update. Extraction mutations still write no audit rows. Note that
+  `GET /v1/projects/:id/memory/audit` has always returned the project's *whole* audit
+  (`where: { projectId }`), so its path is now narrower than what it answers — recorded, not
+  fixed; renaming it is a frontend change.
 
 ## Agent skills
 

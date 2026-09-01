@@ -7,6 +7,23 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Where a client-originated document is read (issue #21, stories 91 and 92).
+///
+/// A database enum and not ADR-0031's text-with-a-CHECK: both members name
+/// themselves and neither carries a character a Prisma enum member cannot, so
+/// ADR-0036's reasoning applies unchanged.
+///
+/// `LOCAL` does not name a second implementation. There is no local OCR in
+/// this product and the `OcrProvider` port takes no project, so the setting is
+/// a *permission* and not a selector: LOCAL means the port is never called and
+/// manual entry is the path (ADR-0044).
+enum ProcessingLocation {
+  LOCAL
+  CLOUD
+
+  @@map("processing_location")
+}
+
 /// The record everything else in this product hangs off (issue #3). There is
 /// no owner, no tenant and no user: see ADR-0012.
 ///
@@ -58,6 +75,34 @@ model Project {
   /// Never on the wire by itself: the API returns the composed
   /// `ingestAddress`, or null where no domain is configured.
   ingestToken String @unique @map("ingest_token")
+
+  /// Where this job's client-originated documents are read (issue #21,
+  /// story 91). Defaults to `CLOUD`: ADR-0013 rejected local-first on
+  /// operational grounds and is the qualifier ADR-0008 itself names, which
+  /// ADR-0044 settles against the glossary's opposite reading.
+  ///
+  /// Read at both extraction create routes and again in the worker before any
+  /// bytes are fetched. Both matter, for ADR-0042's reason: the first gives
+  /// the engineer an answer, the second is what makes the setting a bound on
+  /// a job already sitting in Redis when consent is withdrawn.
+  processingLocation ProcessingLocation @default(CLOUD) @map("processing_location")
+
+  /// What the firm signed, and when they signed it (issue #21, story 92) —
+  /// consent as a recorded fact rather than a recollection.
+  ///
+  /// Both null or both set, held by a CHECK, which is ADR-0024's shape for
+  /// `resolved_at` and ADR-0031's for a closure. What a CHECK deliberately
+  /// cannot hold here is "cloud implies a sign-off": under a cloud default a
+  /// project reaches `CLOUD` without ever having been switched, so that
+  /// invariant is false by design and only the route can gate the switch
+  /// (ADR-0044).
+  ///
+  /// The instant is supplied and never read from the TimeSource, the frame
+  /// `held_since` uses: a sign-off letter dated last Tuesday and recorded
+  /// today is dated when it was signed. When the switch happened is the audit
+  /// entry's `created_at`, which is the TimeSource's.
+  cloudSignoffReference String?   @map("cloud_signoff_reference")
+  cloudSignoffAt        DateTime? @map("cloud_signoff_at")
 
   phases      ProjectPhase[] @relation("ProjectPhases")
   submissions Submission[]
