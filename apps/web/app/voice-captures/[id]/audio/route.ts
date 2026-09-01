@@ -1,4 +1,5 @@
 import { apiPath } from '../../../api';
+import { edgeHeaders } from '../../../edge-secret';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ export async function GET(
   // on the photo route (ADR-0032); this is the same route written again.
   const upstream = await fetch(
     apiPath(`/voice-captures/${encodeURIComponent(id)}/audio`),
-    { cache: 'no-store' },
+    { cache: 'no-store', headers: edgeHeaders() },
   );
 
   if (!upstream.ok) {

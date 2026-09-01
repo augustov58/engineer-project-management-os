@@ -33,10 +33,10 @@ stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11),
 (the clock and dispositions, issue #15), slice 15 (the morning screen, issue #16),
 slice 16 (referenced files, issue #17), slice 17 (project memory, issue #18), slice 18 (the ingest
 address and untrusted inbound mail, issue #19), slice 19 (extraction to a draft,
-human-confirmed, issue #20) and slice 20 (the processing-location setting, issue #21) are
-built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
+human-confirmed, issue #20), slice 20 (the processing-location setting, issue #21) and
+slice 21 (the edge gate, issue #22) are built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033); slice 17 adds a
-fourteenth, slice 18 a fifteenth and slice 19 a sixteenth; slice 20 adds no file, the setting being a project column and a project route. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+fourteenth, slice 18 a fifteenth and slice 19 a sixteenth; slice 20 adds no file, the setting being a project column and a project route, and slice 21 adds no route module either — the gate is a leaf, `edge-gate.ts`, that `server.ts` calls. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
 issues #9, #10, #11, #12 and #13 — **step 4, registers, is complete** — issues #14 and
 #15 — and **step 6, curated project memory, is complete** — issue #18. Issue #16, the
@@ -52,8 +52,9 @@ OCR vendor sits behind a port whose default refuses — so a run fails honestly 
 vendor's sentence, and the gate now fires on writing the OCR adapter and naming a vendor.
 **Issue #21, the processing location, landed the same way** (ADR-0044) and settled the
 0013-vs-glossary contradiction the ticket carried as its own acceptance criterion — in
-ADR-0013's favour, so **cloud is the default**. What remains of step 5 is issue #22
-(the edge gate), plus the OCR adapter and its vendor pick.
+ADR-0013's favour, so **cloud is the default**. **Issue #22, the edge gate, is built** (ADR-0020, confirmed by the
+author and no longer Proposed), and it **completes step 5's code**: what remains of the step
+is the OCR adapter and its vendor pick, which is where employer consent now attaches.
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
@@ -529,6 +530,40 @@ See [README.md](./README.md).
 - Nothing is named so as to read as the glossary's **Document register**, whose overlap with
   **Register** was flagged as drift on 2026-08-24 and is still unresolved. Slice 13 dodged it
   and slice 16 dodges it too.
+- The **edge gate** is one long-lived shared secret in front of every route, and the whole of
+  this deployment's access control (ADR-0020). ADR-0012 removed *identity*; it did not remove
+  access control, and this adds no `users`, `roles` or `permissions` table. There is no
+  session and nothing stored, so rotating the secret is a redeploy. `EDGE_SECRET` is
+  **required with no default** in both apps — `buildServer` takes `edgeSecret: string` the
+  way it takes `objectStore`, `apps/api` guards it with the same `requireEnv` as
+  `DATABASE_URL`, and `apps/web` throws in `next.config.ts`, the only thing Next loads before
+  it serves. Never a `NEXT_PUBLIC_` name: that prefix inlines a value into every client bundle.
+- The engineer's presentation is a **cookie** and the API's is the `x-edge-secret` **header**,
+  and that is not two mechanisms for one fact (ADR-0020). A cookie is how a *browser* carries
+  a credential, and no browser reaches the API — every call is made by the Next server, which
+  is why ADR-0032 refused a presigned URL. A cookie reader in `apps/api` would be machinery
+  for a caller that does not exist. Both sides compare `timingSafeEqual` over SHA-256 digests,
+  so neither the comparison nor a length mismatch is a side channel.
+- `apps/web/proxy.ts` and **not** `middleware.ts`: Next 16 deprecated that file convention and
+  renamed it. Its matcher excludes only `_next/static`, `_next/image` and `favicon.ico`;
+  `/unlock` is exempted **inside the function and never in the matcher**, because a server
+  action is a POST to the route it is used on, so a matcher exclusion silently un-gates that
+  route's actions too. A page navigation without the cookie is redirected to `/unlock`;
+  everything else is refused **where it stands** with a 401, because an `EventSource` follows
+  a redirect into an HTML page and then reconnects forever without showing anybody an error.
+- `POST /v1/ingest/inbound-mail` is the **one** exempt route and the only one ADR-0020 carves
+  out — inbound mail can present nothing, so the address's unguessability and its rate limit
+  stand in the gate's place (ADR-0042). `GET /v1/health` is **gated**, deliberately: a
+  deployment's HTTP check must send the header or be a TCP check, because one named exception
+  is a property a test can hold and two is the start of a list. Do not add a second.
+- The agent's domain tools present the secret like any other caller: `caller(apiBaseUrl,
+  edgeSecret)` in `agent.ts` calls the API over loopback HTTP, and loopback is not an
+  exemption. `fakeAgentRunService` sends it too — `app.inject` runs the whole lifecycle, hooks
+  included.
+- The gate test is **exhaustive and not representative**. `startTestApi` collects every route
+  Fastify registers through an `onRoute` hook and exposes them as `routes()`; `edge-gate.test.ts`
+  walks all 142 and asserts the allowed set is exactly the ingest webhook. A route added in a
+  later slice is covered without anybody remembering. Do not narrow that sweep to a sample.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 - A project's **memory** is `project_memory_versions` with **no identity table** — the project is the identity, since there is exactly one memory per job (ADR-0040). Nothing edits or deletes a version; the current memory is the latest, derived on every read. The size budget (4,000 characters) rides on every read and is **surfaced, never enforced**.
 - A **proposal** is the approval request — the sketch's `approval_requests` table is refused. Its `base_content` is **snapshotted when the proposal is written**, so the diff under review cannot drift as memory moves; and the proposal is never edited — accept-with-edit writes the *version* from the engineer's text and keeps the agent's words on the proposal. The agent's one mutating tool writes proposals only; there is no accept tool, which is what "the agent never writes memory directly" is made of.

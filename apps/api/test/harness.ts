@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Client } from 'pg';
 import { inject } from 'vitest';
 import type { AgentRunService } from '../src/agent.js';
+import { EDGE_SECRET_HEADER } from '../src/edge-gate.js';
 import type { OcrProvider } from '../src/ocr.js';
 import { createRuntime } from '../src/runtime.js';
 import {
@@ -16,11 +17,33 @@ import { systemTimeSource, type TimeSource } from '../src/time-source.js';
 import type { Transcriber } from '../src/transcription.js';
 import { buildWorker } from '../src/worker.js';
 
+/**
+ * The secret every test presents (ADR-0020). A fixed string rather than a
+ * generated one: what a test asserts about the gate is that the right value
+ * opens it and any other does not, and a value that changed per run would
+ * make the failing case harder to read for no gain.
+ */
+export const TEST_EDGE_SECRET = 'test-edge-secret';
+
 export interface TestApi {
   /** Origin of a real listening HTTP server, e.g. `http://127.0.0.1:41234`. */
   baseUrl: string;
-  /** `fetch` against this API. Tests assert on the response, nothing else. */
+  /**
+   * `fetch` against this API, carrying the edge secret. Tests assert on the
+   * response, nothing else.
+   *
+   * Every test goes through the gate rather than around it, because that is
+   * what a deployment does. A test *about* the gate uses `baseUrl` with the
+   * global `fetch` instead, which is the only way to be an anonymous caller.
+   */
   fetch(path: string, init?: RequestInit): Promise<Response>;
+  /**
+   * Every route Fastify actually registered, method and path.
+   *
+   * Collected rather than written down, so the gate's sweep covers a route
+   * added later without anybody remembering to add it there (ADR-0020).
+   */
+  routes(): { method: string; url: string }[];
   /**
    * The tables the migrations actually produced.
    *
@@ -127,9 +150,20 @@ export async function startTestApi(
     prisma: runtime.prisma,
     queue: runtime.queue,
     objectStore: runtime.objectStore,
+    edgeSecret: TEST_EDGE_SECRET,
     timeSource: options.timeSource,
     inboundMail: options.inboundMail ?? stubInboundMailProvider,
     ...(ingestDomain === null ? {} : { ingestDomain }),
+  });
+
+  // Added before `ready`, and the routes above are registered *at* `ready`
+  // inside an encapsulated context — a root `onRoute` hook sees every one of
+  // them, including the HEAD routes Fastify derives from the GETs.
+  const routes: { method: string; url: string }[] = [];
+  app.addHook('onRoute', (route) => {
+    for (const method of [route.method].flat()) {
+      routes.push({ method, url: route.url });
+    }
   });
 
   const worker =
@@ -158,7 +192,12 @@ export async function startTestApi(
 
   return {
     baseUrl,
-    fetch: (path, init) => fetch(`${baseUrl}${path}`, init),
+    fetch: (path, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set(EDGE_SECRET_HEADER, TEST_EDGE_SECRET);
+      return fetch(`${baseUrl}${path}`, { ...init, headers });
+    },
+    routes: () => routes,
     tableNames: async () => {
       const rows = await runtime.prisma.$queryRaw<{ table_name: string }[]>`
         SELECT table_name FROM information_schema.tables
@@ -1508,7 +1547,14 @@ export async function requestMemoryRun(
  * proposal — that path refuses the pair.
  */
 export function fakeAgentRunService(
-  app: { inject: (request: { method: string; url: string; payload: unknown }) => Promise<unknown> },
+  app: {
+    inject: (request: {
+      method: string;
+      url: string;
+      payload: unknown;
+      headers: Record<string, string>;
+    }) => Promise<unknown>;
+  },
   content = '[fake agent proposal — a stand-in for what the model would write]',
   extractionProposal: Record<string, unknown> = {
     kind: 'RFI',
@@ -1532,6 +1578,9 @@ export function fakeAgentRunService(
         method: 'POST',
         url: `/v1/memory-runs/${runId}/proposal`,
         payload: { content },
+        // `inject` runs the whole lifecycle, the gate included, exactly as
+        // the real adapter's HTTP call does (ADR-0020).
+        headers: { [EDGE_SECRET_HEADER]: TEST_EDGE_SECRET },
       });
     },
     extractRegisterEntry: async ({ extractionId }) => {
@@ -1539,6 +1588,7 @@ export function fakeAgentRunService(
         method: 'POST',
         url: `/v1/extractions/${extractionId}/proposal`,
         payload: extractionProposal,
+        headers: { [EDGE_SECRET_HEADER]: TEST_EDGE_SECRET },
       });
     },
   };

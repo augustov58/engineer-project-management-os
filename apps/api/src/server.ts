@@ -1,6 +1,7 @@
 import type { Queue } from 'bullmq';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import { edgeGate } from './edge-gate.js';
 import type { ObjectStore } from './object-store.js';
 import {
   type InboundMailProvider,
@@ -29,6 +30,13 @@ export interface ServerDependencies {
   queue: Queue;
   /** Where a file's bytes go. No default: there is no sensible one. */
   objectStore: ObjectStore;
+  /**
+   * The one secret in front of every route (ADR-0020). No default, for
+   * `objectStore`'s reason and one more: a default is a way to run ungated by
+   * accident, and this is the whole security boundary of a deployment that
+   * has no identity at all.
+   */
+  edgeSecret: string;
   /** Defaults to the real clock; tests pass a fake and advance it by hand. */
   timeSource?: TimeSource;
   /**
@@ -53,9 +61,9 @@ const API_PREFIX = '/v1';
 
 /**
  * The boundary, and only the boundary: the ajv setting every schema depends
- * on, the prefix every path is carried by, and the record types the API is
- * made of. A record's own routes, schemas and helpers live in its file under
- * `routes/`, one per record type (ADR-0033). The test files line up with them
+ * on, the gate in front of every route, the prefix every path is carried by,
+ * and the record types the API is made of. A record's own routes, schemas and
+ * helpers live in its file under `routes/`, one per record type (ADR-0033). The test files line up with them
  * but are not one-to-one: `submissions.ts` is driven by three of them, phases
  * are exercised through `submissions.test.ts`, and `registers.ts` carries the
  * entries and handoffs beneath a register as well as the register itself.
@@ -64,6 +72,7 @@ export function buildServer({
   prisma,
   queue,
   objectStore,
+  edgeSecret,
   timeSource = systemTimeSource,
   inboundMail = unconfiguredInboundMailProvider,
   ingestDomain,
@@ -77,6 +86,10 @@ export function buildServer({
     // `additionalProperties: false` is made to mean what it says.
     ajv: { customOptions: { removeAdditional: false } },
   });
+
+  // Before the routes and on the root instance, so it is in front of every
+  // one of them and of anything ever mounted outside the prefix (ADR-0020).
+  edgeGate(app, edgeSecret);
 
   const dependencies = {
     prisma,

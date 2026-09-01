@@ -18,6 +18,7 @@
 
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { EDGE_SECRET_HEADER } from './edge-gate.js';
 import { Type } from 'typebox';
 
 /** What one run is asked to do. The id and the job, and nothing else. */
@@ -102,16 +103,19 @@ type CallApi = (
   init?: { method?: string; body?: unknown },
 ) => Promise<{ status: number; body: unknown }>;
 
-export function caller(apiBaseUrl: string): CallApi {
+export function caller(apiBaseUrl: string, edgeSecret: string): CallApi {
   return async (path, init) => {
     const response = await fetch(`${apiBaseUrl}/v1${path}`, {
       method: init?.method ?? 'GET',
-      ...(init?.body === undefined
-        ? {}
-        : {
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(init.body),
-          }),
+      // The gate is in front of every route, and these tools are a caller
+      // like any other — loopback is not an exemption (ADR-0020).
+      headers: {
+        [EDGE_SECRET_HEADER]: edgeSecret,
+        ...(init?.body === undefined
+          ? {}
+          : { 'content-type': 'application/json' }),
+      },
+      ...(init?.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     });
     const text = await response.text();
     let body: unknown = null;
@@ -425,10 +429,13 @@ Read the fields out of it and propose them with extraction_propose, exactly once
  */
 export function piAgentRunService({
   apiBaseUrl,
+  edgeSecret,
   workspaceRoot,
 }: {
   /** Where the internal API is reachable from this process. */
   apiBaseUrl: string;
+  /** What the domain tools present at the gate in front of it (ADR-0020). */
+  edgeSecret: string;
   /** The directory the per-project workspaces live under. */
   workspaceRoot: string;
 }): AgentRunService {
@@ -439,7 +446,7 @@ export function piAgentRunService({
       const cwd = join(workspaceRoot, projectId);
       await mkdir(cwd, { recursive: true });
 
-      const tools = memoryRunTools(caller(apiBaseUrl), runId, projectId);
+      const tools = memoryRunTools(caller(apiBaseUrl, edgeSecret), runId, projectId);
       const modelRuntime = await sdk.ModelRuntime.create();
       const { session } = await sdk.createAgentSession({
         cwd,
@@ -476,7 +483,7 @@ export function piAgentRunService({
       const cwd = join(workspaceRoot, projectId);
       await mkdir(cwd, { recursive: true });
 
-      const tools = extractionRunTools(caller(apiBaseUrl), extractionId);
+      const tools = extractionRunTools(caller(apiBaseUrl, edgeSecret), extractionId);
       const modelRuntime = await sdk.ModelRuntime.create();
       const { session } = await sdk.createAgentSession({
         cwd,
@@ -502,6 +509,7 @@ export function piAgentRunService({
  */
 export function agentRunServiceFromEnv(options: {
   apiBaseUrl: string;
+  edgeSecret: string;
   workspaceRoot: string;
 }): AgentRunService {
   return process.env['AGENT'] === 'pi'

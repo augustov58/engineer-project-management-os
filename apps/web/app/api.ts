@@ -1,3 +1,5 @@
+import { edgeHeaders } from './edge-secret';
+
 const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://127.0.0.1:3001';
 
 export interface Project {
@@ -37,7 +39,10 @@ export function apiPath(path: string): string {
 /** `archived: true` for the finished jobs, which is how they stay reachable. */
 export async function listProjects(archived = false): Promise<Project[]> {
   const path = `/projects?archived=${archived}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
   }
@@ -47,7 +52,10 @@ export async function listProjects(archived = false): Promise<Project[]> {
 /** Undefined rather than throwing, so the page can render a 404. */
 export async function getProject(id: string): Promise<Project | undefined> {
   const path = `/projects/${id}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (response.status === 404) {
     return undefined;
   }
@@ -83,7 +91,10 @@ export async function listOpenItems(
   resolved = false,
 ): Promise<OpenItem[]> {
   const path = `/projects/${projectId}/open-items?resolved=${resolved}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
   }
@@ -105,7 +116,10 @@ export async function listPendingItems(options: {
   }
 
   const path = `/open-items?${query.toString()}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
   }
@@ -190,7 +204,10 @@ export interface ExposureRow extends Submission {
 }
 
 async function read<T>(path: string): Promise<T> {
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
   }
@@ -225,7 +242,10 @@ export async function getSubmission(
   id: string,
 ): Promise<SubmissionDetail | undefined> {
   const path = `/submissions/${id}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (response.status === 404) {
     return undefined;
   }
@@ -472,7 +492,10 @@ export async function getSiteVisit(
   id: string,
 ): Promise<SiteVisitDetail | undefined> {
   const path = `/site-visits/${id}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (response.status === 404) {
     return undefined;
   }
@@ -535,7 +558,10 @@ export async function getIssue(
   number: number,
 ): Promise<Issue | undefined> {
   const path = `/projects/${projectId}/issues/${number}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (response.status === 404) {
     return undefined;
   }
@@ -677,7 +703,10 @@ export function listRegisters(projectId: string): Promise<Register[]> {
 /** Undefined rather than throwing, so the page can render a 404. */
 export async function getRegister(id: string): Promise<Register | undefined> {
   const path = `/registers/${id}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (response.status === 404) {
     return undefined;
   }
@@ -692,7 +721,10 @@ export async function getRegisterEntry(
   id: string,
 ): Promise<RegisterEntry | undefined> {
   const path = `/register-entries/${id}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (response.status === 404) {
     return undefined;
   }
@@ -977,7 +1009,10 @@ export async function getExtraction(
   id: string,
 ): Promise<ExtractionDetail | undefined> {
   const path = `/extractions/${id}`;
-  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  const response = await fetch(apiPath(path), {
+    cache: 'no-store',
+    headers: edgeHeaders(),
+  });
   if (response.status === 404) {
     return undefined;
   }

@@ -32,6 +32,25 @@ function lanAddresses(): string[] {
  * server on this host rather than by the browser — so a second device needs
  * no access to port 3001 at all.
  */
+/**
+ * The one shared secret in front of every route (ADR-0020).
+ *
+ * Checked here because this file is the only thing Next loads before it
+ * serves anything — `next dev`, `next build` and `next start` all read it —
+ * so a missing secret is a refusal to boot rather than a deployment that
+ * comes up open. `pnpm dev` copies `.env.example` to `.env`, which carries a
+ * development value; a deployment supplies a real one from its secret
+ * manager, and rotating it is a redeploy.
+ */
+if (
+  process.env['EDGE_SECRET'] === undefined ||
+  process.env['EDGE_SECRET'] === ''
+) {
+  throw new Error(
+    'EDGE_SECRET is not set. Copy apps/web/.env.example to apps/web/.env.',
+  );
+}
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: lanAddresses(),
 

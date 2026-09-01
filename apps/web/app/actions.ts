@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { apiPath } from './api';
+import { edgeHeaders } from './edge-secret';
 
 /**
  * The API is the only validator. Its message is shown as-is rather than
@@ -14,7 +15,7 @@ export async function createProject(
 ): Promise<string | undefined> {
   const response = await fetch(apiPath('/projects'), {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: edgeHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({
       projectNumber: formData.get('projectNumber'),
       name: formData.get('name'),
@@ -34,7 +35,10 @@ export async function createProject(
 
 export async function archiveProject(id: string): Promise<void> {
   const path = `/projects/${id}/archive`;
-  const response = await fetch(apiPath(path), { method: 'POST' });
+  const response = await fetch(apiPath(path), {
+    method: 'POST',
+    headers: edgeHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`POST ${apiPath(path)} returned ${response.status}`);
   }
@@ -105,12 +109,10 @@ async function refusal(
 function send(path: string, body?: unknown): Promise<Response> {
   return fetch(apiPath(path), {
     method: 'POST',
-    ...(body === undefined
-      ? {}
-      : {
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        }),
+    headers: edgeHeaders(
+      body === undefined ? {} : { 'content-type': 'application/json' },
+    ),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
 
@@ -393,7 +395,10 @@ export async function detachOpenItem(
   openItemId: string,
 ): Promise<void> {
   const path = `/submissions/${submissionId}/open-items/${openItemId}`;
-  const response = await fetch(apiPath(path), { method: 'DELETE' });
+  const response = await fetch(apiPath(path), {
+    method: 'DELETE',
+    headers: edgeHeaders(),
+  });
   if (!response.ok && response.status !== 404) {
     throw new Error(`DELETE ${apiPath(path)} returned ${response.status}`);
   }

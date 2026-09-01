@@ -1,4 +1,5 @@
 import { apiPath } from '../../../api';
+import { edgeHeaders } from '../../../edge-secret';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ export async function GET(
 
   const upstream = await fetch(
     apiPath(`/site-visit-reports/${encodeURIComponent(id)}/pdf`),
-    { cache: 'no-store' },
+    { cache: 'no-store', headers: edgeHeaders() },
   );
 
   if (!upstream.ok) {

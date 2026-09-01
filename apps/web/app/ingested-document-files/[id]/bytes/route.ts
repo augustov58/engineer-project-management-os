@@ -1,4 +1,5 @@
 import { apiPath } from '../../../api';
+import { edgeHeaders } from '../../../edge-secret';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ export async function GET(
   // for every route on an API deliberately bound to loopback.
   const upstream = await fetch(
     apiPath(`/ingested-document-files/${encodeURIComponent(id)}/bytes`),
-    { cache: 'no-store' },
+    { cache: 'no-store', headers: edgeHeaders() },
   );
 
   if (!upstream.ok) {

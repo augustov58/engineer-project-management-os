@@ -30,6 +30,13 @@ function apiPort(): number {
   return port;
 }
 
+/**
+ * The one secret in front of every route (ADR-0020). Required like the
+ * database is: this deployment has no identity at all, so the application
+ * refusing to boot without it is what stops it ever being served ungated.
+ */
+const edgeSecret = requireEnv('EDGE_SECRET');
+
 const runtime = createRuntime({
   databaseUrl: requireEnv('DATABASE_URL'),
   redisUrl: requireEnv('REDIS_URL'),
@@ -41,6 +48,7 @@ const app = buildServer({
   prisma: runtime.prisma,
   queue: runtime.queue,
   objectStore: runtime.objectStore,
+  edgeSecret,
   // No adapter is written, so this refuses unless INBOUND_MAIL=stub, and a
   // deployment receives no mail until one is (issue #19, ADR-0042).
   inboundMail: inboundMailProviderFromEnv(),
@@ -74,6 +82,8 @@ const worker = buildWorker({
     // Where the domain tools reach the internal API from this process: the
     // server below, which binds loopback on the configured port.
     apiBaseUrl: `http://127.0.0.1:${apiPort()}`,
+    // A caller like any other: loopback is not an exemption (ADR-0020).
+    edgeSecret,
     // Where the per-project workspaces the file tools are scoped to live.
     workspaceRoot: process.env['AGENT_WORKSPACE_DIR'] ?? '.agent-workspaces',
   }),

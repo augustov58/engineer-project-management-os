@@ -1,4 +1,5 @@
 import { apiPath } from '../../../api';
+import { edgeHeaders } from '../../../edge-secret';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ export async function GET(
   // one thing on this host a second device can reach.
   const upstream = await fetch(
     apiPath(`/photos/${encodeURIComponent(id)}/bytes`),
-    { cache: 'no-store' },
+    { cache: 'no-store', headers: edgeHeaders() },
   );
 
   if (!upstream.ok) {

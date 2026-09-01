@@ -1,4 +1,5 @@
 import { apiPath } from '../../../../api';
+import { edgeHeaders } from '../../../../edge-secret';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,7 @@ export async function GET(
     apiPath(`/projects/${encodeURIComponent(id)}/extractions/stream`),
     {
       cache: 'no-store',
+      headers: edgeHeaders(),
       // So closing the browser tab closes the API's stream too, rather than
       // leaving a poll running against a reader that has gone.
       signal: request.signal,
