@@ -31,6 +31,7 @@ import type { Redis } from 'ioredis';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { AgentRunService, ExtractionSourcePacket } from './agent.js';
 import type { ObjectStore } from './object-store.js';
+import { PROCESSING_LOCATION_IS_LOCAL } from './refusals.js';
 import type { OcrProvider } from './ocr.js';
 import { renderPdf } from './pdf.js';
 import { composeReport } from './report.js';
@@ -332,6 +333,9 @@ export function buildWorker({
         projectId: true,
         finishedAt: true,
         failedAt: true,
+        // Read here and not carried on the job, so the value is the one that
+        // holds when the run happens rather than when it was asked for.
+        project: { select: { processingLocation: true } },
         ingestedDocumentFile: {
           select: {
             filename: true,
@@ -363,6 +367,18 @@ export function buildWorker({
     });
 
     try {
+      // The half of the gate that is a bound (issue #21, ADR-0044). The create
+      // routes refuse the ask, but a job enqueued while the project was on
+      // cloud is already in Redis when the engineer switches it to local, and
+      // that is precisely the moment consent has been withdrawn. Checked
+      // before the bytes are even fetched, so nothing about the document is
+      // read; the failure lands on the row through the catch below, saying
+      // what a refusing OCR default would say — honestly, and in the same
+      // sentence the route used.
+      if (extraction.project.processingLocation === 'LOCAL') {
+        throw new Error(PROCESSING_LOCATION_IS_LOCAL);
+      }
+
       const sourceFile =
         extraction.ingestedDocumentFile ?? extraction.documentVersion;
       if (sourceFile === null) {

@@ -203,6 +203,10 @@ export interface ProjectResponse {
   archivedAt: string | null;
   /** Composed from the token and the domain; null when none is configured. */
   ingestAddress: string | null;
+  /** Where this job's documents are read (issue #21). Cloud by default. */
+  processingLocation: 'LOCAL' | 'CLOUD';
+  cloudSignoffReference: string | null;
+  cloudSignoffAt: string | null;
 }
 
 /** Fixtures are built through the API, never by writing to the database. */
@@ -1591,6 +1595,26 @@ export function fakeOcrProvider(
 /** An OCR provider that fails, which is the same stored fact as one that errors. */
 export function refusingOcrProvider(reason: string): OcrProvider {
   return { read: () => Promise.reject(new Error(reason)) };
+}
+
+/**
+ * An OCR provider that answers as `fakeOcrProvider` does and counts the asks
+ * (issue #21).
+ *
+ * "Never sends document content to a cloud vendor" is a statement about a call
+ * that did not happen, and no row records one of those. This is the only way
+ * to assert it from the outside: the port is the boundary the document's bytes
+ * would cross, so counting crossings is counting exactly the thing.
+ */
+export function recordingOcrProvider(): OcrProvider & { calls: number } {
+  const provider = {
+    calls: 0,
+    read: (_bytes: Buffer, _contentType: string, _filename: string) => {
+      provider.calls += 1;
+      return Promise.resolve('[recording OCR page]');
+    },
+  };
+  return provider;
 }
 
 /**

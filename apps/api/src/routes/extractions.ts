@@ -13,7 +13,12 @@
 import type { FastifyInstance } from 'fastify';
 import { Prisma } from '../../generated/prisma/client.js';
 import { NOT_BLANK, violates, type RouteDependencies } from '../http.js';
-import { noSuchExtraction, noSuchProject, refuse } from '../refusals.js';
+import {
+  PROCESSING_LOCATION_IS_LOCAL,
+  noSuchExtraction,
+  noSuchProject,
+  refuse,
+} from '../refusals.js';
 import { progressStreams } from '../stream.js';
 import { EXTRACT, type ExtractJob } from '../worker.js';
 import { DOCUMENT_CONTENT_TYPES } from './documents.js';
@@ -256,11 +261,22 @@ export function extractionRoutes(
         where: { id: request.params.id },
         select: {
           id: true,
-          ingestedDocument: { select: { projectId: true } },
+          ingestedDocument: {
+            select: {
+              projectId: true,
+              project: { select: { processingLocation: true } },
+            },
+          },
         },
       });
       if (file === null) {
         return refuse(reply, NO_SUCH_FILE);
+      }
+      // The cheap half of the gate: it gives the engineer an answer and stops
+      // a job existing. The worker checks again, and that one is the bound
+      // (issue #21, ADR-0044 — ADR-0042's twice-and-both-matter shape).
+      if (file.ingestedDocument.project.processingLocation === 'LOCAL') {
+        return reply.code(409).send({ message: PROCESSING_LOCATION_IS_LOCAL });
       }
 
       const inFlight = await prisma.registerEntryExtraction.findFirst({
@@ -303,10 +319,20 @@ export function extractionRoutes(
     async (request, reply) => {
       const document = await prisma.document.findUnique({
         where: { id: request.params.id },
-        select: { id: true, projectId: true, referencedFile: true },
+        select: {
+          id: true,
+          projectId: true,
+          referencedFile: true,
+          project: { select: { processingLocation: true } },
+        },
       });
       if (document === null) {
         return reply.code(404).send({ message: 'no document with that id' });
+      }
+      // As above, and for the same reason: the ask is refused here and the
+      // run is refused again in the worker.
+      if (document.project.processingLocation === 'LOCAL') {
+        return reply.code(409).send({ message: PROCESSING_LOCATION_IS_LOCAL });
       }
       if (document.referencedFile) {
         return reply

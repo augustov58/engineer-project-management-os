@@ -103,11 +103,14 @@ describe('the forward-to-ingest address', () => {
 
     expect(Object.keys(body).sort()).toEqual([
       'archivedAt',
+      'cloudSignoffAt',
+      'cloudSignoffReference',
       'createdAt',
       'currentPhaseId',
       'id',
       'ingestAddress',
       'name',
+      'processingLocation',
       'projectNumber',
     ]);
     expect(body['ingestToken']).toBeUndefined();

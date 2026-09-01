@@ -16,6 +16,17 @@ export interface Project {
    * honest answer rather than a plausible address that receives nothing.
    */
   ingestAddress: string | null;
+  /**
+   * Where this job's client-originated documents are read (issue #21).
+   *
+   * `CLOUD` on a project nobody has switched: ADR-0013 rejected local-first on
+   * operational grounds and ADR-0044 settles the vault's contradiction that
+   * way, so the default carries no sign-off and the route is the only gate.
+   */
+  processingLocation: 'LOCAL' | 'CLOUD';
+  /** What the firm signed, and when they signed it. Both null or both set. */
+  cloudSignoffReference: string | null;
+  cloudSignoffAt: string | null;
 }
 
 /** Every call goes through the versioned prefix the API serves. */

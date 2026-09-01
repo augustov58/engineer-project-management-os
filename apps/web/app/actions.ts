@@ -1800,3 +1800,54 @@ export async function rejectExtraction(
   // the source stands exactly as it arrived.
   redirect(`/projects/${projectId}`);
 }
+
+// ── Processing location (issue #21, stories 91 and 92) ────────────────────
+
+/**
+ * Where this job's documents are read, and what the firm signed to allow it.
+ *
+ * One action for both directions, as the API is one route: the form sends the
+ * target location, and the sign-off fields ride with it only when it is
+ * `CLOUD`. Sent absent rather than empty when the engineer is switching to
+ * local, because the API refuses a sign-off offered to that switch rather
+ * than ignoring it, and a blank string is not the same as not saying.
+ */
+export async function setProcessingLocation(
+  projectId: string,
+  _previous: string | undefined,
+  formData: FormData,
+): Promise<string | undefined> {
+  const location = formData.get('location');
+  const reference = formData.get('signoffReference');
+  const date = formData.get('signoffAt');
+
+  const response = await fetch(
+    apiPath(`/projects/${projectId}/processing-location`),
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        location,
+        ...(location === 'CLOUD'
+          ? {
+              signoffReference: reference,
+              // A date input gives a day; the record keeps an instant, the
+              // frame every typed date in this product is composed in.
+              signoffAt: date === null ? null : `${date as string}T00:00:00.000Z`,
+            }
+          : {}),
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      message?: string;
+    };
+    return body.message ?? `the API returned ${response.status}`;
+  }
+
+  revalidatePath('/');
+  revalidatePath(`/projects/${projectId}`);
+  return undefined;
+}

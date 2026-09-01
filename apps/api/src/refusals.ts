@@ -132,6 +132,20 @@ export function noSuchExtraction(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no extraction with that id' });
 }
 
+/**
+ * Why an extraction will not run on a project set to local (issue #21, story
+ * 91), said once so the two places that say it cannot drift apart —
+ * `routes/extractions.ts` refuses the ask with it, and `worker.ts` writes it
+ * to `failure` on a job that was already queued when the setting changed.
+ *
+ * The worker is not a route module, which is the only reason worth noting
+ * about it reaching in here: ADR-0033's rule is that leaves import nothing
+ * from a route module, and `NO_SUCH_OBSERVATION` above is the precedent for a
+ * sentence hoisted to a constant because two writers must say it identically.
+ */
+export const PROCESSING_LOCATION_IS_LOCAL =
+  "this project's processing location is local; document content is not sent to a cloud vendor";
+
 export async function phaseRefusal(
   prisma: PrismaClient,
   phaseId: string,

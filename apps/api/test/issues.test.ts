@@ -659,6 +659,11 @@ test('the identifier sequence is bookkeeping and never reaches the wire', async 
   // count — the shape exposure has.
   const keys = [
     'archivedAt',
+    // What the firm signed and when, which the screen shows beside the
+    // setting (issue #21). Null on a project nobody has switched — the
+    // default is cloud and reaching it takes no sign-off (ADR-0044).
+    'cloudSignoffAt',
+    'cloudSignoffReference',
     'createdAt',
     'currentPhaseId',
     'id',
@@ -666,6 +671,7 @@ test('the identifier sequence is bookkeeping and never reaches the wire', async 
     // the same reason `issuesAllocated` is stripped (issue #19, ADR-0042).
     'ingestAddress',
     'name',
+    'processingLocation',
     'projectNumber',
   ];
   expect(Object.keys(project).sort()).toEqual(keys);

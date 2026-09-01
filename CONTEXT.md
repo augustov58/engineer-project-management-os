@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Forty-three ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, and 0043 while building slice 19). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Forty-four ADRs (0020 is Proposed; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -100,11 +100,12 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | 0q | Project memory: versions, proposals, agent runs and the audit (issue #18) | **Done** 2026-09-01 |
 | 0r | The ingest address and untrusted inbound mail (issue #19) | **Done** 2026-09-01 |
 | 0s | Extraction to a draft, human-confirmed (issue #20) | **Done** 2026-09-01 |
+| 0s | Processing location per project (issue #21) | **Done** 2026-09-01 |
 | 1 | T-1 open items entered | Unblocked — no code needed |
 | 2 | Open items + submissions (provisional, supersede) | **Done** — issues #4, #5, #6, #7 |
 | 3 | Site visit capture (voice, photos, stable issue IDs, the report) | **Done** — issues #9, #10, #11, #12 and #13 |
 | 4 | Registers: submittals, RFIs, clock, dispositions | **Done** — issues #14 and #15 |
-| 5 | Ingest: forward-to-email, extraction, human-confirmed | Referenced files (issue #17, outside the gate), the ingest address (issue #19) and extraction (issue #20) done inside the gate without lifting it; what remains is #21 (processing location), blocked on the OCR vendor pick, and #22 (the edge gate) |
+| 5 | Ingest: forward-to-email, extraction, human-confirmed | Referenced files (issue #17, outside the gate), the ingest address (issue #19), extraction (issue #20) and the processing location (issue #21) all done inside the gate without lifting it; what remains is #22 (the edge gate) and the OCR adapter's vendor pick |
 | 6 | Curated project memory | **Done** — issue #18 |
 
 ## Open decisions (deferred to implementation)
