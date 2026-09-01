@@ -58,8 +58,10 @@ is the OCR adapter and its vendor pick, which is where employer consent now atta
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
-`pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root.
-See [README.md](./README.md).
+`pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root
+and each pass (issue #49 fixed the typecheck, red since the Tailwind slice `fee343e` and
+recorded at slice 12). The frontend build is **not** part of either — see the frontend rule
+below for what it catches and how to run it. See [README.md](./README.md).
 
 ## Ground rules for agents
 
@@ -110,7 +112,7 @@ See [README.md](./README.md).
   ancestors (ADR-0028) — carry-forward puts the same unresolved item on both, so counting
   the ancestor too would make the number grow by correcting the record.
 - The frontend is Tailwind + shadcn/ui, components owned in `apps/web/components/ui` (ADR-0025). Where a styled component would change how a control serialises into a form, keep the native element and style it. The nobody checkbox, the pending sort select, the submission phase select, the attach-an-open-item select (on a submission and on an issue), the observation's Side/Sector axis select, the finding's category select and the select that makes a sighting another sighting of a finding already on the register are all native for that reason; `apps/web/app/native-select.ts` holds the shared styling.
-- `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend. Run `pnpm --filter web build` and load the pages before calling a frontend change done. Browse `http://localhost:3000`, not `127.0.0.1`: Next's dev-origin guard 403s the client chunks on the other host, so the page renders and silently never hydrates.
+- `pnpm typecheck` does not compile the stylesheet and `pnpm test` does not run the frontend — `apps/web` has no test script at all, which is issue #50. Run `pnpm --filter web build` and load the pages before calling a frontend change done. That build needs a **generated** `EDGE_SECRET` — run it as `EDGE_SECRET=$(head -c 32 /dev/urandom | base64) pnpm --filter web build`, or it stops at config load under a `Failed to load next.config.ts` headline that reads like a syntax error and is not one (README has the why). That build rewrites the tracked `apps/web/next-env.d.ts` to its production paths and `next dev` rewrites it back — leave it out of the commit either way. Browse `http://localhost:3000`, not `127.0.0.1`: Next's dev-origin guard 403s the client chunks on the other host, so the page renders and silently never hydrates.
 - A state update made from a ref callback during the **hydration** commit is discarded — the ref runs, the value is right, and the render keeps the old one. Anything a first paint must show has to be in the server's render: seed the state from props and let the ref only correct it afterwards (ADR-0028).
 - An **assumption record** captures the `ASSUMPTIONS` and `FLAGS / VERIFY` blocks *verbatim*
   as two text columns — nothing trims, normalises or re-wraps them, and no route edits or
