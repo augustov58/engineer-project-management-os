@@ -43,6 +43,10 @@ test('no users, roles, permissions or tenants table is introduced', async () => 
   expect(tables).toContain('document_versions');
   expect(tables).toContain('submission_document_versions');
   expect(tables).toContain('register_entry_document_versions');
+  expect(tables).toContain('project_memory_versions');
+  expect(tables).toContain('memory_proposals');
+  expect(tables).toContain('agent_runs');
+  expect(tables).toContain('audit_entries');
   expect(tables).not.toContain('users');
   expect(tables).not.toContain('roles');
   expect(tables).not.toContain('permissions');

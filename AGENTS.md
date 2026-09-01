@@ -30,16 +30,19 @@ issue #8), slice 8 (site visits and observations, issue #9), slice 9 (issues wit
 stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11), slice 11
 (voice capture, issue #12), slice 12 (the site visit report, issue #13), slice 13
 (registers, entries and the ball-in-court history, issue #14), slice 14
-(the clock and dispositions, issue #15), slice 15 (the morning screen, issue #16) and
-slice 16 (referenced files, issue #17) are built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
-as its own change and behind an identical route table (ADR-0033). The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+(the clock and dispositions, issue #15), slice 15 (the morning screen, issue #16),
+slice 16 (referenced files, issue #17) and slice 17 (project memory, issue #18) are
+built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
+as its own change and behind an identical route table (ADR-0033); slice 17 adds a
+fourteenth. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
-issues #9, #10, #11, #12 and #13 — and **step 4, registers, is complete** — issues #14 and
-#15. Issue #16, the morning screen, sits outside the six steps and is the daily layer steps
+issues #9, #10, #11, #12 and #13 — **step 4, registers, is complete** — issues #14 and
+#15 — and **step 6, curated project memory, is complete** — issue #18. Issue #16, the
+morning screen, sits outside the six steps and is the daily layer steps
 2 and 4 fed; it is done. Issue #17, referenced files, is **outside** step 5's consent gate —
 nothing in it reads a document's contents — and is done; ADR-0039 and the vault's ADR README
 record that narrowing. The rest of step 5 (the ingest address, extraction, the confirmation
-screen) stays gated, so issue #18 is the reachable work.
+screen) stays gated, so issues #19-#22 sit behind that gate or the remaining open picks.
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
@@ -516,6 +519,12 @@ See [README.md](./README.md).
   **Register** was flagged as drift on 2026-08-24 and is still unresolved. Slice 13 dodged it
   and slice 16 dodges it too.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
+- A project's **memory** is `project_memory_versions` with **no identity table** — the project is the identity, since there is exactly one memory per job (ADR-0040). Nothing edits or deletes a version; the current memory is the latest, derived on every read. The size budget (4,000 characters) rides on every read and is **surfaced, never enforced**.
+- A **proposal** is the approval request — the sketch's `approval_requests` table is refused. Its `base_content` is **snapshotted when the proposal is written**, so the diff under review cannot drift as memory moves; and the proposal is never edited — accept-with-edit writes the *version* from the engineer's text and keeps the agent's words on the proposal. The agent's one mutating tool writes proposals only; there is no accept tool, which is what "the agent never writes memory directly" is made of.
+- An **agent run** is a row with the four stamps and no `kind` column, produces at most one proposal (`run_id` unique), and has **no retry route** — asking again is another row (ADR-0035's reason). The worker dispatches a third job name, `propose-memory-edit`, on the same queue.
+- `AgentRunService` is the port ADR-0002 requires and **no Pi type appears outside `agent.ts`** — the SDK is imported lazily so a test process never loads it. The default refuses with "no model provider is configured"; `AGENT=pi` builds the real adapter. The domain tools call the internal API over HTTP and never the database, are registered with **underscored names** (provider APIs reject the PRD's dotted spelling), and the session's tool list is an **allowlist** — bash, edit and write are absent, not denied, and the remaining file tools are scoped by `cwd` to a per-project workspace.
+- Every memory mutation writes an `audit_entries` row **in the same transaction**, and nothing updates or deletes one — append-only by construction. The audit is scoped to memory; widening it to every record's mutations is its own change.
+- The memory screen's stream carries both lists (`{runs, proposals}`) and `useLiveList` is generic over the payload since this slice; the `sseFrames` test helper moved into the harness when `memory.test.ts` became the second reader of a stream.
 
 ## Agent skills
 

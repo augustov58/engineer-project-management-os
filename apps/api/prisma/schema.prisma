@@ -59,6 +59,14 @@ model Project {
   /// similarity to a query (ADR-0019).
   documents Document[]
 
+  /// The curated prose and its history (issue #18): every state the memory
+  /// has been in, every edit the agent has proposed, every run, and the
+  /// audit of all of it.
+  memoryVersions  ProjectMemoryVersion[]
+  memoryProposals MemoryProposal[]
+  agentRuns       AgentRun[]
+  auditEntries    AuditEntry[]
+
   @@map("projects")
 }
 
@@ -1343,4 +1351,193 @@ model RegisterEntryDocumentVersion {
   @@id([registerEntryId, documentVersionId])
   @@index([documentVersionId])
   @@map("register_entry_document_versions")
+}
+
+/// One state of a project's **memory** — the curated prose holding reasoning
+/// and decisions — with the whole history kept (issue #18, stories 98-103).
+///
+/// There is no `project_memories` identity row beside this, though
+/// `documents`/`document_versions` has one. That split exists because a job
+/// has many documents and the versions of one must be grouped under what they
+/// are versions *of*; a project has exactly one memory, so the project is the
+/// identity and a second table would be a row holding nothing but a foreign
+/// key.
+///
+/// **Nothing edits a version and nothing deletes one.** An accepted proposal
+/// or a direct write is a new row; the current memory is the latest, derived
+/// on every read and stored nowhere — the shape ADR-0027 gave *currently
+/// provisional*. That derivation is also why the columns are just the content
+/// and the moment: everything else about a version is who proposed it, which
+/// is the proposal's own record.
+model ProjectMemoryVersion {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// The whole document, verbatim. Never trimmed, normalised or re-wrapped —
+  /// ADR-0029's posture toward a captured block, applied to the engineer's
+  /// own prose: a memory that came back re-wrapped would no longer be what
+  /// anybody wrote.
+  content String
+
+  /// The proposal this version committed, if it came from one. Unique, which
+  /// is the whole of "one proposal becomes at most one version": the accept
+  /// route also refuses a resolved proposal, but a redelivered job and a
+  /// double tap are both answered by the database rather than by a guard.
+  ///
+  /// `Restrict` named explicitly, because Prisma defaults an optional
+  /// relation to `SetNull` while every foreign key in this schema is RESTRICT
+  /// on delete — and left implicit, the next `migrate dev` would offer to
+  /// rewrite it (the note on `voice_captures.observation_id`).
+  proposalId String?         @unique @map("proposal_id")
+  proposal   MemoryProposal? @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+
+  /// When this state of the memory was written. From the injected TimeSource
+  /// and never a database default (ADR-0022). Also the ordering: two versions
+  /// written in the same instant list by insertion, and the current one is
+  /// the last.
+  createdAt DateTime @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@map("project_memory_versions")
+}
+
+/// An edit the agent proposed to a project's memory, awaiting the engineer
+/// (issue #18, stories 99-100).
+///
+/// **The agent proposes; the human confirms.** The agent never writes memory
+/// directly: its one mutating tool reaches only this table, and a proposal
+/// becomes memory only through the accept route, which the agent has no tool
+/// for. Every word in memory is there because the engineer put it there.
+///
+/// The state is two stamps and no status column — pending is both null,
+/// resolved is one set — the shape ADR-0024 gave resolution, arrived at for
+/// the fifth record. A proposal is never edited: the engineer's correction
+/// lands as the *version's* content on accept, and this row keeps saying what
+/// the agent actually proposed, which is what makes "the engineer changed it
+/// before taking it" checkable afterwards.
+model MemoryProposal {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// The run that produced it. Unique, which is the whole of "one run, at
+  /// most one proposal" — an agent that called its tool twice in one run
+  /// would otherwise write two drafts for one ask, and the second call is
+  /// refused by the database rather than by a guard.
+  runId String   @unique @map("run_id")
+  run   AgentRun @relation(fields: [runId], references: [id])
+
+  /// What the memory said when the proposal was written, or null when there
+  /// was none — the base the proposal is a diff **against**. Stamped at the
+  /// write rather than derived on read, because the memory may move while the
+  /// proposal awaits its answer: a diff computed against today's content
+  /// would silently change what was proposed the moment anything else
+  /// committed. `submission_open_items.unresolved_at_issuance` is the same
+  /// snapshot, for the same reason (ADR-0027).
+  baseContent String? @map("base_content")
+
+  /// The whole proposed document, verbatim, and never a diff column. The
+  /// diff is derived on every read from this and `baseContent`, so the two
+  /// cannot disagree — and storing the diff would leave nowhere to keep the
+  /// full text an edit-before-accept starts from.
+  proposed String
+
+  /// Entry order, so two proposals from the same minute list in the order
+  /// they arrived.
+  createdAt DateTime @map("created_at")
+
+  /// The resolution: both null while pending, exactly one set once the
+  /// engineer has answered. Neither is ever cleared — a resolved proposal is
+  /// part of the record, the way a report's failure is (ADR-0035).
+  acceptedAt DateTime? @map("accepted_at")
+  rejectedAt DateTime? @map("rejected_at")
+
+  /// The version this proposal became, if it was accepted. The arrow points
+  /// from the version, which writes nothing here — promotion's shape, for the
+  /// fourth record (ADR-0031, ADR-0034).
+  version ProjectMemoryVersion?
+
+  @@index([projectId, createdAt])
+  @@map("memory_proposals")
+}
+
+/// One execution of the agent against one project (issue #18, ADR-0002).
+///
+/// The glossary's **Agent run** is "a single execution within a session",
+/// and this is that record — sanitised run metadata, kept, while the session
+/// itself is in-memory and gone when the run ends. There is no `kind` column:
+/// every run so far proposes a memory edit, and a column holding one value
+/// forever is a place for it to one day hold another (ADR-0035). A second
+/// kind of run is a migration, arriving with the work that needs it.
+///
+/// The state is the four stamps, derived on read, with no status column
+/// beside them — queued is all four null, as it is for a report (ADR-0035).
+/// A run is never retried in place: its every input is still in the database,
+/// so asking again is another row, which is why there is no retry route and
+/// nothing here is ever cleared.
+model AgentRun {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// Stamped when the worker picks the job up. The proposal, if one comes,
+  /// arrives *during* the run through the agent's tool.
+  runningSince DateTime? @map("running_since")
+  finishedAt   DateTime? @map("finished_at")
+
+  /// Why the run could not finish, in the service's own words, bounded.
+  failedAt DateTime? @map("failed_at")
+  failure  String?
+
+  /// When it was asked for. Entry order.
+  createdAt DateTime @map("created_at")
+
+  /// The proposal this run produced, if it produced one. Unique from the
+  /// proposal's side — one run, at most one proposal.
+  proposal MemoryProposal?
+
+  @@index([projectId, createdAt])
+  @@map("agent_runs")
+}
+
+/// One line of the append-only audit record (issue #18, story 106,
+/// [[glossary]]: **Audit log**).
+///
+/// Every mutation of a project's memory writes one: a version written
+/// directly, a proposal arriving, an accept, an accept-with-edit, a reject.
+/// Nothing updates a row and nothing deletes one — there is no route that
+/// touches this table but the writers, which is what "append-only" means
+/// here by construction rather than by a guard.
+///
+/// This is the audit log the glossary defines and not the activity feed,
+/// which is a separate stream the MVP does not build. The scope is memory,
+/// because that is what this ticket's mutations are; widening it to every
+/// record's mutations is its own change, not something to do row by row.
+model AuditEntry {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// What happened — "memory written", "proposal accepted". Text rather than
+  /// an enum: it is a sentence for a reader, and the set is closed by what
+  /// the writers write rather than by the database.
+  action String
+
+  /// The particulars — how many characters were written, what a proposal was
+  /// resolved to. Free text; the structured fact it describes is on the row
+  /// it is about, and a reader comes here for the narrative.
+  detail String
+
+  /// When it happened, from the injected TimeSource and never a database
+  /// default (ADR-0022). Also the order: an audit is read in the order it was
+  /// written.
+  createdAt DateTime @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@map("audit_entries")
 }

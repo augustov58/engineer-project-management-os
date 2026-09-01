@@ -744,3 +744,99 @@ export function listRegisterEntryDocuments(
 ): Promise<LinkedDocumentVersion[]> {
   return read<LinkedDocumentVersion[]>(`/register-entries/${entryId}/documents`);
 }
+
+// ── Project memory (issue #18) ───────────────────────────────────────────
+
+/** A project's memory: the latest version's content, and its size budget. */
+export interface ProjectMemory {
+  projectId: string;
+  /** Null until the first version is written. */
+  content: string | null;
+  versions: number;
+  size: number;
+  budget: number;
+  versionedAt: string | null;
+}
+
+/** One state of a project's memory, oldest first as the history lists it. */
+export interface MemoryVersion {
+  id: string;
+  projectId: string;
+  content: string;
+  proposalId: string | null;
+  createdAt: string;
+}
+
+/** A run of the agent, with its state derived from the four stamps. */
+export interface MemoryRun {
+  id: string;
+  projectId: string;
+  runningSince: string | null;
+  finishedAt: string | null;
+  failedAt: string | null;
+  failure: string | null;
+  createdAt: string;
+  state: 'queued' | 'running' | 'finished' | 'failed';
+}
+
+/** A proposed memory edit. Pending is both stamps null. */
+export interface MemoryProposal {
+  id: string;
+  projectId: string;
+  runId: string;
+  /** What the memory said when the proposal was written — the diff's base. */
+  baseContent: string | null;
+  proposed: string;
+  createdAt: string;
+  acceptedAt: string | null;
+  rejectedAt: string | null;
+  state: 'pending' | 'accepted' | 'rejected';
+}
+
+/** One line of the append-only audit record, oldest first. */
+export interface AuditEntry {
+  id: string;
+  projectId: string;
+  action: string;
+  detail: string;
+  createdAt: string;
+}
+
+/** The runs and proposals together, which is what the stream pushes. */
+export interface MemoryActivity {
+  runs: MemoryRun[];
+  proposals: MemoryProposal[];
+}
+
+/**
+ * The memory of one job, reached through the job and nothing else
+ * (story 102, ADR-0019). The size and budget ride on every read so the
+ * interface can push back as the document fills (story 101).
+ */
+export function getMemory(projectId: string): Promise<ProjectMemory> {
+  return read<ProjectMemory>(`/projects/${projectId}/memory`);
+}
+
+/** What the memory has ever said, oldest first. */
+export function listMemoryVersions(
+  projectId: string,
+): Promise<MemoryVersion[]> {
+  return read<MemoryVersion[]>(`/projects/${projectId}/memory/versions`);
+}
+
+/** This job's runs, oldest first. */
+export function listMemoryRuns(projectId: string): Promise<MemoryRun[]> {
+  return read<MemoryRun[]>(`/projects/${projectId}/memory/runs`);
+}
+
+/** This job's proposals, pending and resolved alike. */
+export function listMemoryProposals(
+  projectId: string,
+): Promise<MemoryProposal[]> {
+  return read<MemoryProposal[]>(`/projects/${projectId}/memory/proposals`);
+}
+
+/** The audit of every memory mutation, in the order it happened. */
+export function listMemoryAudit(projectId: string): Promise<AuditEntry[]> {
+  return read<AuditEntry[]>(`/projects/${projectId}/memory/audit`);
+}

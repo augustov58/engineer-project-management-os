@@ -1,16 +1,18 @@
 /**
- * The worker: the two things in this product that run off the request —
- * transcription (issue #12) and rendering a site visit report (issue #13).
+ * The worker: the three things in this product that run off the request —
+ * transcription (issue #12), rendering a site visit report (issue #13), and
+ * an agent run proposing a memory edit (issue #18).
  *
  * BullMQ has been wired and idle since slice 1, and ADR-0032 deliberately kept
  * photo binning out of it — "date comparison and one regular expression". That
- * reasoning does not reach either of these. Asking a vendor what was said in
+ * reasoning does not reach any of these. Asking a vendor what was said in
  * two minutes of audio is a network call of unbounded duration; printing a
  * walk's write-up starts a browser, decodes every photograph on it and lays
- * out a paginated document. Both tickets' progress criteria presuppose that
+ * out a paginated document; and an agent run is a paid model call of
+ * unbounded duration. All three tickets' progress criteria presuppose that
  * the request has long since returned.
  *
- * One queue and two job names, dispatched below. A second queue would be a
+ * One queue and three job names, dispatched below. A second queue would be a
  * second thing to name, connect and close, for work the single concurrency
  * already serialises.
  *
@@ -26,6 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import type { AgentRunService } from './agent.js';
 import type { ObjectStore } from './object-store.js';
 import { renderPdf } from './pdf.js';
 import { composeReport } from './report.js';
@@ -37,6 +40,9 @@ export const TRANSCRIBE = 'transcribe';
 
 /** Rendering a walk into the document it is written up as (issue #13). */
 export const RENDER_REPORT = 'render-report';
+
+/** Asking the agent to propose an edit to a project's memory (issue #18). */
+export const PROPOSE_MEMORY_EDIT = 'propose-memory-edit';
 
 /**
  * The id and nothing else. Everything the job needs is on the row, so a job
@@ -51,10 +57,16 @@ export interface RenderReportJob {
   siteVisitReportId: string;
 }
 
+/** The id and nothing else, for the reason above. */
+export interface ProposeMemoryEditJob {
+  agentRunId: string;
+}
+
 export interface WorkerDependencies {
   prisma: PrismaClient;
   objectStore: ObjectStore;
   transcriber: Transcriber;
+  agentRunService: AgentRunService;
   timeSource: TimeSource;
   /** A Worker issues blocking commands and cannot share the queue's. */
   connection: Redis;
@@ -80,10 +92,11 @@ export function buildWorker({
   prisma,
   objectStore,
   transcriber,
+  agentRunService,
   timeSource,
   connection,
   queueName,
-}: WorkerDependencies): Worker<TranscribeJob | RenderReportJob> {
+}: WorkerDependencies): Worker<TranscribeJob | RenderReportJob | ProposeMemoryEditJob> {
   /** Asking the vendor what was said (issue #12). */
   const transcribe = async (voiceCaptureId: string) => {
     const capture = await prisma.voiceCapture.findUnique({
@@ -218,7 +231,68 @@ export function buildWorker({
     }
   };
 
-  return new Worker<TranscribeJob | RenderReportJob>(
+  /**
+   * Asking the agent to propose a memory edit (issue #18).
+   *
+   * The same shape as the two above, and the report's answer to what a second
+   * attempt is: a run's every input is still in the database, so asking again
+   * is another row and this one keeps saying what happened to it — which is
+   * why there is no retry route. The proposal, if one comes, arrives during
+   * the run through the agent's own tool calling the internal API; what is
+   * stamped here is only that the run started and how it ended.
+   */
+  const proposeMemoryEdit = async (agentRunId: string) => {
+    const run = await prisma.agentRun.findUnique({
+      where: { id: agentRunId },
+      select: {
+        id: true,
+        projectId: true,
+        finishedAt: true,
+        failedAt: true,
+      },
+    });
+    if (run === null) {
+      return;
+    }
+    if (run.finishedAt !== null || run.failedAt !== null) {
+      // Already settled. BullMQ can redeliver a stalled job, and a second
+      // attempt would ask a paid model again to produce a proposal the unique
+      // `run_id` would refuse — so there is nothing here left to do.
+      return;
+    }
+
+    await prisma.agentRun.update({
+      where: { id: run.id },
+      data: { runningSince: timeSource.now() },
+    });
+
+    try {
+      await agentRunService.proposeMemoryEdit({
+        runId: run.id,
+        projectId: run.projectId,
+      });
+      // Compare-and-set, so a redelivered job that got past the read above
+      // writes nothing.
+      await prisma.agentRun.updateMany({
+        where: { id: run.id, finishedAt: null, failedAt: null },
+        data: { finishedAt: timeSource.now() },
+      });
+    } catch (error) {
+      // Recorded and not rethrown, as a transcription failure is: a model
+      // that refused this run will refuse it again, and an attempt the
+      // engineer did not ask for would move `running_since` under the screen
+      // they are reading. Asking again is another run row.
+      await prisma.agentRun.updateMany({
+        where: { id: run.id, finishedAt: null, failedAt: null },
+        data: {
+          failedAt: timeSource.now(),
+          failure: reasonFor(error, 'the agent run service gave no reason'),
+        },
+      });
+    }
+  };
+
+  return new Worker<TranscribeJob | RenderReportJob | ProposeMemoryEditJob>(
     queueName,
     async (job) => {
       // Dispatched on the job's name, on the one queue. A second queue would
@@ -228,6 +302,11 @@ export function buildWorker({
         // Narrowed by the name, which is what BullMQ types cannot do across a
         // union of payloads.
         return renderReport((job.data as RenderReportJob).siteVisitReportId);
+      }
+      if (job.name === PROPOSE_MEMORY_EDIT) {
+        return proposeMemoryEdit(
+          (job.data as ProposeMemoryEditJob).agentRunId,
+        );
       }
       return transcribe((job.data as TranscribeJob).voiceCaptureId);
     },

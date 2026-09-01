@@ -1569,3 +1569,85 @@ export async function linkDocumentToRegisterEntry(
   );
   revalidateRegisterEntry(entryId, registerId, projectId);
 }
+
+// ── Project memory (issue #18) ───────────────────────────────────────────
+
+/** Every screen a memory change shows on: the project's own. */
+function revalidateMemory(projectId: string): void {
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/**
+ * The engineer writes memory directly — a new version, never an edit of one
+ * that stands.
+ */
+export async function writeMemory(
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/projects/${projectId}/memory`, {
+      content: formData.get('content'),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+  revalidateMemory(projectId);
+  return { added: previous.added + 1 };
+}
+
+/** Asking the agent to propose an edit (story 99). The run is queued. */
+export async function requestMemoryRun(projectId: string): Promise<void> {
+  await sendOrThrow(`/projects/${projectId}/memory/runs`);
+  revalidateMemory(projectId);
+}
+
+/** Accepting as proposed (story 100). */
+export async function acceptMemoryProposal(
+  projectId: string,
+  proposalId: string,
+): Promise<void> {
+  await sendOrThrow(
+    `/memory-proposals/${proposalId}/accept`,
+    {},
+    // Already resolved is the second half of a double click.
+    { tolerated: 'that proposal is already resolved' },
+  );
+  revalidateMemory(projectId);
+}
+
+/** Accepting with the engineer's own text, edited from the proposal. */
+export async function acceptMemoryProposalEdited(
+  projectId: string,
+  proposalId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const error = await refusal(
+    await send(`/memory-proposals/${proposalId}/accept`, {
+      content: formData.get('content'),
+    }),
+    200,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+  revalidateMemory(projectId);
+  return { added: previous.added + 1 };
+}
+
+/** Rejecting: the proposal stands in the record, and memory does not move. */
+export async function rejectMemoryProposal(
+  projectId: string,
+  proposalId: string,
+): Promise<void> {
+  await sendOrThrow(
+    `/memory-proposals/${proposalId}/reject`,
+    undefined,
+    { tolerated: 'that proposal is already resolved' },
+  );
+  revalidateMemory(projectId);
+}

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from 'pg';
 import { inject } from 'vitest';
+import type { AgentRunService } from '../src/agent.js';
 import { createRuntime } from '../src/runtime.js';
 import { buildServer } from '../src/server.js';
 import { systemTimeSource, type TimeSource } from '../src/time-source.js';
@@ -47,6 +48,14 @@ export async function startTestApi(
   options: {
     timeSource?: TimeSource;
     transcriber?: Transcriber;
+    /**
+     * The agent, for the memory runs (issue #18). Substituted the way the
+     * transcription vendor is: it is the one other place the system leaves
+     * the process for a paid call no test may depend on. The default is
+     * `fakeAgentRunService`, which proposes one fixed line through the real
+     * internal route the genuine adapter's tool calls.
+     */
+    agentRunService?: AgentRunService;
     /**
      * Whether to run the worker at all. Default true.
      *
@@ -97,6 +106,7 @@ export async function startTestApi(
           prisma: runtime.prisma,
           objectStore: runtime.objectStore,
           transcriber: options.transcriber ?? fakeTranscriber(),
+          agentRunService: options.agentRunService ?? fakeAgentRunService(app),
           // The same default `buildServer` applies, spelled here because the
           // worker has no boundary of its own to default at.
           timeSource: options.timeSource ?? systemTimeSource,
@@ -1247,4 +1257,186 @@ export async function addDocumentVersion(
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
   }
   return (await response.json()) as DocumentResponse;
+}
+
+// ── Project memory (issue #18) ───────────────────────────────────────────
+
+/** A project's memory as the API returns it: the latest version, derived. */
+export interface MemoryResponse {
+  projectId: string;
+  /** Null until the first version is written. */
+  content: string | null;
+  /** How many versions stand behind the current one, it included. */
+  versions: number;
+  /** The current content's length, against the budget beside it. */
+  size: number;
+  budget: number;
+  /** When the current version was written, or null while there is none. */
+  versionedAt: string | null;
+}
+
+/** One state of a project's memory, as the history returns it. */
+export interface MemoryVersionResponse {
+  id: string;
+  projectId: string;
+  content: string;
+  proposalId: string | null;
+  createdAt: string;
+}
+
+/** A run of the agent, with its state derived from the four stamps. */
+export interface AgentRunResponse {
+  id: string;
+  projectId: string;
+  runningSince: string | null;
+  finishedAt: string | null;
+  failedAt: string | null;
+  failure: string | null;
+  createdAt: string;
+  state: 'queued' | 'running' | 'finished' | 'failed';
+}
+
+/** A proposed memory edit, with its resolution derived from the stamps. */
+export interface MemoryProposalResponse {
+  id: string;
+  projectId: string;
+  runId: string;
+  /** What the memory said when the run began; null when there was none. */
+  baseContent: string | null;
+  proposed: string;
+  createdAt: string;
+  acceptedAt: string | null;
+  rejectedAt: string | null;
+  state: 'pending' | 'accepted' | 'rejected';
+}
+
+/** One line of the append-only audit record. */
+export interface AuditEntryResponse {
+  id: string;
+  projectId: string;
+  action: string;
+  detail: string;
+  createdAt: string;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function writeMemory(
+  api: TestApi,
+  projectId: string,
+  content: string,
+): Promise<MemoryResponse> {
+  const path = `/v1/projects/${projectId}/memory`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as MemoryResponse;
+}
+
+/** Fixtures are built through the API, never by writing to the database. */
+export async function requestMemoryRun(
+  api: TestApi,
+  projectId: string,
+): Promise<AgentRunResponse> {
+  const path = `/v1/projects/${projectId}/memory/runs`;
+  const response = await api.fetch(path, { method: 'POST' });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as AgentRunResponse;
+}
+
+/**
+ * An agent that proposes one fixed line, through the real route.
+ *
+ * The default for every memory test that is not about the agent itself, and
+ * the honest shape of the genuine adapter: the proposal is written by calling
+ * the internal API — here `app.inject`, the same routes without the socket —
+ * and never by touching the database. Self-describing, like the stub
+ * transcriber's line, so a screen exercised against it says what it is.
+ */
+export function fakeAgentRunService(
+  app: { inject: (request: { method: string; url: string; payload: unknown }) => Promise<unknown> },
+  content = '[fake agent proposal — a stand-in for what the model would write]',
+): AgentRunService {
+  return {
+    proposeMemoryEdit: async ({ runId }) => {
+      await app.inject({
+        method: 'POST',
+        url: `/v1/memory-runs/${runId}/proposal`,
+        payload: { content },
+      });
+    },
+  };
+}
+
+/** An agent that fails, which is the same stored fact as one that errors. */
+export function refusingAgentRunService(reason: string): AgentRunService {
+  return { proposeMemoryEdit: () => Promise.reject(new Error(reason)) };
+}
+
+/**
+ * An agent that does not answer until the test says so, so that *running* is
+ * a state a test can stand in and look at — `heldTranscriber`'s shape.
+ *
+ * `reached` resolves once the worker has actually called it, which is the only
+ * way to know the job was picked up without sleeping.
+ */
+export function heldAgentRunService() {
+  let arrive!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const service: AgentRunService = {
+    proposeMemoryEdit: async () => {
+      arrive();
+      await held;
+    },
+  };
+  return { service, reached, release };
+}
+
+/**
+ * The `data:` payloads of a server-sent event stream, one call at a time.
+ *
+ * Written inside voice.test.ts while one test file read a stream, and moved
+ * here when memory.test.ts became the second — the trigger ADR-0033 names.
+ */
+export function sseFrames<T>(response: Response) {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+  return {
+    async next(): Promise<T> {
+      for (;;) {
+        const boundary = buffered.indexOf('\n\n');
+        if (boundary !== -1) {
+          const frame = buffered.slice(0, boundary);
+          buffered = buffered.slice(boundary + 2);
+          // Heartbeats are comments and carry no data.
+          if (frame.startsWith('data: ')) {
+            return JSON.parse(frame.slice(6)) as T;
+          }
+          continue;
+        }
+        const { done, value } = await reader.read();
+        if (done) {
+          throw new Error('the progress stream ended');
+        }
+        buffered += decoder.decode(value, { stream: true });
+      }
+    },
+    /** Lets the socket go, the way the browser closing the tab would. */
+    close() {
+      void reader.cancel();
+    },
+  };
 }

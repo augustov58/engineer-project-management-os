@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { agentRunServiceFromEnv } from './agent.js';
 import { createRuntime } from './runtime.js';
 import { buildServer } from './server.js';
 import { systemTimeSource } from './time-source.js';
@@ -42,7 +43,8 @@ const app = buildServer({
 });
 
 /**
- * The transcription worker, in this process (issue #12).
+ * The transcription, rendering and memory-run worker, in this process
+ * (issues #12, #13, #18).
  *
  * One process for a single-user tool (ADR-0012), and the same dependencies
  * the server is handed — which is what lets the test harness run a real
@@ -53,6 +55,13 @@ const worker = buildWorker({
   prisma: runtime.prisma,
   objectStore: runtime.objectStore,
   transcriber: transcriberFromEnv(),
+  agentRunService: agentRunServiceFromEnv({
+    // Where the domain tools reach the internal API from this process: the
+    // server below, which binds loopback on the configured port.
+    apiBaseUrl: `http://127.0.0.1:${apiPort()}`,
+    // Where the per-project workspaces the file tools are scoped to live.
+    workspaceRoot: process.env['AGENT_WORKSPACE_DIR'] ?? '.agent-workspaces',
+  }),
   timeSource: systemTimeSource,
   connection: runtime.workerConnection,
   queueName: runtime.queueName,

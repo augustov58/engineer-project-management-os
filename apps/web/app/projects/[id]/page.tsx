@@ -16,15 +16,20 @@ import {
   listDocuments,
   listExposure,
   listIssues,
+  listMemoryAudit,
+  listMemoryProposals,
+  listMemoryRuns,
   listOpenItems,
   listPhases,
   listRegisters,
   listSiteVisits,
   listSubmissions,
+  getMemory,
   REGISTER_NAMES,
 } from '../../api';
 import { DocumentForm } from '../../document-form';
 import { DocumentList } from '../../documents';
+import { MemoryActivityList, MemoryForm } from '../../memory';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
 import { SiteVisitForm } from '../../site-visit-form';
@@ -57,6 +62,10 @@ export default async function ProjectRecord({
     registers,
     onTheClock,
     documents,
+    memory,
+    memoryRuns,
+    memoryProposals,
+    memoryAudit,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -75,6 +84,11 @@ export default async function ProjectRecord({
     // What is stored against this job, reached through the job itself —
     // there is no search box here or anywhere else (ADR-0019).
     listDocuments(id),
+    // The curated prose, its runs, its proposals and its audit (issue #18).
+    getMemory(id),
+    listMemoryRuns(id),
+    listMemoryProposals(id),
+    listMemoryAudit(id),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -418,6 +432,99 @@ export default async function ProjectRecord({
           <DocumentForm submit={addDocument.bind(null, id)} />
         </CardContent>
       </Card>
+
+      {/*
+        The curated prose: reasoning and decisions, kept deliberately small
+        (issue #18). The size budget rides on every read and is surfaced here
+        as the document fills — pushed back against, never enforced, because
+        what is worth keeping is the engineer's call and the budget exists to
+        inform it.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Memory</h2>
+          <span className="text-muted-foreground text-sm">
+            {memory.versions === 0
+              ? 'nothing written yet'
+              : `${memory.versions} ${memory.versions === 1 ? 'version' : 'versions'}`}
+          </span>
+        </div>
+
+        {memory.content !== null && memory.versionedAt !== null && (
+          <div className="rounded-lg border px-4 py-3">
+            <p className="text-sm whitespace-pre-wrap">{memory.content}</p>
+            <p className="text-muted-foreground mt-2 text-sm">
+              Last written {day(memory.versionedAt)}
+            </p>
+          </div>
+        )}
+
+        {/*
+          The budget, pushed back against as it fills. Over half it says so;
+          over budget it says so in red. A count with no meter would be a
+          number nobody reads.
+        */}
+        <div className="space-y-1">
+          <div
+            role="meter"
+            aria-valuenow={memory.size}
+            aria-valuemax={memory.budget}
+            aria-label="Memory size against its budget"
+            className="bg-muted h-1.5 overflow-hidden rounded-full"
+          >
+            <div
+              className={
+                memory.size > memory.budget
+                  ? 'bg-destructive h-full'
+                  : memory.size > memory.budget / 2
+                    ? 'bg-amber-500 h-full'
+                    : 'bg-primary h-full'
+              }
+              style={{
+                width: `${Math.min(100, (memory.size / memory.budget) * 100)}%`,
+              }}
+            />
+          </div>
+          <p
+            className={`text-sm ${
+              memory.size > memory.budget
+                ? 'text-destructive'
+                : 'text-muted-foreground'
+            }`}
+          >
+            {memory.size.toLocaleString()} of {memory.budget.toLocaleString()}{' '}
+            characters
+            {memory.size > memory.budget
+              ? ' — over budget; memory stays readable only if it stays small, so cut before you add'
+              : memory.size > memory.budget / 2
+                ? ' — past half; keep it curated'
+                : ''}
+          </p>
+        </div>
+
+        <MemoryForm projectId={id} current={memory.content} />
+
+        <MemoryActivityList
+          projectId={id}
+          initial={{ runs: memoryRuns, proposals: memoryProposals }}
+        />
+
+        {memoryAudit.length > 0 && (
+          <details className="text-sm">
+            <summary className="text-muted-foreground cursor-pointer">
+              The audit ({memoryAudit.length})
+            </summary>
+            <ul className="mt-2 space-y-1">
+              {memoryAudit.map((entry) => (
+                <li key={entry.id} className="text-muted-foreground">
+                  <span className="tabular-nums">{day(entry.createdAt)}</span>{' '}
+                  &middot; {entry.action} &middot; {entry.detail}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </section>
 
       {resolved.length > 0 && (
         <section className="space-y-3">

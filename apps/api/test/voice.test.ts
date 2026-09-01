@@ -8,6 +8,7 @@ import {
   fakeTranscriber,
   heldTranscriber,
   refusingTranscriber,
+  sseFrames,
   startTestApi,
   voiceCaptureBody,
   type SiteVisitDetail,
@@ -571,7 +572,7 @@ test('progress arrives over the stream as the transcription moves', async () => 
   expect(stream.status).toBe(200);
   expect(stream.headers.get('content-type')).toBe('text/event-stream');
 
-  const events = frames(stream);
+  const events = sseFrames<VoiceCaptureResponse[]>(stream);
   try {
     // The first event is the state right now, so a screen that opens on a
     // finished transcription is not left waiting for a change already made.
@@ -629,37 +630,3 @@ test('nothing edits or deletes a recording', async () => {
 
   expect((await visit(app, walk.id)).voiceCaptures).toHaveLength(1);
 });
-
-/**
- * The `data:` payloads of a server-sent event stream, one call at a time.
- *
- * Written here rather than in the harness because one test file reads a
- * stream, and a thing used by exactly one record lives with that record.
- */
-function frames(response: Response) {
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffered = '';
-
-  return {
-    async next(): Promise<VoiceCaptureResponse[]> {
-      for (;;) {
-        const boundary = buffered.indexOf('\n\n');
-        if (boundary !== -1) {
-          const frame = buffered.slice(0, boundary);
-          buffered = buffered.slice(boundary + 2);
-          // Heartbeats are comments and carry no data.
-          if (frame.startsWith('data: ')) {
-            return JSON.parse(frame.slice(6)) as VoiceCaptureResponse[];
-          }
-          continue;
-        }
-        const { done, value } = await reader.read();
-        if (done) {
-          throw new Error('the progress stream ended');
-        }
-        buffered += decoder.decode(value, { stream: true });
-      }
-    },
-  };
-}
