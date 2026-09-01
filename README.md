@@ -417,14 +417,47 @@ check. `pnpm --filter web build` is the command that catches a Tailwind or PostC
 it also works when `pnpm dev` will not, which on a machine that has run out of inotify
 watches is the difference between verifying a change and not.
 
-**Both of those commands currently fail, and were already failing before slice 12.**
-`pnpm typecheck` and `pnpm --filter web build` each stop on
-`apps/web/components/ui/field.tsx` — unused shadcn scaffolding left over from the Tailwind
-slice, which no longer typechecks now that two `@types/react` resolve in the tree: 19.2.2
-pinned, and 19.2.18 arriving through a radix peer dependency. Nothing imports the file.
-Verified pre-existing by checking out a pristine tree and running
-`pnpm install --frozen-lockfile && pnpm -r typecheck`, so it is not slice 12's to fix and
-was deliberately left standing rather than repaired inside somebody else's change. The cost
-is real and worth stating: while it fails, a frontend change is verified by loading the
-pages against `pnpm dev` — which is what slice 12's two screens got — and the Tailwind and
-PostCSS errors the paragraph above exists to catch are going uncaught.
+**Both of those commands failed from the Tailwind slice until issue #49, and now pass.**
+The file arrived in `fee343e` and the failure arrived with it; slice 12 is only when it was
+first written down here, which is why the note used to say it was already failing by then.
+They each stopped on `apps/web/components/ui/field.tsx` — unused shadcn scaffolding left over from
+the Tailwind slice, which stopped typechecking once two `@types/react` resolved in the
+tree. Nothing imported it, so it was deleted rather than repaired.
+
+The duplicate is still there, and it is worth knowing where it comes from, because it is
+not `apps/web`'s: `apps/api`'s `@prisma/client` pulls `prisma`, which pulls
+`@prisma/studio-core`, which pulls radix components whose `@types/react` peer nothing in
+that subtree pins — so it resolves to the newest, 19.2.18, while `apps/web` pins 19.2.2 and
+its own radix tree resolves there. A file breaks only when its props reach a `ref` type
+crossing the two, which is why one scaffold component failed and the ten still in
+`components/ui` did not. Bumping `apps/web` would not have fixed it; a workspace-wide
+`@types/react` override would, at the price of pinning a version on behalf of Prisma
+Studio, which this product does not run. That trade is recorded and not taken — if a future
+component hits the same error, it is the fix to reach for.
+
+Two of those ten, `checkbox.tsx` and `select.tsx`, are imported by nothing either, and
+ADR-0025 is why: they are exactly the controls it keeps as native elements so they
+serialise into a form correctly. Being unused is a decision there rather than an oversight,
+so they were left standing.
+
+**`pnpm --filter web build` needs an `EDGE_SECRET` that is not the one in
+`.env.example`.** `next build` runs with `NODE_ENV=production`, and `next.config.ts`
+refuses the development value on purpose, since it is in source and therefore known
+(ADR-0020). `pnpm dev` copies `.env.example` to `.env`, so the value is usually sitting
+there and the build stops before it compiles anything. It does say why — the thrown
+sentence names the cause on the line below — but the headline is
+`Failed to load next.config.ts`, which reads like a syntax error in the config and sends
+you looking in the wrong file:
+
+```
+⨯ Failed to load next.config.ts, see more info here https://nextjs.org/docs/messages/next-config-error
+> Build error occurred
+Error: EDGE_SECRET is the development value from apps/web/.env.example, which is in
+source and so is known. Generate one at deploy time.
+```
+
+Generate one for the run:
+
+```bash
+EDGE_SECRET=$(head -c 32 /dev/urandom | base64) pnpm --filter web build
+```
