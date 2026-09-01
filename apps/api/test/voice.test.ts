@@ -10,6 +10,7 @@ import {
   refusingTranscriber,
   sseFrames,
   startTestApi,
+  until,
   voiceCaptureBody,
   type SiteVisitDetail,
   type TestApi,
@@ -57,30 +58,10 @@ async function walked(app: TestApi, projectNumber: string) {
 }
 
 /**
- * Waits for a background job to change a record, which is not the same thing
- * as waiting for time to pass.
- *
- * Aging is tested by advancing the fake clock and never by sleeping, and that
- * rule still holds: nothing here is aged. What is being waited on is a real
- * BullMQ worker over a real Redis picking a job up, and there is no fake that
- * could stand in for it without the test no longer exercising the queue.
+ * The wait for a background job lives in the harness as `until` — moved there
+ * when extractions.test.ts became the second file outside this one to wait on
+ * a worker-driven state, the trigger ADR-0033 names.
  */
-async function until<T>(
-  read: () => Promise<T | undefined>,
-  what: string,
-): Promise<T> {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    const value = await read();
-    if (value !== undefined) {
-      return value;
-    }
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
 
 /** The recording, once it has reached the state the test is about. */
 function reaches(

@@ -31,11 +31,12 @@ stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11),
 (voice capture, issue #12), slice 12 (the site visit report, issue #13), slice 13
 (registers, entries and the ball-in-court history, issue #14), slice 14
 (the clock and dispositions, issue #15), slice 15 (the morning screen, issue #16),
-slice 16 (referenced files, issue #17), slice 17 (project memory, issue #18) and slice 18 (the ingest
-address and untrusted inbound mail, issue #19) are
+slice 16 (referenced files, issue #17), slice 17 (project memory, issue #18), slice 18 (the ingest
+address and untrusted inbound mail, issue #19) and slice 19 (extraction to a draft,
+human-confirmed, issue #20) are
 built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033); slice 17 adds a
-fourteenth and slice 18 a fifteenth. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+fourteenth, slice 18 a fifteenth and slice 19 a sixteenth. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
 issues #9, #10, #11, #12 and #13 — **step 4, registers, is complete** — issues #14 and
 #15 — and **step 6, curated project memory, is complete** — issue #18. Issue #16, the
@@ -45,8 +46,12 @@ nothing in it reads a document's contents — and is done; ADR-0039 and the vaul
 record that narrowing. **Issue #19, the ingest address, landed inside the gate without lifting it** (ADR-0042):
 the inbound mail provider sits behind a port with **no adapter written**, so nothing leaves
 the process and the gate now fires on writing that adapter and naming a vendor, rather than
-on nobody having built the feature. Extraction and the confirmation screen stay gated, so
-issues #20-#22 sit behind that gate or the remaining open picks.
+on nobody having built the feature. **Issue #20, extraction, landed the same way** (ADR-0043):
+the record, the queued run, the proposal and the confirmation screen are all built, and the
+OCR vendor sits behind a port whose default refuses — so a run fails honestly with the
+vendor's sentence, and the gate now fires on writing the OCR adapter and naming a vendor.
+What remains of step 5 is issue #21 (the processing-location setting, blocked on that pick)
+and issue #22 (the edge gate).
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
@@ -596,6 +601,38 @@ See [README.md](./README.md).
 - A sender's `subject` and `body` are **bounded and refused past the bound, never truncated**
   — a silently shortened body is a record saying something the sender did not, ADR-0039's
   base64 lesson.
+- An **extraction** is one record, `register_entry_extractions`: the run's four stamps, the
+  proposal's fields and the resolution, with the state derived on every read and **no status
+  column** — the shape a voice capture and a site visit report established (ADR-0043). The
+  source is **exactly one** of an ingested file or a document version, held by a CHECK, so
+  the ambiguity is never a value in a column. The asking is **manual and per file**: the
+  engineer picks which file of an arrival is the correspondence (story 84's "automatically"
+  narrowed, recorded in ADR-0043).
+- The extract worker's order is what keeps the consent gate: bytes, then the `OcrProvider`,
+  then `ocr_text` **stored before the agent is called**, then the run — so a refusing
+  default fails the row honestly and leaves what the vendor read. The OCR port's default
+  refuses; `OCR=stub` returns one fixed page and is for the screen, never a real document.
+  There is **no retry route**: asking again is another row, and a redelivered job re-calls
+  the vendors — that re-run is the only recovery path, and the compare-and-set on finish is
+  what keeps two attempts from both settling the row.
+- The extraction agent's tool list is an allowlist naming `extraction_propose` and nothing
+  else (0040, 0041). The packet reaches the model as delimited untrusted data under an
+  explicit non-instruction directive, and the typed-shape constraint lives at the proposal
+  route's **body schema**, not in the prompt — a prompt is not a place a constraint can be
+  held. One run proposes at most once, and only while running.
+- **Confirming is the commit, and it commits everything in one transaction** (ADR-0043):
+  the document and its first version on the mail path — **reusing the arrival file's
+  storage key**, the bytes already being stored — the register entry, its first handoff,
+  and the join to the source version, with `confirmed_at` and `register_entry_id` stamped
+  by compare-and-set so a double confirmation refuses. The register's boundary rules are
+  re-stated, not bypassed: an RFI still needs a question, a submittal still carries
+  neither, a number already in the register is still a conflict. **Reject keeps the source**
+  exactly as it arrived and keeps the proposal on the record. `PATCH`, `PUT` and `DELETE`
+  on an extraction are 404.
+- The confirmation screen reviews against **what the agent read** — the OCR text and the
+  envelope — and never a rendering of the file: arrival bytes are served as
+  `application/octet-stream` attachments on purpose (ADR-0042), and this screen does not
+  poke that hole. The bytes are one click away.
 
 ## Agent skills
 

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Client } from 'pg';
 import { inject } from 'vitest';
 import type { AgentRunService } from '../src/agent.js';
+import type { OcrProvider } from '../src/ocr.js';
 import { createRuntime } from '../src/runtime.js';
 import {
   type InboundMailProvider,
@@ -80,6 +81,15 @@ export async function startTestApi(
      */
     inboundMail?: InboundMailProvider;
     /**
+     * The OCR vendor, for the extraction runs (issue #20). Substituted the
+     * way the transcription vendor is: it is one of the two places the
+     * extraction pipeline leaves the process. The default is
+     * `fakeOcrProvider`, which answers one fixed page; a test that wants the
+     * honest failure passes `refusingOcrProvider` — or the real
+     * `unconfiguredOcrProvider`, which is the production default (ADR-0043).
+     */
+    ocr?: OcrProvider;
+    /**
      * The public half of an ingest address. `null` configures none, which is
      * how the "no address is offered" state becomes one a test can look at.
      */
@@ -130,6 +140,7 @@ export async function startTestApi(
           objectStore: runtime.objectStore,
           transcriber: options.transcriber ?? fakeTranscriber(),
           agentRunService: options.agentRunService ?? fakeAgentRunService(app),
+          ocr: options.ocr ?? fakeOcrProvider(),
           // The same default `buildServer` applies, spelled here because the
           // worker has no boundary of its own to default at.
           timeSource: options.timeSource ?? systemTimeSource,
@@ -1284,6 +1295,109 @@ export async function addDocumentVersion(
   return (await response.json()) as DocumentResponse;
 }
 
+// ── Ingest (issue #19) ───────────────────────────────────────────────────
+
+/** One file of an arrival, as the API returns it. Never its storage key. */
+export interface IngestedDocumentFileResponse {
+  id: string;
+  ingestedDocumentId: string;
+  filename: string;
+  contentType: string;
+  byteSize: number;
+  createdAt: string;
+}
+
+/** An arrival as the API returns it (issue #19). */
+export interface IngestedDocumentResponse {
+  id: string;
+  projectId: string;
+  source: 'EMAIL' | 'MANUAL';
+  arrivedAt: string;
+  sender: string | null;
+  recipient: string | null;
+  subject: string | null;
+  body: string | null;
+  note: string | null;
+  files: IngestedDocumentFileResponse[];
+}
+
+export interface IngestedFileBody {
+  filename: string;
+  contentType: string;
+  /** The bytes, base64. */
+  bytes: string;
+}
+
+/** Sixty-nine bytes of real PDF, as the ingest tests use. */
+const A_LETTER =
+  'JVBERi0xLjQKJcOkw7zDtsOfCjEgMCBvYmoKPDwvVHlwZS9DYXRhbG9nL1BhZ2VzIDIgMCBSPj4KZW5kb2JqCg==';
+
+/** A valid file body, so a test about one field does not restate the rest. */
+export function ingestedFileBody(
+  patch: Partial<IngestedFileBody> = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    filename: 'rfi-001.pdf',
+    contentType: 'application/pdf',
+    bytes: A_LETTER,
+    ...patch,
+  };
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) {
+      delete body[key];
+    }
+  }
+  return body;
+}
+
+/**
+ * Entering an arrival by hand (story 93's fallback), which is the path an
+ * extraction test takes its source from. Fixtures are built through the API,
+ * never by writing to the database.
+ */
+export async function addIngestedDocument(
+  api: TestApi,
+  projectId: string,
+  patch: { note?: string; files?: Partial<IngestedFileBody>[] } = {},
+): Promise<IngestedDocumentResponse> {
+  const path = `/v1/projects/${projectId}/ingested-documents`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      files: (patch.files ?? [{}]).map((file) => ingestedFileBody(file)),
+      ...(patch.note === undefined ? {} : { note: patch.note }),
+    }),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as IngestedDocumentResponse;
+}
+
+/**
+ * Poll a read until it answers, with a deadline rather than a sleep — how a
+ * test watches a worker-driven state move. Written inside memory.test.ts
+ * while one file waited on runs, and moved here when extractions.test.ts
+ * became the second — the trigger ADR-0033 names.
+ */
+export async function until<T>(
+  read: () => Promise<T | undefined>,
+  what: string,
+): Promise<T> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const value = await read();
+    if (value !== undefined) {
+      return value;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${what}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 // ── Project memory (issue #18) ───────────────────────────────────────────
 
 /** A project's memory as the API returns it: the latest version, derived. */
@@ -1383,10 +1497,30 @@ export async function requestMemoryRun(
  * the internal API — here `app.inject`, the same routes without the socket —
  * and never by touching the database. Self-describing, like the stub
  * transcriber's line, so a screen exercised against it says what it is.
+ *
+ * The extraction half proposes one fixed RFI the same way, through the real
+ * proposal route. Its payload includes the title and revision the arrival
+ * path proposes, so a test whose source is a stored document passes its own
+ * proposal — that path refuses the pair.
  */
 export function fakeAgentRunService(
   app: { inject: (request: { method: string; url: string; payload: unknown }) => Promise<unknown> },
   content = '[fake agent proposal — a stand-in for what the model would write]',
+  extractionProposal: Record<string, unknown> = {
+    kind: 'RFI',
+    number: 'RFI-001',
+    subject: 'Clarification of the baseplate detail',
+    fromParty: 'Acme Mechanical',
+    toParty: 'the engineer',
+    question: 'which baseplate detail governs at Grid C4?',
+    ballInCourt: {
+      party: 'the engineer',
+      inOurCourt: true,
+      heldSince: '2026-09-01T09:00:00.000Z',
+    },
+    title: 'RFI-001 baseplate detail',
+    revision: 'A',
+  },
 ): AgentRunService {
   return {
     proposeMemoryEdit: async ({ runId }) => {
@@ -1396,12 +1530,22 @@ export function fakeAgentRunService(
         payload: { content },
       });
     },
+    extractRegisterEntry: async ({ extractionId }) => {
+      await app.inject({
+        method: 'POST',
+        url: `/v1/extractions/${extractionId}/proposal`,
+        payload: extractionProposal,
+      });
+    },
   };
 }
 
 /** An agent that fails, which is the same stored fact as one that errors. */
 export function refusingAgentRunService(reason: string): AgentRunService {
-  return { proposeMemoryEdit: () => Promise.reject(new Error(reason)) };
+  return {
+    proposeMemoryEdit: () => Promise.reject(new Error(reason)),
+    extractRegisterEntry: () => Promise.reject(new Error(reason)),
+  };
 }
 
 /**
@@ -1425,8 +1569,28 @@ export function heldAgentRunService() {
       arrive();
       await held;
     },
+    extractRegisterEntry: async () => {
+      arrive();
+      await held;
+    },
   };
   return { service, reached, release };
+}
+
+/**
+ * An OCR provider that answers one fixed page, for the extraction tests
+ * (issue #20) — `fakeTranscriber`'s shape for the other vendor the pipeline
+ * leaves the process for.
+ */
+export function fakeOcrProvider(
+  text = '[fake OCR page — a stand-in for what the vendor would read]',
+): OcrProvider {
+  return { read: () => Promise.resolve(text) };
+}
+
+/** An OCR provider that fails, which is the same stored fact as one that errors. */
+export function refusingOcrProvider(reason: string): OcrProvider {
+  return { read: () => Promise.reject(new Error(reason)) };
 }
 
 /**

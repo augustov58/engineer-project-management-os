@@ -697,10 +697,10 @@ describe('inbound content', () => {
   });
 
   test('is never enqueued: an arrival starts no job', async () => {
-    // The API up with no worker is a state production has too. If an arrival
-    // dispatched work, this is where it would sit unhandled — and there is no
-    // job name for it to carry, which is what makes story 89 true by there
-    // being nothing that could interpret the message.
+    // The API up with no worker is a state production has too. Extraction
+    // arrived with issue #20 and is a manual, per-file action (ADR-0043), so
+    // an arrival still dispatches nothing — if it did, this is where it would
+    // sit unhandled.
     const app = await api({ worker: false });
     const project = await createProject(app, 'T-1', 'Office fit-out');
 

@@ -16,6 +16,7 @@ import {
   listClock,
   listDocuments,
   listExposure,
+  listExtractions,
   listIngestedDocuments,
   listIssues,
   listMemoryAudit,
@@ -31,6 +32,7 @@ import {
 } from '../../api';
 import { DocumentForm } from '../../document-form';
 import { DocumentList } from '../../documents';
+import { ExtractionList } from '../../extractions';
 import { IngestForm } from '../../ingest-form';
 import { IngestAddress, IngestedDocumentList } from '../../ingest';
 import { MemoryActivityList, MemoryForm } from '../../memory';
@@ -71,6 +73,7 @@ export default async function ProjectRecord({
     memoryProposals,
     memoryAudit,
     arrivals,
+    extractions,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -96,6 +99,8 @@ export default async function ProjectRecord({
     listMemoryAudit(id),
     // What has arrived from outside and not yet been read (issue #19).
     listIngestedDocuments(id),
+    // The extractions asked for on this job and their states (issue #20).
+    listExtractions(id),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -444,8 +449,8 @@ export default async function ProjectRecord({
         What has arrived from outside (issue #19). A section of its own and not
         part of Documents: an arrival carries no title, no revision and no
         referenced-file answer, because nobody has read it — those are what
-        extraction proposes and the engineer confirms, which is the next
-        ticket. Nothing here is parsed, and nothing acts on what it says.
+        extraction proposes and the engineer confirms (issue #20). Nothing here
+        is parsed until the engineer asks for an extraction on a file.
       */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
@@ -474,6 +479,25 @@ export default async function ProjectRecord({
           <IngestForm submit={addIngestedDocument.bind(null, id)} />
         </CardContent>
       </Card>
+
+      {/*
+        Extraction (issue #20). The runs and the proposals awaiting an answer,
+        live over the stream. Nothing here commits on its own: a pending one
+        links to the confirmation screen, and the register is written only
+        there.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Extractions</h2>
+          <span className="text-muted-foreground text-sm">
+            {extractions.filter((one) => one.state === 'pending').length === 0
+              ? 'nothing awaiting an answer'
+              : `${extractions.filter((one) => one.state === 'pending').length} awaiting an answer`}
+          </span>
+        </div>
+
+        <ExtractionList projectId={id} initial={{ extractions }} />
+      </section>
 
       {/*
         The curated prose: reasoning and decisions, kept deliberately small

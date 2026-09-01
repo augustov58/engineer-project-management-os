@@ -1,6 +1,10 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { addDocumentVersion, markReferencedFile } from './actions';
+import {
+  addDocumentVersion,
+  markReferencedFile,
+  requestExtractionFromDocument,
+} from './actions';
 import { DocumentVersionForm } from './document-form';
 import { day } from './open-item';
 import {
@@ -102,13 +106,32 @@ export function DocumentList({
               put one into it, so there is no control here that unmarks.
             */}
             {!document.referencedFile && (
-              <form
-                action={markReferencedFile.bind(null, document.id, projectId)}
-              >
-                <Button type="submit" variant="ghost" size="sm">
-                  Mark as a referenced file
-                </Button>
-              </form>
+              <>
+                {/*
+                  Asking for an extraction over the latest version (issue #20).
+                  Offered exactly where the referenced-file mark is not: the
+                  two are the same predicate, so this button and that badge
+                  can never disagree.
+                */}
+                <form
+                  action={requestExtractionFromDocument.bind(
+                    null,
+                    projectId,
+                    document.id,
+                  )}
+                >
+                  <Button type="submit" variant="ghost" size="sm">
+                    Extract
+                  </Button>
+                </form>
+                <form
+                  action={markReferencedFile.bind(null, document.id, projectId)}
+                >
+                  <Button type="submit" variant="ghost" size="sm">
+                    Mark as a referenced file
+                  </Button>
+                </form>
+              </>
             )}
           </div>
           <div className="divide-y">

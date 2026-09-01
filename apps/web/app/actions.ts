@@ -1706,3 +1706,97 @@ export async function addIngestedDocument(
   revalidatePath(`/projects/${projectId}`);
   return { added: previous.added + 1 };
 }
+
+// ── Extraction to a draft, human-confirmed (issue #20) ───────────────────────
+
+/**
+ * Asking for an extraction over one file of an arrival (story 84). Manual and
+ * per file: the engineer picks which file is the correspondence (ADR-0043).
+ */
+export async function requestExtractionFromFile(
+  projectId: string,
+  fileId: string,
+): Promise<void> {
+  await sendOrThrow(`/ingested-document-files/${fileId}/extractions`, undefined, {
+    // In flight already is the second half of a double click.
+    tolerated: 'an extraction of that file is already in flight',
+  });
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/**
+ * Asking for an extraction over a stored document's latest version. A
+ * referenced file is refused at the API and not offered here.
+ */
+export async function requestExtractionFromDocument(
+  projectId: string,
+  documentId: string,
+): Promise<void> {
+  await sendOrThrow(`/documents/${documentId}/extractions`, undefined, {
+    tolerated: 'an extraction of that document is already in flight',
+  });
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/**
+ * Confirming a proposal — as proposed, or with any field edited (story 87).
+ *
+ * The one action that turns an extraction into records: the document (on the
+ * arrival path), the register entry with its first handoff, and the link
+ * between them, in the API's single transaction. On success it lands on the
+ * entry it wrote, which is where the answer to "did it commit" is.
+ */
+export async function confirmExtraction(
+  projectId: string,
+  extractionId: string,
+  /** Whether the source arrived by mail, which is when a title and revision are proposed. */
+  arrivalPath: boolean,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const question = omitIfBlank(formData, 'question');
+  const response = omitIfBlank(formData, 'response');
+  const title = omitIfBlank(formData, 'title');
+  const revision = omitIfBlank(formData, 'revision');
+
+  const outcome = await send(`/extractions/${extractionId}/confirm`, {
+    kind: formData.get('kind'),
+    number: formData.get('number'),
+    subject: formData.get('subject'),
+    fromParty: formData.get('fromParty'),
+    toParty: formData.get('toParty'),
+    ...(question === undefined ? {} : { question }),
+    ...(response === undefined ? {} : { response }),
+    ...turnaroundPayload(formData),
+    ballInCourt: handoffPayload(formData),
+    ...(arrivalPath && title !== undefined && revision !== undefined
+      ? { title, revision }
+      : {}),
+  });
+  const error = await refusal(outcome, 201);
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  const confirmed = (await outcome.json()) as { registerEntryId: string };
+  revalidatePath(`/projects/${projectId}`);
+  redirect(`/register-entries/${confirmed.registerEntryId}`);
+}
+
+/**
+ * Rejecting an extraction (story 88). The source document stands; so does
+ * what the agent proposed.
+ */
+export async function rejectExtraction(
+  projectId: string,
+  extractionId: string,
+): Promise<void> {
+  await sendOrThrow(`/extractions/${extractionId}/reject`, undefined, {
+    // Already resolved is the second half of a double click.
+    tolerated: 'that extraction is already resolved',
+  });
+  revalidatePath(`/projects/${projectId}`);
+  // The confirmation screen has nothing left to show; back to the job, where
+  // the source stands exactly as it arrived.
+  redirect(`/projects/${projectId}`);
+}

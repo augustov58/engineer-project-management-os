@@ -1,18 +1,19 @@
 /**
- * The worker: the three things in this product that run off the request —
- * transcription (issue #12), rendering a site visit report (issue #13), and
- * an agent run proposing a memory edit (issue #18).
+ * The worker: the four things in this product that run off the request —
+ * transcription (issue #12), rendering a site visit report (issue #13), an
+ * agent run proposing a memory edit (issue #18), and an extraction run over
+ * an untrusted source (issue #20).
  *
  * BullMQ has been wired and idle since slice 1, and ADR-0032 deliberately kept
  * photo binning out of it — "date comparison and one regular expression". That
  * reasoning does not reach any of these. Asking a vendor what was said in
  * two minutes of audio is a network call of unbounded duration; printing a
  * walk's write-up starts a browser, decodes every photograph on it and lays
- * out a paginated document; and an agent run is a paid model call of
- * unbounded duration. All three tickets' progress criteria presuppose that
- * the request has long since returned.
+ * out a paginated document; and an extraction is an OCR call and a paid model
+ * call, back to back. All four tickets' progress criteria presuppose that the
+ * request has long since returned.
  *
- * One queue and three job names, dispatched below. A second queue would be a
+ * One queue and four job names, dispatched below. A second queue would be a
  * second thing to name, connect and close, for work the single concurrency
  * already serialises.
  *
@@ -28,8 +29,9 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import type { AgentRunService } from './agent.js';
+import type { AgentRunService, ExtractionSourcePacket } from './agent.js';
 import type { ObjectStore } from './object-store.js';
+import type { OcrProvider } from './ocr.js';
 import { renderPdf } from './pdf.js';
 import { composeReport } from './report.js';
 import type { TimeSource } from './time-source.js';
@@ -43,6 +45,12 @@ export const RENDER_REPORT = 'render-report';
 
 /** Asking the agent to propose an edit to a project's memory (issue #18). */
 export const PROPOSE_MEMORY_EDIT = 'propose-memory-edit';
+
+/**
+ * Reading one untrusted source into a proposed register entry (issue #20):
+ * the OCR call and the agent run, back to back.
+ */
+export const EXTRACT = 'extract';
 
 /**
  * The id and nothing else. Everything the job needs is on the row, so a job
@@ -62,11 +70,17 @@ export interface ProposeMemoryEditJob {
   agentRunId: string;
 }
 
+/** The id and nothing else, for the reason above. */
+export interface ExtractJob {
+  extractionId: string;
+}
+
 export interface WorkerDependencies {
   prisma: PrismaClient;
   objectStore: ObjectStore;
   transcriber: Transcriber;
   agentRunService: AgentRunService;
+  ocr: OcrProvider;
   timeSource: TimeSource;
   /** A Worker issues blocking commands and cannot share the queue's. */
   connection: Redis;
@@ -93,10 +107,13 @@ export function buildWorker({
   objectStore,
   transcriber,
   agentRunService,
+  ocr,
   timeSource,
   connection,
   queueName,
-}: WorkerDependencies): Worker<TranscribeJob | RenderReportJob | ProposeMemoryEditJob> {
+}: WorkerDependencies): Worker<
+  TranscribeJob | RenderReportJob | ProposeMemoryEditJob | ExtractJob
+> {
   /** Asking the vendor what was said (issue #12). */
   const transcribe = async (voiceCaptureId: string) => {
     const capture = await prisma.voiceCapture.findUnique({
@@ -292,7 +309,128 @@ export function buildWorker({
     }
   };
 
-  return new Worker<TranscribeJob | RenderReportJob | ProposeMemoryEditJob>(
+  /**
+   * Reading one untrusted source into a proposed register entry (issue #20).
+   *
+   * The same shape as the memory run above, with one step in front of it:
+   * the OCR port turns the source's bytes into text, the text is stored on
+   * the row — ADR-0008's "OCR output stored for audit" and the confirmation
+   * screen's subject — and only then is the agent called. That ordering is
+   * what keeps the consent gate: with no OCR adapter written, no document's
+   * content reaches the model provider, because there is no text to hand it
+   * (ADR-0043).
+   *
+   * The proposal, if one comes, arrives during the run through the agent's
+   * own tool calling the internal API. A run that proposes nothing is
+   * finished, not failed: "no correspondence here" is an answer.
+   */
+  const extract = async (extractionId: string) => {
+    const extraction = await prisma.registerEntryExtraction.findUnique({
+      where: { id: extractionId },
+      select: {
+        id: true,
+        projectId: true,
+        finishedAt: true,
+        failedAt: true,
+        ingestedDocumentFile: {
+          select: {
+            filename: true,
+            contentType: true,
+            storageKey: true,
+            ingestedDocument: {
+              select: { sender: true, subject: true, body: true },
+            },
+          },
+        },
+        documentVersion: {
+          select: { filename: true, contentType: true, storageKey: true },
+        },
+      },
+    });
+    if (extraction === null) {
+      return;
+    }
+    if (extraction.finishedAt !== null || extraction.failedAt !== null) {
+      // Already settled. BullMQ can redeliver a stalled job, and a second
+      // attempt would ask two paid vendors again — so there is nothing here
+      // left to do.
+      return;
+    }
+
+    await prisma.registerEntryExtraction.update({
+      where: { id: extraction.id },
+      data: { runningSince: timeSource.now() },
+    });
+
+    try {
+      const sourceFile =
+        extraction.ingestedDocumentFile ?? extraction.documentVersion;
+      if (sourceFile === null) {
+        // The CHECK says exactly one is set, so reaching this is corruption,
+        // not input. Failed with the fact, not a crash.
+        throw new Error('the extraction names no source');
+      }
+
+      const bytes = await objectStore.get(sourceFile.storageKey);
+      const text = await ocr.read(
+        bytes,
+        sourceFile.contentType,
+        sourceFile.filename,
+      );
+      // Stored before the agent is called, so a run the model failed still
+      // leaves what the OCR step read. A job redelivered while the first
+      // attempt is mid-run does call both vendors again — the read above only
+      // refuses a settled row — and that re-run is the only recovery path a
+      // crashed worker has, since there is no retry route. The compare-and-set
+      // below is what keeps two attempts from both finishing the row.
+      await prisma.registerEntryExtraction.update({
+        where: { id: extraction.id },
+        data: { ocrText: text },
+      });
+
+      const source: ExtractionSourcePacket = {
+        filename: sourceFile.filename,
+        contentType: sourceFile.contentType,
+        ...(extraction.ingestedDocumentFile === null
+          ? {}
+          : {
+              envelope: {
+                sender: extraction.ingestedDocumentFile.ingestedDocument.sender,
+                subject:
+                  extraction.ingestedDocumentFile.ingestedDocument.subject,
+                body: extraction.ingestedDocumentFile.ingestedDocument.body,
+              },
+            }),
+        text,
+      };
+      await agentRunService.extractRegisterEntry({
+        extractionId: extraction.id,
+        projectId: extraction.projectId,
+        source,
+      });
+      // Compare-and-set, so a redelivered job that got past the read above
+      // writes nothing.
+      await prisma.registerEntryExtraction.updateMany({
+        where: { id: extraction.id, finishedAt: null, failedAt: null },
+        data: { finishedAt: timeSource.now() },
+      });
+    } catch (error) {
+      // Recorded and not rethrown, as a transcription failure is: a vendor
+      // that refused this document will refuse it again, and asking again is
+      // another row — there is no retry route.
+      await prisma.registerEntryExtraction.updateMany({
+        where: { id: extraction.id, finishedAt: null, failedAt: null },
+        data: {
+          failedAt: timeSource.now(),
+          failure: reasonFor(error, 'the extraction gave no reason'),
+        },
+      });
+    }
+  };
+
+  return new Worker<
+    TranscribeJob | RenderReportJob | ProposeMemoryEditJob | ExtractJob
+  >(
     queueName,
     async (job) => {
       // Dispatched on the job's name, on the one queue. A second queue would
@@ -307,6 +445,9 @@ export function buildWorker({
         return proposeMemoryEdit(
           (job.data as ProposeMemoryEditJob).agentRunId,
         );
+      }
+      if (job.name === EXTRACT) {
+        return extract((job.data as ExtractJob).extractionId);
       }
       return transcribe((job.data as TranscribeJob).voiceCaptureId);
     },

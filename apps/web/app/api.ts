@@ -888,3 +888,90 @@ export function listIngestedDocuments(
 ): Promise<IngestedDocument[]> {
   return read<IngestedDocument[]>(`/projects/${projectId}/ingested-documents`);
 }
+
+// ── Extraction to a draft, human-confirmed (issue #20) ───────────────────────
+
+/**
+ * One extraction: a run over one untrusted source that proposed the typed
+ * fields of a register entry, and the engineer's answer to that proposal.
+ *
+ * The state is derived on every read from the stamps — there is no status
+ * column (ADR-0043). `pending` is the one awaiting the engineer; `finished`
+ * is the honest "the agent found no correspondence here".
+ */
+export interface Extraction {
+  id: string;
+  projectId: string;
+  ingestedDocumentFileId: string | null;
+  documentVersionId: string | null;
+  runningSince: string | null;
+  finishedAt: string | null;
+  failedAt: string | null;
+  failure: string | null;
+  proposedKind: 'SUBMITTAL' | 'RFI' | null;
+  proposedAt: string | null;
+  proposedNumber: string | null;
+  proposedSubject: string | null;
+  proposedFromParty: string | null;
+  proposedToParty: string | null;
+  proposedQuestion: string | null;
+  proposedResponse: string | null;
+  proposedTurnaroundDays: number | null;
+  proposedParty: string | null;
+  proposedInOurCourt: boolean | null;
+  proposedHeldSince: string | null;
+  proposedTitle: string | null;
+  proposedRevision: string | null;
+  confirmedAt: string | null;
+  registerEntryId: string | null;
+  rejectedAt: string | null;
+  createdAt: string;
+  /** The source named by filename; the envelope when it arrived by mail. */
+  source:
+    | {
+        filename: string;
+        envelope: {
+          sender: string | null;
+          subject: string | null;
+          body: string | null;
+        };
+      }
+    | { filename: string; document: { id: string; title: string } };
+  state:
+    | 'queued'
+    | 'running'
+    | 'failed'
+    | 'finished'
+    | 'pending'
+    | 'confirmed'
+    | 'rejected';
+}
+
+/** The detail read adds what the OCR step read — what the review is against. */
+export interface ExtractionDetail extends Extraction {
+  ocrText: string | null;
+}
+
+/** What the extraction stream pushes: the whole list, on every change. */
+export interface ExtractionActivity {
+  extractions: Extraction[];
+}
+
+export function listExtractions(projectId: string): Promise<Extraction[]> {
+  return read<Extraction[]>(`/projects/${projectId}/extractions`);
+}
+
+/** Undefined rather than throwing, so the page can render a 404. */
+export async function getExtraction(
+  id: string,
+): Promise<ExtractionDetail | undefined> {
+  const path = `/extractions/${id}`;
+  const response = await fetch(apiPath(path), { cache: 'no-store' });
+  if (response.status === 404) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
+  }
+  return response.json() as Promise<ExtractionDetail>;
+}

@@ -54,8 +54,11 @@ type Disposition = (typeof DISPOSITIONS)[number];
  * integer, because contracts name whole days. Bounded below at one — a
  * turnaround of zero is not a target — and above at a year, past which the
  * number is a typo rather than a term.
+ *
+ * Exported for `routes/extractions.ts`, whose proposal and confirmation
+ * bodies carry the same field with the same bounds.
  */
-const TURNAROUND_DAYS = {
+export const TURNAROUND_DAYS = {
   type: 'integer',
   minimum: 1,
   maximum: 365,
@@ -68,8 +71,13 @@ const TURNAROUND_DAYS = {
  * where it is true, so a caller that could leave it off would be leaving off
  * the one fact the clock reads — and whichever way the default fell, half the
  * handoffs entered would be silently wrong.
+ *
+ * Exported for `routes/extractions.ts`: a confirmed extraction writes an
+ * entry with its first handoff, so it is a second writer of that table and
+ * reads this boundary rather than restating it — the shape ADR-0030 gave
+ * `observationBodySchema`.
  */
-const handoffBodySchema = {
+export const handoffBodySchema = {
   type: 'object',
   required: ['party', 'inOurCourt'],
   additionalProperties: false,
@@ -174,12 +182,12 @@ const dispositionBodySchema = {
   },
 } as const;
 
-interface HandoffBody {
+/** Exported with `handoffData`, which takes one. */
+export interface HandoffBody {
   party: string;
   inOurCourt: boolean;
   heldSince?: string;
 }
-
 interface EntryBody {
   number: string;
   subject: string;
@@ -407,8 +415,13 @@ async function readEntry(
   return entryOnTheWire(entry, timeSource);
 }
 
-/** A handoff row from the body every writer of that table validates. */
-function handoffData(body: HandoffBody, timeSource: TimeSource) {
+/** A handoff row from the body every writer of that table validates.
+ *
+ * Exported for `routes/extractions.ts`, the second writer of this table: its
+ * confirmation logs an entry with its first handoff in one transaction, and
+ * the handoff is built here so the two writers cannot drift.
+ */
+export function handoffData(body: HandoffBody, timeSource: TimeSource) {
   return {
     party: body.party,
     inOurCourt: body.inOurCourt,
