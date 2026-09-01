@@ -20,6 +20,42 @@ function lanAddresses(): string[] {
 }
 
 /**
+ * The one shared secret in front of every route (ADR-0020).
+ *
+ * Checked here because this file is the only thing Next loads before it
+ * serves anything — `next dev`, `next build` and `next start` all read it —
+ * so a missing secret is a refusal to boot rather than a deployment that
+ * comes up open. `pnpm dev` copies `.env.example` to `.env`, which carries a
+ * development value; a deployment supplies a real one from its secret
+ * manager, and rotating it is a redeploy.
+ */
+if (
+  process.env['EDGE_SECRET'] === undefined ||
+  process.env['EDGE_SECRET'] === ''
+) {
+  throw new Error(
+    'EDGE_SECRET is not set. Copy apps/web/.env.example to apps/web/.env.',
+  );
+}
+
+/**
+ * And the value `.env.example` carries is refused in production, because it
+ * is in source and therefore known. `pnpm dev` copies that file to `.env`, so
+ * a deployment that shipped the working tree would otherwise pass every check
+ * above while being open to anybody who has read this repository. Next sets
+ * `NODE_ENV` itself for `build` and `start`, so this half always fires.
+ */
+if (
+  process.env.NODE_ENV === 'production' &&
+  process.env['EDGE_SECRET'] === 'development-only-not-a-secret'
+) {
+  throw new Error(
+    'EDGE_SECRET is the development value from apps/web/.env.example, which ' +
+      'is in source and so is known. Generate one at deploy time.',
+  );
+}
+
+/**
  * `next dev` already listens on every interface, but it refuses to serve its
  * own `/_next/*` assets to a browser whose origin is not on its allow list.
  * Loading the app from another device on the network therefore returned the

@@ -1,4 +1,4 @@
-import { apiPath } from '../../../../api';
+import { apiFetch } from '../../../../api';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,8 +17,8 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const upstream = await fetch(
-    apiPath(`/projects/${encodeURIComponent(id)}/extractions/stream`),
+  const upstream = await apiFetch(
+    `/projects/${encodeURIComponent(id)}/extractions/stream`,
     {
       cache: 'no-store',
       // So closing the browser tab closes the API's stream too, rather than

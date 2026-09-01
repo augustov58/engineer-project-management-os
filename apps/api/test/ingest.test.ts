@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   type TestApi,
+  TEST_EDGE_SECRET,
   createProject,
   fakeTimeSource,
   startTestApi,
@@ -767,7 +768,11 @@ describe('a memory run', () => {
     const project = await createProject(app, 'T-1', 'Office fit-out');
     expect(project.ingestAddress).not.toBeNull();
 
-    const tools = memoryRunTools(caller(app.baseUrl), 'run-1', project.id);
+    const tools = memoryRunTools(
+      caller(app.baseUrl, TEST_EDGE_SECRET),
+      'run-1',
+      project.id,
+    );
     const projectsGet = tools.find((tool) => tool.name === 'projects_get');
     const result = await projectsGet!.execute({} as never, {} as never);
 

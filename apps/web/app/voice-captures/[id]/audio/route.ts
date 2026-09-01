@@ -1,4 +1,4 @@
-import { apiPath } from '../../../api';
+import { apiFetch } from '../../../api';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,8 +25,8 @@ export async function GET(
   // segment that walks up and out — turning this route into an open GET proxy
   // for every route on an API deliberately bound to loopback. Found and fixed
   // on the photo route (ADR-0032); this is the same route written again.
-  const upstream = await fetch(
-    apiPath(`/voice-captures/${encodeURIComponent(id)}/audio`),
+  const upstream = await apiFetch(
+    `/voice-captures/${encodeURIComponent(id)}/audio`,
     { cache: 'no-store' },
   );
 

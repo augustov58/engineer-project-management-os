@@ -1,4 +1,4 @@
-import { apiPath } from '../../../api';
+import { apiFetch } from '../../../api';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,8 +25,8 @@ export async function GET(
   // segment that walks up and out — turning this route into an open GET proxy
   // for every route on an API deliberately bound to loopback, in front of the
   // one thing on this host a second device can reach.
-  const upstream = await fetch(
-    apiPath(`/photos/${encodeURIComponent(id)}/bytes`),
+  const upstream = await apiFetch(
+    `/photos/${encodeURIComponent(id)}/bytes`,
     { cache: 'no-store' },
   );
 

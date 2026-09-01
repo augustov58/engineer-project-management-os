@@ -31,6 +31,22 @@ Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, f
 both things that run off the request — transcribing a recording and rendering a site visit
 report (ADR-0035) — so there is still no third thing to start.
 
+**Both apps refuse to boot without `EDGE_SECRET`** (ADR-0020). It is the one shared secret
+in front of every route, and the whole of this deployment's access control — there are no
+accounts. The `.env.example` files carry a development value, which is not a secret and is
+in source for that reason; a deployment generates a long random string at deploy time,
+holds it in the secret manager, and gives the *same* value to both apps. Rotating it is a
+redeploy: nothing is stored, so there is no session to revoke.
+
+The browser is sent to `/unlock`, where the secret is presented once and kept in a cookie.
+The Next server presents it to the API as a header. Two things are worth knowing before
+deploying:
+
+- `GET /v1/health` is gated with everything else, so a managed platform's HTTP health check
+  must be configured to send `x-edge-secret` (Fly can; Render cannot) or be a TCP check.
+- `POST /v1/ingest/inbound-mail` is the one route the gate lets through, because inbound
+  mail can present nothing. Its address is its credential (ADR-0042).
+
 **Recording audio needs a secure context.** `getUserMedia` is unavailable over plain HTTP
 except on `localhost`, so voice capture works on this machine and *not* on a phone reaching
 `http://<this machine's address>:3000` — the screen says so rather than failing silently.

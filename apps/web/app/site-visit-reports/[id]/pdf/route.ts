@@ -1,4 +1,4 @@
-import { apiPath } from '../../../api';
+import { apiFetch } from '../../../api';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,8 +19,8 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const upstream = await fetch(
-    apiPath(`/site-visit-reports/${encodeURIComponent(id)}/pdf`),
+  const upstream = await apiFetch(
+    `/site-visit-reports/${encodeURIComponent(id)}/pdf`,
     { cache: 'no-store' },
   );
 
