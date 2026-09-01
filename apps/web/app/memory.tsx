@@ -237,9 +237,13 @@ function firstLine(text: string): string {
 
 /**
  * One proposal: the diff against what the memory said when it was written,
- * and the three answers. Accept takes the agent's words verbatim; edit opens
- * them for correction first — and the proposal keeps the agent's own words,
- * so what the engineer changed stays checkable.
+ * and the answers. Accept takes the agent's words verbatim; edit opens them
+ * for correction first — and the proposal keeps the agent's own words, so
+ * what the engineer changed stays checkable.
+ *
+ * Once the memory has moved past the base, that diff describes a commit that
+ * cannot happen: the API refuses the accept (issue #42), so only rejecting
+ * is offered and the card says why.
  */
 function ProposalCard({
   projectId,
@@ -286,18 +290,7 @@ function ProposalCard({
             against an older version, so this cannot be accepted — reject it
             and ask the agent again.
           </p>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            onClick={() =>
-              start(async () => {
-                await rejectMemoryProposal(projectId, proposal.id);
-              })
-            }
-          >
-            Reject
-          </Button>
+          <Reject projectId={projectId} proposal={proposal} pending={pending} start={start} />
         </div>
       ) : editing ? (
         <EditAndAccept projectId={projectId} proposal={proposal} />
@@ -322,21 +315,41 @@ function ProposalCard({
           >
             Edit and accept
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            onClick={() =>
-              start(async () => {
-                await rejectMemoryProposal(projectId, proposal.id);
-              })
-            }
-          >
-            Reject
-          </Button>
+          <Reject projectId={projectId} proposal={proposal} pending={pending} start={start} />
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * Declining, which both footers offer: the stale one because it is the only
+ * way on, and the ordinary one beside accepting.
+ */
+function Reject({
+  projectId,
+  proposal,
+  pending,
+  start,
+}: {
+  projectId: string;
+  proposal: MemoryProposal;
+  pending: boolean;
+  start: (action: () => Promise<void>) => void;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={pending}
+      onClick={() =>
+        start(async () => {
+          await rejectMemoryProposal(projectId, proposal.id);
+        })
+      }
+    >
+      Reject
+    </Button>
   );
 }
 

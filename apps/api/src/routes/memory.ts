@@ -135,7 +135,7 @@ function proposalOnTheWire(proposal: StoredProposal, current: string | null) {
 }
 
 /**
- * The order a project's memory reads in, oldest first — and a **total** one.
+ * The order the history reads in, oldest first — and a **total** one.
  *
  * `created_at` is `TIMESTAMP(3)`, so two versions written in the same
  * millisecond tie, and the `id` this used to fall back on is a random v4
@@ -148,44 +148,62 @@ const OLDEST_FIRST = [
   { seq: 'asc' },
 ] satisfies Prisma.ProjectMemoryVersionOrderByWithRelationInput[];
 
-/** The same order reversed, for reading the current memory on its own. */
+/**
+ * That order reversed, which is what picks the current memory. It must stay
+ * an exact reverse of `OLDEST_FIRST`: the history's last row and the current
+ * memory are the same row, and a key added to one and not the other would
+ * split them — the split this change exists to close. A test writes five
+ * versions in one millisecond and asserts both readings agree.
+ */
 const NEWEST_FIRST = [
   { createdAt: 'desc' },
   { seq: 'desc' },
 ] satisfies Prisma.ProjectMemoryVersionOrderByWithRelationInput[];
 
 /**
- * What the memory says now, or null where it says nothing yet — the base a
- * proposal is written against, and the base an accept is checked against.
- * One function, so those two cannot come to read the versions differently.
+ * Which version is current, read in **one place**: the memory read, the base
+ * a proposal is written against and the base an accept is checked against
+ * all come through here, so they cannot come to disagree about which row it
+ * is. The one other order in this file is the history's, and it is this one
+ * reversed.
  */
+async function currentVersion(
+  prisma: Prisma.TransactionClient,
+  projectId: string,
+) {
+  return prisma.projectMemoryVersion.findFirst({
+    where: { projectId },
+    orderBy: NEWEST_FIRST,
+    select: { content: true, createdAt: true },
+  });
+}
+
+/** What the memory says now, or null where it says nothing yet. */
 async function currentContent(
   prisma: Prisma.TransactionClient,
   projectId: string,
 ): Promise<string | null> {
-  const current = await prisma.projectMemoryVersion.findFirst({
-    where: { projectId },
-    orderBy: NEWEST_FIRST,
-    select: { content: true },
-  });
-  return current?.content ?? null;
+  return (await currentVersion(prisma, projectId))?.content ?? null;
 }
 
 /**
  * The memory read shared by the GET route and the write route's answer: the
  * latest version's content, the count, and the size against the budget.
+ *
+ * The current version is read through `currentVersion` and the count is
+ * counted, rather than every version being loaded and its last taken: a
+ * second way to work out which row is current is a second thing that can be
+ * wrong about it, which is what issue #42 was.
  */
 async function readMemory(prisma: RouteDependencies['prisma'], projectId: string) {
-  const versions = await prisma.projectMemoryVersion.findMany({
-    where: { projectId },
-    orderBy: OLDEST_FIRST,
-    select: versionSelect,
-  });
-  const current = versions.at(-1);
+  const [current, versions] = await Promise.all([
+    currentVersion(prisma, projectId),
+    prisma.projectMemoryVersion.count({ where: { projectId } }),
+  ]);
   return {
     projectId,
     content: current?.content ?? null,
-    versions: versions.length,
+    versions,
     size: current?.content.length ?? 0,
     budget: MEMORY_BUDGET,
     versionedAt: current?.createdAt ?? null,
@@ -572,10 +590,9 @@ export function memoryRoutes(
         }
         throw error;
       }
-      return proposalOnTheWire(
-        { ...proposal, rejectedAt: at },
-        await currentContent(prisma, proposal.projectId),
-      );
+      // Resolved, so `stale` is false whatever the memory now says: no read
+      // is made for a value that cannot change the answer.
+      return proposalOnTheWire({ ...proposal, rejectedAt: at }, null);
     },
   );
 
