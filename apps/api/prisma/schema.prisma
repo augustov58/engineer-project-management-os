@@ -164,7 +164,7 @@ model Submission {
   /// read, for the reason `currently provisional` is derived (ADR-0027): a
   /// stored flag would be a second place for the same fact to be wrong.
   supersedesId String?     @unique @map("supersedes_id")
-  supersedes   Submission? @relation("Supersede", fields: [supersedesId], references: [id])
+  supersedes   Submission? @relation("Supersede", fields: [supersedesId], references: [id], onDelete: Restrict)
   supersededBy Submission? @relation("Supersede")
 
   openItems         SubmissionOpenItem[]
@@ -740,7 +740,7 @@ model Photo {
   /// Binding here writes nothing to the issue and creates no **sighting**: a
   /// sighting is an observation (ADR-0031), and a filename is not one.
   issueId String? @map("issue_id")
-  issue   Issue?  @relation(fields: [issueId], references: [id])
+  issue   Issue?  @relation(fields: [issueId], references: [id], onDelete: Restrict)
 
   /// Entry order, so two photographs taken in the same minute do not list at
   /// random.
@@ -1041,7 +1041,7 @@ model RegisterEntry {
   /// that updates a submission — a fact ADR-0026 made true by construction and
   /// a test asserts. Story 35 reads through this same column in reverse.
   submissionId String?     @map("submission_id")
-  submission   Submission? @relation(fields: [submissionId], references: [id])
+  submission   Submission? @relation(fields: [submissionId], references: [id], onDelete: Restrict)
 
   /// The contractual turnaround, in whole days (story 73).
   ///
@@ -1087,7 +1087,7 @@ model RegisterEntry {
   /// successor is created already pointing backwards and nothing ever repoints
   /// it, so a cycle cannot arise and the round it follows is never written to.
   previousRoundId String?        @unique @map("previous_round_id")
-  previousRound   RegisterEntry? @relation("Rounds", fields: [previousRoundId], references: [id])
+  previousRound   RegisterEntry? @relation("Rounds", fields: [previousRoundId], references: [id], onDelete: Restrict)
   nextRound       RegisterEntry? @relation("Rounds")
 
   /// Entry order, so two entries logged in the same minute do not list at
@@ -1388,8 +1388,9 @@ model ProjectMemoryVersion {
   ///
   /// `Restrict` named explicitly, because Prisma defaults an optional
   /// relation to `SetNull` while every foreign key in this schema is RESTRICT
-  /// on delete — and left implicit, the next `migrate dev` would offer to
-  /// rewrite it (the note on `voice_captures.observation_id`).
+  /// on delete but `projects.current_phase_id` — and left implicit, the next
+  /// `migrate dev` rewrites it, which is how four of them were silently
+  /// downgraded in slice 17 and restored here.
   proposalId String?         @unique @map("proposal_id")
   proposal   MemoryProposal? @relation(fields: [proposalId], references: [id], onDelete: Restrict)
 
