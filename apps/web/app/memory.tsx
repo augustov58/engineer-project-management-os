@@ -25,7 +25,8 @@ function summarise(activity: MemoryActivity): string {
     .map((run) => `${run.id}:${run.state}`)
     .concat(
       activity.proposals.map(
-        (proposal) => `${proposal.id}:${proposal.state}`,
+        (proposal) =>
+          `${proposal.id}:${proposal.state}${proposal.stale ? ':stale' : ''}`,
       ),
     )
     .join('|');
@@ -271,7 +272,34 @@ function ProposalCard({
         ))}
       </div>
 
-      {editing ? (
+      {proposal.stale ? (
+        <div className="space-y-2 border-t px-4 py-3">
+          {/*
+            The diff above is drawn against the base the proposal snapshotted
+            (ADR-0040), and the memory has moved past it: accepting would
+            commit text composed against an older version and drop what was
+            written in between, so the API refuses it (issue #42). The buttons
+            that would are not offered — the way on is to reject and ask again.
+          */}
+          <p role="alert" className="text-destructive text-sm">
+            The memory has changed since this was proposed. The diff above is
+            against an older version, so this cannot be accepted — reject it
+            and ask the agent again.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                await rejectMemoryProposal(projectId, proposal.id);
+              })
+            }
+          >
+            Reject
+          </Button>
+        </div>
+      ) : editing ? (
         <EditAndAccept projectId={projectId} proposal={proposal} />
       ) : (
         <div className="flex items-center gap-2 border-t px-4 py-2">

@@ -1491,6 +1491,8 @@ export interface MemoryProposalResponse {
   acceptedAt: string | null;
   rejectedAt: string | null;
   state: 'pending' | 'accepted' | 'rejected';
+  /** Whether the memory has moved since `baseContent` was snapshotted. */
+  stale: boolean;
 }
 
 /** One line of the append-only audit record. */

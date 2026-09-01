@@ -1472,10 +1472,21 @@ model ProjectMemoryVersion {
   proposal   MemoryProposal? @relation(fields: [proposalId], references: [id], onDelete: Restrict)
 
   /// When this state of the memory was written. From the injected TimeSource
-  /// and never a database default (ADR-0022). Also the ordering: two versions
-  /// written in the same instant list by insertion, and the current one is
-  /// the last.
+  /// and never a database default (ADR-0022). The first ordering key, and on
+  /// its own not a total one: the column is `TIMESTAMP(3)`, so two versions
+  /// written in the same millisecond tie.
   createdAt DateTime @map("created_at")
+
+  /// The tie-break, and the whole of "written in the same instant, they list
+  /// by insertion" (issue #42). `id` is a random v4 uuid, so ordering by it
+  /// settled such a tie by coin toss and the *older* of two versions could
+  /// read as the current memory; a sequence is allocated in the order the
+  /// inserts were issued.
+  ///
+  /// It is the ordering and nothing else: never an identifier, never on the
+  /// wire, and not a per-project count — `issues_allocated` is a high-water
+  /// mark a human quotes (ADR-0031), and this is a number nobody ever sees.
+  seq Int @default(autoincrement())
 
   @@index([projectId, createdAt])
   @@map("project_memory_versions")
@@ -1530,6 +1541,13 @@ model MemoryProposal {
   /// The resolution: both null while pending, exactly one set once the
   /// engineer has answered. Neither is ever cleared — a resolved proposal is
   /// part of the record, the way a report's failure is (ADR-0035).
+  ///
+  /// **Both set is held by a CHECK** and not by the routes' pending read
+  /// (issue #42): that read is not a bound, and a concurrent accept and
+  /// reject each passed it and each committed, leaving a row that reported
+  /// itself accepted while the audit carried both answers. Each route also
+  /// settles the row by compare-and-set, so the ordinary loser is answered
+  /// 409 and the constraint is the backstop rather than the mechanism.
   acceptedAt DateTime? @map("accepted_at")
   rejectedAt DateTime? @map("rejected_at")
 
