@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'vitest';
 import type { AgentRunService } from '../src/agent.js';
 import {
   createProject,
+  fakeTimeSource,
   heldAgentRunService,
   refusingAgentRunService,
   requestMemoryRun,
@@ -303,6 +304,7 @@ test('a run proposes through the internal API and memory does not move until the
     'proposed',
     'rejectedAt',
     'runId',
+    'stale',
     'state',
   ]);
   expect(proposal.state).toBe('pending');
@@ -606,4 +608,158 @@ test('the stream pushes the runs and proposals as they move', async () => {
   } finally {
     abort.abort();
   }
+});
+
+// ── Three correctness gaps found reviewing this slice (issue #42) ────────
+
+test('accepting against a base the memory has moved past is refused', async () => {
+  const app = await api();
+  const project = await createProject(app, 'M-1', 'Office fit-out');
+  await writeMemory(app, project.id, 'First: sized for 350 A.');
+
+  // The proposal snapshots that as its base — the diff the screen draws.
+  const proposal = await proposed(app, project);
+  expect(proposal.baseContent).toBe('First: sized for 350 A.');
+  expect(proposal.stale).toBe(false);
+
+  // The engineer writes memory directly while the proposal waits.
+  await writeMemory(app, project.id, 'Second: the client chose 400 A.');
+
+  // Accepting now would commit text composed against the first version and
+  // silently drop the second. Refused, verbatim and edited alike.
+  for (const body of [{}, { content: 'Edited from the proposal.' }]) {
+    const refused = await post(
+      app,
+      `/v1/memory-proposals/${proposal.id}/accept`,
+      body,
+    );
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { message: string }).message).toBe(
+      'the memory has changed since that was proposed',
+    );
+  }
+
+  // Nothing moved: the intervening write is still the memory, no version was
+  // written, and the audit carries no accept.
+  const found = await memory(app, project.id);
+  expect(found.content).toBe('Second: the client chose 400 A.');
+  expect(found.versions).toBe(2);
+  expect((await auditTrail(app, project.id)).map((entry) => entry.action)).toEqual([
+    'memory written',
+    'proposal written',
+    'memory written',
+  ]);
+
+  // And the refusal is not an answer: the proposal is still pending, so the
+  // way out is to reject it and ask again.
+  const still = (await proposals(app, project.id)).find(
+    (one) => one.id === proposal.id,
+  );
+  expect(still?.state).toBe('pending');
+  expect(still?.stale).toBe(true);
+  expect(
+    (await post(app, `/v1/memory-proposals/${proposal.id}/reject`)).status,
+  ).toBe(200);
+});
+
+test('stale is derived from what the memory says, and only while pending', async () => {
+  const app = await api();
+  const project = await createProject(app, 'M-1', 'Office fit-out');
+  await writeMemory(app, project.id, 'Sized for 350 A.');
+  const proposal = await proposed(app, project);
+
+  const readBack = async () =>
+    (await proposals(app, project.id)).find((one) => one.id === proposal.id);
+
+  expect((await readBack())?.stale).toBe(false);
+
+  await writeMemory(app, project.id, 'The client chose 400 A.');
+  expect((await readBack())?.stale).toBe(true);
+
+  // Derived from the content and not from which row is latest: a memory
+  // written back to what the base said describes the commit again, so the
+  // diff is honest and the accept is not refused.
+  await writeMemory(app, project.id, 'Sized for 350 A.');
+  const current = await readBack();
+  expect(current?.stale).toBe(false);
+  expect(
+    (await post(app, `/v1/memory-proposals/${proposal.id}/accept`, {})).status,
+  ).toBe(200);
+
+  // A resolved proposal is a record of what happened, not an offer, so it
+  // never reads stale however far the memory moves afterwards.
+  await writeMemory(app, project.id, 'And later, 500 A.');
+  const answered = await readBack();
+  expect(answered?.state).toBe('accepted');
+  expect(answered?.stale).toBe(false);
+});
+
+test('a concurrent accept and reject settle on exactly one answer', async () => {
+  const app = await api();
+  const project = await createProject(app, 'M-1', 'Office fit-out');
+  const proposal = await proposed(app, project);
+
+  // Both pass the pending read; only one may commit. Before the stamps went
+  // into the `where`, both did — the row ended with `accepted_at` and
+  // `rejected_at` set, and the audit carried both answers.
+  const [accept, reject] = await Promise.all([
+    post(app, `/v1/memory-proposals/${proposal.id}/accept`, {}),
+    post(app, `/v1/memory-proposals/${proposal.id}/reject`),
+  ]);
+  expect([accept.status, reject.status].sort()).toEqual([200, 409]);
+
+  const answered = (await proposals(app, project.id)).find(
+    (one) => one.id === proposal.id,
+  );
+  const stamps = [answered?.acceptedAt, answered?.rejectedAt].filter(
+    (stamp) => stamp !== null,
+  );
+  expect(stamps.length).toBe(1);
+
+  // Exactly one audit line, because the loser's rolled back with its update.
+  const trail = await auditTrail(app, project.id);
+  expect(trail.map((entry) => entry.action)).toEqual([
+    'proposal written',
+    accept.status === 200 ? 'proposal accepted' : 'proposal rejected',
+  ]);
+});
+
+test('two concurrent rejects leave one answer and one audit line', async () => {
+  const app = await api();
+  const project = await createProject(app, 'M-1', 'Office fit-out');
+  const proposal = await proposed(app, project);
+
+  const answers = await Promise.all(
+    [0, 1].map(() => post(app, `/v1/memory-proposals/${proposal.id}/reject`)),
+  );
+  expect(answers.map((answer) => answer.status).sort()).toEqual([200, 409]);
+  expect((await auditTrail(app, project.id)).map((entry) => entry.action)).toEqual([
+    'proposal written',
+    'proposal rejected',
+  ]);
+});
+
+test('versions written in the same millisecond list by insertion', async () => {
+  // A frozen clock, never advanced: every version carries the same instant,
+  // which `created_at` holds to the millisecond. The `id` this used to break
+  // ties on is a random uuid, so the order was a coin toss and the current
+  // memory could be the older row.
+  const clock = fakeTimeSource(new Date('2026-09-01T09:00:00.000Z'));
+  const app = await api({ timeSource: clock });
+  const project = await createProject(app, 'M-1', 'Office fit-out');
+
+  const written = ['First.', 'Second.', 'Third.', 'Fourth.', 'Fifth.'];
+  for (const content of written) {
+    await writeMemory(app, project.id, content);
+  }
+
+  const history = await versions(app, project.id);
+  expect(history.map((version) => version.content)).toEqual(written);
+  expect(new Set(history.map((version) => version.createdAt)).size).toBe(1);
+
+  // The current memory is the latest, and the two reads agree.
+  expect((await memory(app, project.id)).content).toBe('Fifth.');
+
+  // And so does the base a proposal is written against.
+  expect((await proposed(app, project)).baseContent).toBe('Fifth.');
 });

@@ -111,37 +111,112 @@ function runOnTheWire(run: StoredRun) {
   return { ...run, state };
 }
 
-/** Pending is both stamps null; resolved is exactly one set. */
-function proposalOnTheWire(proposal: StoredProposal) {
+/**
+ * Pending is both stamps null; resolved is exactly one set.
+ *
+ * `stale` is derived beside the state and stored nowhere: the memory has
+ * moved since this proposal's base was snapshotted, so the diff the review
+ * screen draws no longer describes what accepting would commit, and the
+ * accept route refuses (issue #42). Only a pending proposal can be stale —
+ * a resolved one is a record of what happened, not an offer.
+ */
+function proposalOnTheWire(proposal: StoredProposal, current: string | null) {
   const state =
     proposal.acceptedAt !== null
       ? 'accepted'
       : proposal.rejectedAt !== null
         ? 'rejected'
         : 'pending';
-  return { ...proposal, state };
+  return {
+    ...proposal,
+    state,
+    stale: state === 'pending' && proposal.baseContent !== current,
+  };
+}
+
+/**
+ * The order the history reads in, oldest first — and a **total** one.
+ *
+ * `created_at` is `TIMESTAMP(3)`, so two versions written in the same
+ * millisecond tie, and the `id` this used to fall back on is a random v4
+ * uuid: the tie was settled by coin toss, and the older of the two could
+ * read as the current memory. `seq` is a sequence, allocated in the order
+ * the inserts were issued (issue #42).
+ */
+const OLDEST_FIRST = [
+  { createdAt: 'asc' },
+  { seq: 'asc' },
+] satisfies Prisma.ProjectMemoryVersionOrderByWithRelationInput[];
+
+/**
+ * That order reversed, which is what picks the current memory. It must stay
+ * an exact reverse of `OLDEST_FIRST`: the history's last row and the current
+ * memory are the same row, and a key added to one and not the other would
+ * split them — the split this change exists to close. A test writes five
+ * versions in one millisecond and asserts both readings agree.
+ */
+const NEWEST_FIRST = [
+  { createdAt: 'desc' },
+  { seq: 'desc' },
+] satisfies Prisma.ProjectMemoryVersionOrderByWithRelationInput[];
+
+/**
+ * Which version is current, read in **one place**: the memory read, the base
+ * a proposal is written against and the base an accept is checked against
+ * all come through here, so they cannot come to disagree about which row it
+ * is. The one other order in this file is the history's, and it is this one
+ * reversed.
+ */
+async function currentVersion(
+  prisma: Prisma.TransactionClient,
+  projectId: string,
+) {
+  return prisma.projectMemoryVersion.findFirst({
+    where: { projectId },
+    orderBy: NEWEST_FIRST,
+    select: { content: true, createdAt: true },
+  });
+}
+
+/** What the memory says now, or null where it says nothing yet. */
+async function currentContent(
+  prisma: Prisma.TransactionClient,
+  projectId: string,
+): Promise<string | null> {
+  return (await currentVersion(prisma, projectId))?.content ?? null;
 }
 
 /**
  * The memory read shared by the GET route and the write route's answer: the
  * latest version's content, the count, and the size against the budget.
+ *
+ * The current version is read through `currentVersion` and the count is
+ * counted, rather than every version being loaded and its last taken: a
+ * second way to work out which row is current is a second thing that can be
+ * wrong about it, which is what issue #42 was.
  */
 async function readMemory(prisma: RouteDependencies['prisma'], projectId: string) {
-  const versions = await prisma.projectMemoryVersion.findMany({
-    where: { projectId },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    select: versionSelect,
-  });
-  const current = versions.at(-1);
+  const [current, versions] = await Promise.all([
+    currentVersion(prisma, projectId),
+    prisma.projectMemoryVersion.count({ where: { projectId } }),
+  ]);
   return {
     projectId,
     content: current?.content ?? null,
-    versions: versions.length,
+    versions,
     size: current?.content.length ?? 0,
     budget: MEMORY_BUDGET,
     versionedAt: current?.createdAt ?? null,
   };
 }
+
+/** The two answers a proposal that is no longer answerable gets. */
+const ALREADY_RESOLVED = 'that proposal is already resolved';
+const MEMORY_HAS_MOVED = 'the memory has changed since that was proposed';
+
+/** Thrown inside a transaction to roll it back as one of those two. */
+class AlreadyResolved extends Error {}
+class BaseHasMoved extends Error {}
 
 export function memoryRoutes(
   v1: FastifyInstance,
@@ -225,7 +300,7 @@ export function memoryRoutes(
       }
       return prisma.projectMemoryVersion.findMany({
         where: { projectId: project.id },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        orderBy: OLDEST_FIRST,
         select: versionSelect,
       });
     },
@@ -305,11 +380,7 @@ export function memoryRoutes(
         return reply.code(404).send({ message: 'no agent run with that id' });
       }
 
-      const current = await prisma.projectMemoryVersion.findFirst({
-        where: { projectId: run.projectId },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { content: true },
-      });
+      const current = await currentContent(prisma, run.projectId);
 
       const at = timeSource.now();
       const content = request.body.content;
@@ -319,7 +390,7 @@ export function memoryRoutes(
             data: {
               projectId: run.projectId,
               runId: run.id,
-              baseContent: current?.content ?? null,
+              baseContent: current,
               proposed: content,
               createdAt: at,
             },
@@ -335,7 +406,7 @@ export function memoryRoutes(
           });
           return written;
         });
-        return reply.code(201).send(proposalOnTheWire(proposal));
+        return reply.code(201).send(proposalOnTheWire(proposal, current));
       } catch (error) {
         // Narrowed to the run: one run, at most one proposal.
         if (isUniqueViolation(error)) {
@@ -359,12 +430,15 @@ export function memoryRoutes(
       if (project === null) {
         return noSuchProject(reply);
       }
-      const proposals = await prisma.memoryProposal.findMany({
-        where: { projectId: project.id },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: proposalSelect,
-      });
-      return proposals.map(proposalOnTheWire);
+      const [proposals, current] = await Promise.all([
+        prisma.memoryProposal.findMany({
+          where: { projectId: project.id },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: proposalSelect,
+        }),
+        currentContent(prisma, project.id),
+      ]);
+      return proposals.map((proposal) => proposalOnTheWire(proposal, current));
     },
   );
 
@@ -392,7 +466,7 @@ export function memoryRoutes(
       if (proposal.acceptedAt !== null || proposal.rejectedAt !== null) {
         return reply
           .code(409)
-          .send({ message: 'that proposal is already resolved' });
+          .send({ message: ALREADY_RESOLVED });
       }
 
       const at = timeSource.now();
@@ -400,6 +474,35 @@ export function memoryRoutes(
       const content = edited ?? proposal.proposed;
       try {
         await prisma.$transaction(async (tx) => {
+          // The stamps are put in the `where` and the count checked, so the
+          // answer is written by the same statement that reads it. The
+          // check above is a read and a concurrent reject passed it too
+          // (issue #42); this is what makes the answer exactly one.
+          const settled = await tx.memoryProposal.updateMany({
+            where: { id: proposal.id, acceptedAt: null, rejectedAt: null },
+            data: { acceptedAt: at },
+          });
+          if (settled.count === 0) {
+            throw new AlreadyResolved();
+          }
+
+          // What the diff under review was drawn against, checked against
+          // what the memory says now. The base is snapshotted on purpose
+          // (ADR-0040) and stays snapshotted; what was missing was any
+          // signal that it had gone out of date, and committing text
+          // composed against an older version silently drops whatever was
+          // written in between.
+          //
+          // Read inside the transaction so a write that landed while the
+          // engineer was reading is seen. A direct write that commits
+          // between this read and the version below still slips past —
+          // narrow, and not closed here, because closing it means locking
+          // the project the way `routes/ingest.ts` does and the record this
+          // guards is one engineer's own prose.
+          if ((await currentContent(tx, proposal.projectId)) !== proposal.baseContent) {
+            throw new BaseHasMoved();
+          }
+
           await tx.projectMemoryVersion.create({
             data: {
               projectId: proposal.projectId,
@@ -407,10 +510,6 @@ export function memoryRoutes(
               proposalId: proposal.id,
               createdAt: at,
             },
-          });
-          await tx.memoryProposal.update({
-            where: { id: proposal.id },
-            data: { acceptedAt: at },
           });
           await tx.auditEntry.create({
             data: {
@@ -425,12 +524,15 @@ export function memoryRoutes(
           });
         });
       } catch (error) {
-        if (isUniqueViolation(error)) {
+        if (error instanceof BaseHasMoved) {
+          return reply.code(409).send({ message: MEMORY_HAS_MOVED });
+        }
+        if (error instanceof AlreadyResolved || isUniqueViolation(error)) {
           // The version's `proposal_id` unique lost a race the resolved-check
           // above could not see. Same refusal, later.
           return reply
             .code(409)
-            .send({ message: 'that proposal is already resolved' });
+            .send({ message: ALREADY_RESOLVED });
         }
         throw error;
       }
@@ -456,25 +558,41 @@ export function memoryRoutes(
       if (proposal.acceptedAt !== null || proposal.rejectedAt !== null) {
         return reply
           .code(409)
-          .send({ message: 'that proposal is already resolved' });
+          .send({ message: ALREADY_RESOLVED });
       }
 
       const at = timeSource.now();
-      await prisma.$transaction(async (tx) => {
-        await tx.memoryProposal.update({
-          where: { id: proposal.id },
-          data: { rejectedAt: at },
+      try {
+        await prisma.$transaction(async (tx) => {
+          // Compare-and-set, and first in the transaction so the audit row
+          // rolls back with it: the check above is a read, and a concurrent
+          // accept passed it too — both committed, and the proposal ended
+          // with both stamps and two audit lines (issue #42).
+          const settled = await tx.memoryProposal.updateMany({
+            where: { id: proposal.id, acceptedAt: null, rejectedAt: null },
+            data: { rejectedAt: at },
+          });
+          if (settled.count === 0) {
+            throw new AlreadyResolved();
+          }
+          await tx.auditEntry.create({
+            data: {
+              projectId: proposal.projectId,
+              action: 'proposal rejected',
+              detail: `${proposal.proposed.length} characters declined`,
+              createdAt: at,
+            },
+          });
         });
-        await tx.auditEntry.create({
-          data: {
-            projectId: proposal.projectId,
-            action: 'proposal rejected',
-            detail: `${proposal.proposed.length} characters declined`,
-            createdAt: at,
-          },
-        });
-      });
-      return proposalOnTheWire({ ...proposal, rejectedAt: at });
+      } catch (error) {
+        if (error instanceof AlreadyResolved) {
+          return reply.code(409).send({ message: ALREADY_RESOLVED });
+        }
+        throw error;
+      }
+      // Resolved, so `stale` is false whatever the memory now says: no read
+      // is made for a value that cannot change the answer.
+      return proposalOnTheWire({ ...proposal, rejectedAt: at }, null);
     },
   );
 
@@ -517,7 +635,7 @@ export function memoryRoutes(
       }
       const projectId = project.id;
       await stream(request, reply, async () => {
-        const [runs, proposals] = await Promise.all([
+        const [runs, proposals, current] = await Promise.all([
           prisma.agentRun.findMany({
             where: { projectId },
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -528,10 +646,13 @@ export function memoryRoutes(
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             select: proposalSelect,
           }),
+          currentContent(prisma, projectId),
         ]);
         return {
           runs: runs.map(runOnTheWire),
-          proposals: proposals.map(proposalOnTheWire),
+          proposals: proposals.map((proposal) =>
+            proposalOnTheWire(proposal, current),
+          ),
         };
       });
     },

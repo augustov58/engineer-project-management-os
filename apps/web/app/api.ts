@@ -836,6 +836,12 @@ export interface MemoryProposal {
   acceptedAt: string | null;
   rejectedAt: string | null;
   state: 'pending' | 'accepted' | 'rejected';
+  /**
+   * The memory has moved since `baseContent` was snapshotted, so the diff
+   * below no longer describes what accepting would commit — and the API
+   * refuses it (issue #42). Only a pending proposal is ever stale.
+   */
+  stale: boolean;
 }
 
 /** One line of the append-only audit record, oldest first. */

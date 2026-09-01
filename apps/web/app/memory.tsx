@@ -25,7 +25,8 @@ function summarise(activity: MemoryActivity): string {
     .map((run) => `${run.id}:${run.state}`)
     .concat(
       activity.proposals.map(
-        (proposal) => `${proposal.id}:${proposal.state}`,
+        (proposal) =>
+          `${proposal.id}:${proposal.state}${proposal.stale ? ':stale' : ''}`,
       ),
     )
     .join('|');
@@ -236,9 +237,13 @@ function firstLine(text: string): string {
 
 /**
  * One proposal: the diff against what the memory said when it was written,
- * and the three answers. Accept takes the agent's words verbatim; edit opens
- * them for correction first — and the proposal keeps the agent's own words,
- * so what the engineer changed stays checkable.
+ * and the answers. Accept takes the agent's words verbatim; edit opens them
+ * for correction first — and the proposal keeps the agent's own words, so
+ * what the engineer changed stays checkable.
+ *
+ * Once the memory has moved past the base, that diff describes a commit that
+ * cannot happen: the API refuses the accept (issue #42), so only rejecting
+ * is offered and the card says why.
  */
 function ProposalCard({
   projectId,
@@ -271,7 +276,23 @@ function ProposalCard({
         ))}
       </div>
 
-      {editing ? (
+      {proposal.stale ? (
+        <div className="space-y-2 border-t px-4 py-3">
+          {/*
+            The diff above is drawn against the base the proposal snapshotted
+            (ADR-0040), and the memory has moved past it: accepting would
+            commit text composed against an older version and drop what was
+            written in between, so the API refuses it (issue #42). The buttons
+            that would are not offered — the way on is to reject and ask again.
+          */}
+          <p role="alert" className="text-destructive text-sm">
+            The memory has changed since this was proposed. The diff above is
+            against an older version, so this cannot be accepted — reject it
+            and ask the agent again.
+          </p>
+          <Reject projectId={projectId} proposal={proposal} pending={pending} start={start} />
+        </div>
+      ) : editing ? (
         <EditAndAccept projectId={projectId} proposal={proposal} />
       ) : (
         <div className="flex items-center gap-2 border-t px-4 py-2">
@@ -294,21 +315,41 @@ function ProposalCard({
           >
             Edit and accept
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            onClick={() =>
-              start(async () => {
-                await rejectMemoryProposal(projectId, proposal.id);
-              })
-            }
-          >
-            Reject
-          </Button>
+          <Reject projectId={projectId} proposal={proposal} pending={pending} start={start} />
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * Declining, which both footers offer: the stale one because it is the only
+ * way on, and the ordinary one beside accepting.
+ */
+function Reject({
+  projectId,
+  proposal,
+  pending,
+  start,
+}: {
+  projectId: string;
+  proposal: MemoryProposal;
+  pending: boolean;
+  start: (action: () => Promise<void>) => void;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={pending}
+      onClick={() =>
+        start(async () => {
+          await rejectMemoryProposal(projectId, proposal.id);
+        })
+      }
+    >
+      Reject
+    </Button>
   );
 }
 
