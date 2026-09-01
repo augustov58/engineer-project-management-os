@@ -8,6 +8,14 @@ export interface Project {
   archivedAt: string | null;
   /** The phase a new submission defaults to. Null until one is chosen. */
   currentPhaseId: string | null;
+  /**
+   * Where mail is forwarded to have it land on this job (issue #19).
+   *
+   * Composed by the API from a secret token it never sends on its own, and
+   * null where the deployment has no ingest domain configured — which is the
+   * honest answer rather than a plausible address that receives nothing.
+   */
+  ingestAddress: string | null;
 }
 
 /** Every call goes through the versioned prefix the API serves. */
@@ -839,4 +847,44 @@ export function listMemoryProposals(
 /** The audit of every memory mutation, in the order it happened. */
 export function listMemoryAudit(projectId: string): Promise<AuditEntry[]> {
   return read<AuditEntry[]>(`/projects/${projectId}/memory/audit`);
+}
+
+// ── What has arrived from outside (issue #19) ────────────────────────────────
+
+export interface IngestedDocumentFile {
+  id: string;
+  ingestedDocumentId: string;
+  filename: string;
+  /** What the sender claimed it is. Kept as data, never trusted as a type. */
+  contentType: string;
+  byteSize: number;
+  createdAt: string;
+}
+
+/**
+ * A document that arrived from outside, before anything has read it.
+ *
+ * Deliberately not a `StoredDocument`: it has no title, no revision and no
+ * referenced-file answer, and all three are extraction's to propose and the
+ * engineer's to confirm (ADR-0042). The envelope is null on the manual path
+ * and the note is null on the mail path.
+ */
+export interface IngestedDocument {
+  id: string;
+  projectId: string;
+  source: 'EMAIL' | 'MANUAL';
+  arrivedAt: string;
+  sender: string | null;
+  recipient: string | null;
+  subject: string | null;
+  body: string | null;
+  note: string | null;
+  files: IngestedDocumentFile[];
+}
+
+/** Reached through the job, as everything else here is (ADR-0019). */
+export function listIngestedDocuments(
+  projectId: string,
+): Promise<IngestedDocument[]> {
+  return read<IngestedDocument[]>(`/projects/${projectId}/ingested-documents`);
 }

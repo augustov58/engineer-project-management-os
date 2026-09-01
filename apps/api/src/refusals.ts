@@ -120,6 +120,13 @@ export function noSuchDocumentVersion(reply: FastifyReply) {
   return reply.code(404).send({ message: NO_SUCH_DOCUMENT_VERSION });
 }
 
+/** One file carried by an arrival (issue #19). */
+export function noSuchIngestedDocumentFile(reply: FastifyReply) {
+  return reply
+    .code(404)
+    .send({ message: 'no ingested document file with that id' });
+}
+
 /** The one 404 body for site visit reports, matching the others. */
 export function noSuchSiteVisitReport(reply: FastifyReply) {
   return reply

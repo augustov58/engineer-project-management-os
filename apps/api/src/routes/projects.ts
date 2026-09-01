@@ -1,5 +1,6 @@
 /** The project record: the row every other record hangs off (issue #3). */
 
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { type RouteDependencies, isUniqueViolation } from '../http.js';
 import { noSuchProject } from '../refusals.js';
@@ -31,9 +32,25 @@ const listQuerySchema = {
   properties: { archived: { type: 'boolean', default: false } },
 } as const;
 
+/**
+ * The secret half of a job's forward-to-ingest address (issue #19, story 83).
+ *
+ * Twenty-four bytes from the CSPRNG, base64url so it is safe as an email
+ * local part and as a path segment. It is the only credential on a path that
+ * bypasses the interface entirely — ADR-0020 carves the ingest addresses out
+ * of the edge gate by name and says their unguessability stays load-bearing —
+ * so this comes from `randomBytes` and never from `Math.random`, and it
+ * shares nothing with the project number, which ADR-0009's
+ * `rfi+{project-key}@...` sketch would have made guessable off any document
+ * header (ADR-0042).
+ */
+function newIngestToken(): string {
+  return randomBytes(24).toString('base64url');
+}
+
 export function projectRoutes(
   v1: FastifyInstance,
-  { prisma, timeSource }: RouteDependencies,
+  { prisma, timeSource, ingestDomain }: RouteDependencies,
 ): void {
   v1.post<{ Body: { projectNumber: string; name: string } }>(
     '/projects',
@@ -45,6 +62,10 @@ export function projectRoutes(
           data: {
             ...request.body,
             createdAt: now,
+            // Written with the job, as the two registers are: there is no
+            // route that issues one afterwards and no state in which a
+            // project has no address (issue #19).
+            ingestToken: newIngestToken(),
             // Both correspondence logs, written with the job and never
             // afterwards (issue #14). Which types exist is a fact about the
             // product rather than a choice about a job, so there is no route
@@ -58,7 +79,7 @@ export function projectRoutes(
             },
           },
         });
-        return reply.code(201).send(projectOnTheWire(project));
+        return reply.code(201).send(projectOnTheWire(project, ingestDomain));
       } catch (error) {
         if (isUniqueViolation(error)) {
           return reply
@@ -88,7 +109,7 @@ export function projectRoutes(
             : { archivedAt: null },
           orderBy: { createdAt: 'asc' },
         })
-      ).map(projectOnTheWire),
+      ).map((one) => projectOnTheWire(one, ingestDomain)),
   );
 
   /** Archived projects are readable here; only the list hides them. */
@@ -100,7 +121,7 @@ export function projectRoutes(
       });
       return project === null
         ? noSuchProject(reply)
-        : projectOnTheWire(project);
+        : projectOnTheWire(project, ingestDomain);
     },
   );
 
@@ -121,7 +142,7 @@ export function projectRoutes(
       const project = await prisma.project.findUnique({ where: { id } });
       return project === null
         ? noSuchProject(reply)
-        : projectOnTheWire(project);
+        : projectOnTheWire(project, ingestDomain);
     },
   );
 

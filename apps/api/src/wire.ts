@@ -10,8 +10,8 @@
 import { Prisma, type SiteVisitReport } from '../generated/prisma/client.js';
 
 /**
- * A project as it goes out, which is the whole row **minus**
- * `issuesAllocated`.
+ * A project as it goes out: the whole row **minus** `issuesAllocated`, and
+ * with `ingestToken` swapped for the address composed from it.
  *
  * Named for the wire rather than for the transformation, and the only helper
  * here that removes a field where `withDate`, `withLocation` and
@@ -28,11 +28,22 @@ import { Prisma, type SiteVisitReport } from '../generated/prisma/client.js';
  * Every route that returns a project calls it, and one test asserts the exact
  * key set of all five.
  */
-export function projectOnTheWire<T extends { issuesAllocated: number }>(
-  project: T,
-) {
-  const { issuesAllocated: _sequence, ...onTheWire } = project;
-  return onTheWire;
+export function projectOnTheWire<
+  T extends { issuesAllocated: number; ingestToken: string },
+>(project: T, ingestDomain: string | null) {
+  const { issuesAllocated: _sequence, ingestToken, ...onTheWire } = project;
+  return {
+    ...onTheWire,
+    // The token is the only credential on a path that bypasses the interface
+    // entirely, so it goes out composed or not at all (issue #19, ADR-0042).
+    //
+    // Null where no domain is configured, which is the honest answer: a
+    // plausible-looking address on a deployment that receives no mail is one
+    // the engineer would forward to, and the mail would go nowhere. It reads
+    // as the omission it is, the way stripping `issuesAllocated` does.
+    ingestAddress:
+      ingestDomain === null ? null : `${ingestToken}@${ingestDomain}`,
+  };
 }
 
 /**
