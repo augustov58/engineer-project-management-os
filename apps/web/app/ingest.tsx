@@ -1,4 +1,6 @@
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { requestExtractionFromFile } from './actions';
 import type { IngestedDocument } from './api';
 
 /** Bytes as a person reads them, matching the documents list. */
@@ -78,7 +80,8 @@ function Envelope({ arrival }: { arrival: IngestedDocument }) {
  *
  * Deliberately not the documents list: these carry no title, no revision and
  * no referenced-file answer, because nobody has looked at them. Extraction
- * proposes those and the engineer confirms them, which is the next ticket.
+ * proposes those and the engineer confirms them (issue #20) — the Extract
+ * action on a file asks for it.
  */
 export function IngestedDocumentList({
   arrivals,
@@ -118,7 +121,7 @@ export function IngestedDocumentList({
           {arrival.files.length > 0 && (
             <ul className="space-y-1 border-t pt-3">
               {arrival.files.map((file) => (
-                <li key={file.id} className="text-sm">
+                <li key={file.id} className="flex flex-wrap items-center gap-2 text-sm">
                   <a
                     className="underline underline-offset-4"
                     href={`/ingested-document-files/${file.id}/bytes`}
@@ -130,6 +133,23 @@ export function IngestedDocumentList({
                   <span className="text-muted-foreground ml-2 text-xs">
                     {file.contentType} &middot; {size(file.byteSize)}
                   </span>
+                  {/*
+                    Asking for an extraction over this file (story 84). Manual
+                    and per file: the engineer picks which file is the
+                    correspondence — the covering note and the referenced
+                    drawings are not (ADR-0043).
+                  */}
+                  <form
+                    action={requestExtractionFromFile.bind(
+                      null,
+                      arrival.projectId,
+                      file.id,
+                    )}
+                  >
+                    <Button type="submit" variant="ghost" size="sm">
+                      Extract
+                    </Button>
+                  </form>
                 </li>
               ))}
             </ul>

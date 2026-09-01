@@ -371,15 +371,12 @@ test('the bytes of no version are a 404', async () => {
 
 // ── A referenced file is never an extraction target ──────────────────────
 
-// What these prove and what they do not: there is no extraction queue — no job
-// name, no worker branch, nothing named extract anywhere in the API — so the
-// subject here is the **list a future enqueuer reads**, not the enqueue. That
-// is deliberate. Asserting "adding a document queued no job" would need the
-// harness past the HTTP seam, which ADR-0012 opened for exactly one schema
-// invariant and narrowed to `tableNames()`; and such a guard would have to be
-// edited by the very ticket that adds extraction, which makes it a tripwire
-// rather than a statement of the property. The property that survives step 5
-// is the one below: a referenced file is not in the list.
+// What these prove: the list the enqueuer reads excludes a referenced file,
+// and the enqueuer itself — `POST /documents/:id/extractions`, arrived with
+// issue #20 — refuses one, so "a referenced file is never enqueued" holds at
+// the write as well as at the read (ADR-0043). The enqueue's own behaviour is
+// extraction's ticket and lives in extractions.test.ts; what survives here is
+// the property: a referenced file is not in the list, and cannot be sent.
 
 test('a referenced file is never an extraction target', async () => {
   const app = await api();
@@ -398,6 +395,10 @@ test('a referenced file is never an extraction target', async () => {
   // extraction would ever be pointed at.
   expect(await documentsOn(app, project.id)).toEqual([drawings, transmittal]);
   expect(await extractionTargets(app, project.id)).toEqual([transmittal]);
+
+  // And the enqueuer itself refuses it (the write half of the same fact).
+  const refused = await post(app, `/v1/documents/${drawings.id}/extractions`);
+  expect(refused.status).toBe(409);
 });
 
 test('a version added to a referenced file is no more of a target', async () => {

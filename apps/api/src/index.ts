@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { agentRunServiceFromEnv } from './agent.js';
 import { inboundMailProviderFromEnv } from './inbound-mail.js';
+import { ocrProviderFromEnv } from './ocr.js';
 import { createRuntime } from './runtime.js';
 import { buildServer } from './server.js';
 import { systemTimeSource } from './time-source.js';
@@ -53,8 +54,8 @@ const app = buildServer({
 });
 
 /**
- * The transcription, rendering and memory-run worker, in this process
- * (issues #12, #13, #18).
+ * The transcription, rendering, memory-run and extraction worker, in this
+ * process (issues #12, #13, #18, #20).
  *
  * One process for a single-user tool (ADR-0012), and the same dependencies
  * the server is handed — which is what lets the test harness run a real
@@ -65,6 +66,10 @@ const worker = buildWorker({
   prisma: runtime.prisma,
   objectStore: runtime.objectStore,
   transcriber: transcriberFromEnv(),
+  // No adapter is written, so this refuses unless OCR=stub, and no
+  // document's content leaves the process until one is (issue #20, ADR-0043)
+  // — which is the consent gate, kept the way ADR-0042 keeps it for mail.
+  ocr: ocrProviderFromEnv(),
   agentRunService: agentRunServiceFromEnv({
     // Where the domain tools reach the internal API from this process: the
     // server below, which binds loopback on the configured port.

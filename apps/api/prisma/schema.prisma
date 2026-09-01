@@ -87,6 +87,10 @@ model Project {
   agentRuns       AgentRun[]
   auditEntries    AuditEntry[]
 
+  /// The extractions asked for on this job (issue #20): one row per run,
+  /// whether its source was an arrival's file or a stored document's version.
+  extractions RegisterEntryExtraction[]
+
   @@map("projects")
 }
 
@@ -1121,6 +1125,11 @@ model RegisterEntry {
   /// answered by (story 97). The `register_entry_open_items` shape exactly.
   documentVersions RegisterEntryDocumentVersion[]
 
+  /// The extraction whose confirmation wrote this entry, if one did (issue
+  /// #20). Unique from the extraction's side: an extraction commits at most
+  /// one entry.
+  extraction RegisterEntryExtraction?
+
   @@unique([registerId, number])
   @@index([registerId, createdAt])
   @@map("register_entries")
@@ -1323,6 +1332,9 @@ model DocumentVersion {
 
   submissions     SubmissionDocumentVersion[]
   registerEntries RegisterEntryDocumentVersion[]
+
+  /// The extractions that read this version (issue #20).
+  extractions RegisterEntryExtraction[]
 
   @@unique([documentId, revision])
   @@index([documentId, createdAt])
@@ -1668,6 +1680,99 @@ model IngestedDocumentFile {
 
   createdAt DateTime @map("created_at")
 
+  /// The extractions that read this file (issue #20). Nothing deletes a
+  /// file, so the relation is RESTRICT like every other here.
+  extractions RegisterEntryExtraction[]
+
   @@index([ingestedDocumentId, createdAt])
   @@map("ingested_document_files")
+}
+
+/// One extraction: a queued run over one untrusted source that proposes the
+/// typed fields of a register entry, and the engineer's answer to that
+/// proposal (issue #20, stories 84-90; ADR-0043).
+///
+/// One table carries the run, the proposal and the resolution, and there is
+/// deliberately **no status column**: queued, running, finished, failed,
+/// pending, confirmed and rejected are derived on every read from the stamps
+/// below — the fifth record asked for a status and the fifth to refuse
+/// (ADR-0024, ADR-0031, ADR-0034, ADR-0035). `agent_runs` was not reused,
+/// because it has no kind column and a memory screen reading it per project
+/// could not keep an extraction run out of its list; a separate proposals
+/// table was not split off, because nothing here wants the memory split's
+/// reasons — there is no base to snapshot and no second record the proposal
+/// becomes a key of.
+///
+/// **Nothing edits an extraction and nothing deletes one.** A second run over
+/// the same source is another row — there is no retry route, ADR-0035's
+/// reason: every input is still in the database.
+model RegisterEntryExtraction {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// What was read: exactly one of the two, held by a CHECK in the
+  /// migration. **One file of an arrival** — OCR reads a file and the review
+  /// screen shows a file, so the source is file-level rather than
+  /// arrival-level. **One version of a document** — a version is immutable,
+  /// so the row records what was read and a later revision cannot move the
+  /// record underneath it (ADR-0039's reason for versions existing).
+  ingestedDocumentFileId String?               @map("ingested_document_file_id")
+  ingestedDocumentFile   IngestedDocumentFile? @relation(fields: [ingestedDocumentFileId], references: [id], onDelete: Restrict)
+  documentVersionId      String?               @map("document_version_id")
+  documentVersion        DocumentVersion?      @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
+
+  /// What the OCR step read, stored for audit (ADR-0008) and never rewritten:
+  /// the engineer's correction happens at confirmation, and both facts are
+  /// kept — ADR-0034's transcript posture for a third record. Also what the
+  /// confirmation screen reviews against (ADR-0043).
+  ocrText String? @map("ocr_text")
+
+  /// The run's stamps. Queued is all four null; the proposal, if one comes,
+  /// arrives *during* the run through the agent's `extraction_propose` tool
+  /// calling the internal API.
+  runningSince DateTime? @map("running_since")
+  finishedAt   DateTime? @map("finished_at")
+
+  /// Why the run could not finish, in the OCR provider's or the agent
+  /// service's own words, bounded.
+  failedAt DateTime? @map("failed_at")
+  failure  String?
+
+  /// When the proposal landed, and what it proposed: the register entry's
+  /// fields, plus on the arrival path the document's title and revision —
+  /// the two fields ADR-0042 named as extraction's to propose. All null
+  /// until proposed; a run that finished without proposing is the honest
+  /// "the agent found no correspondence here".
+  proposedKind            RegisterKind? @map("proposed_kind")
+  proposedAt              DateTime?     @map("proposed_at")
+  proposedNumber          String?       @map("proposed_number")
+  proposedSubject         String?       @map("proposed_subject")
+  proposedFromParty       String?       @map("proposed_from_party")
+  proposedToParty         String?       @map("proposed_to_party")
+  proposedQuestion        String?       @map("proposed_question")
+  proposedResponse        String?       @map("proposed_response")
+  proposedTurnaroundDays  Int?          @map("proposed_turnaround_days")
+  proposedParty           String?       @map("proposed_party")
+  proposedInOurCourt      Boolean?      @map("proposed_in_our_court")
+  proposedHeldSince       DateTime?     @map("proposed_held_since")
+  proposedTitle           String?       @map("proposed_title")
+  proposedRevision        String?       @map("proposed_revision")
+
+  /// The resolution. Confirming writes the document (arrival path), the
+  /// register entry with its first handoff, and the link between them in one
+  /// transaction, and stamps both columns here; rejecting stamps the one.
+  /// Exactly one of the three is ever set — a second answer is refused, as a
+  /// response and a disposition are.
+  confirmedAt     DateTime?      @map("confirmed_at")
+  registerEntryId String?        @unique @map("register_entry_id")
+  registerEntry   RegisterEntry? @relation(fields: [registerEntryId], references: [id], onDelete: Restrict)
+  rejectedAt      DateTime?      @map("rejected_at")
+
+  /// When it was asked for. Entry order.
+  createdAt DateTime @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@map("register_entry_extractions")
 }

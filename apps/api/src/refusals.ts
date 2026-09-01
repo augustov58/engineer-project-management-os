@@ -127,6 +127,11 @@ export function noSuchSiteVisitReport(reply: FastifyReply) {
     .send({ message: 'no site visit report with that id' });
 }
 
+/** The one 404 body for extractions, matching the others. */
+export function noSuchExtraction(reply: FastifyReply) {
+  return reply.code(404).send({ message: 'no extraction with that id' });
+}
+
 export async function phaseRefusal(
   prisma: PrismaClient,
   phaseId: string,

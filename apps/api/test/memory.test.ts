@@ -7,6 +7,7 @@ import {
   requestMemoryRun,
   sseFrames,
   startTestApi,
+  until,
   writeMemory,
   type AgentRunResponse,
   type AuditEntryResponse,
@@ -77,28 +78,10 @@ async function auditTrail(app: TestApi, projectId: string) {
 }
 
 /**
- * Waits for a background job to change a record, which is not the same thing
- * as waiting for time to pass — the helper voice.test.ts wrote, copied for
- * the same reason: what is being waited on is a real BullMQ worker over a
- * real Redis picking a job up, and there is no fake that could stand in for
- * it without the test no longer exercising the queue.
+ * The wait for a background job lives in the harness as `until` — this file's
+ * copy moved there when extractions.test.ts became the next reader, the
+ * trigger ADR-0033 names.
  */
-async function until<T>(
-  read: () => Promise<T | undefined>,
-  what: string,
-): Promise<T> {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    const value = await read();
-    if (value !== undefined) {
-      return value;
-    }
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
 
 /** The run, once it has reached the state the test is about. */
 async function runReaches(
@@ -515,6 +498,8 @@ test('the agent is handed the run and the project, and never the database', asyn
       seen.push(request);
       return Promise.resolve();
     },
+    // Not this ticket's run; the port is two methods since issue #20.
+    extractRegisterEntry: () => Promise.resolve(),
   };
   const app = await api({ agentRunService: recording });
   const project = await createProject(app, 'M-1', 'Office fit-out');

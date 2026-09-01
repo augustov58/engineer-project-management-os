@@ -33,8 +33,13 @@ import {
  * section or a schedule arrives as Word or Excel. Anything else is not a
  * document this ticket names, and widening the set is a migration rather than
  * a string a caller invents.
+ *
+ * Exported for `routes/extractions.ts`, whose confirmation writes a document
+ * version out of an arrival's file and must refuse what this set refuses —
+ * the shape ADR-0030 gave `observationBodySchema`, where the second writer of
+ * a table reads the first writer's boundary rather than restating it.
  */
-const DOCUMENT_CONTENT_TYPES = [
+export const DOCUMENT_CONTENT_TYPES = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -458,14 +463,12 @@ export function documentRoutes(
    * The documents on this job that extraction would ever be pointed at —
    * which is every one that is **not** a referenced file.
    *
-   * A read over what is already stored. It queues nothing, adds no job name
-   * and no worker, and reads no document's contents; step 5's extraction pass
-   * is gated on employer consent and this is not.
-   *
-   * It exists so that the exclusion is **one predicate in one place** rather
-   * than a `where` clause copied into a worker that does not exist yet, and so
-   * that "a referenced file is never enqueued" is something a test can stand
-   * in front of today. When the enqueuer arrives it reads this list.
+   * A read over what is already stored. It queues nothing itself and reads
+   * no document's contents; the extraction pass is issue #20's and this list
+   * is the one predicate its enqueuer reads — `POST /documents/:id/extractions`
+   * refuses a referenced file for the same reason this list excludes it, so
+   * "a referenced file is never enqueued" holds at the write as well as at
+   * the read (ADR-0043).
    *
    * Scoped to a project and deliberately **not** offered across every job.
    * Exposure and the clock are the two daily lists (ADR-0016, ADR-0038); a
