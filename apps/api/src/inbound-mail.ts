@@ -50,8 +50,16 @@ export interface InboundMailProvider {
    */
   readonly configured: boolean;
 
-  /** Throws on a payload it cannot read. */
-  read(payload: unknown): InboundMessage;
+  /**
+   * Throws on a payload it cannot read.
+   *
+   * Takes the headers as well as the body, which the stub ignores. A real
+   * provider signs its webhooks and the signature travels in a header, and
+   * this is the one route reachable without whatever ADR-0020 puts in front
+   * of the API — so an adapter that could not see them could not verify one,
+   * and the port would have to change on the day a vendor is picked.
+   */
+  read(payload: unknown, headers: Record<string, unknown>): InboundMessage;
 }
 
 export const unconfiguredInboundMailProvider: InboundMailProvider = {
@@ -60,6 +68,11 @@ export const unconfiguredInboundMailProvider: InboundMailProvider = {
     throw new Error('no inbound mail provider is configured');
   },
 };
+
+/** Bounds on the text an untrusted sender can make this store (ADR-0042). */
+const SUBJECT_MAX = 1000;
+
+const BODY_MAX = 262_144;
 
 function fields(payload: unknown): Record<string, unknown> {
   if (typeof payload !== 'object' || payload === null) {
@@ -75,12 +88,23 @@ function text(value: unknown, name: string): string {
   return value;
 }
 
-function optionalText(value: unknown, name: string): string | undefined {
+function optionalText(
+  value: unknown,
+  name: string,
+  limit: number,
+): string | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
   if (typeof value !== 'string') {
     throw new Error(`the webhook payload's ${name} is not text`);
+  }
+  // Refused and never truncated: a silently shortened body is a record that
+  // says something the sender did not, which is the failure ADR-0039 found in
+  // the loose base64 pattern. The manual path's note is capped the same way,
+  // by its body schema.
+  if (value.length > limit) {
+    throw new Error(`the webhook payload's ${name} is too long`);
   }
   return value;
 }
@@ -110,6 +134,7 @@ function file(value: unknown, index: number): InboundFile {
  */
 export const stubInboundMailProvider: InboundMailProvider = {
   configured: true,
+  // The headers are the second argument and this one has no use for them.
   read: (payload) => {
     const message = fields(payload);
     const files = message['files'] ?? [];
@@ -119,8 +144,8 @@ export const stubInboundMailProvider: InboundMailProvider = {
     return {
       recipient: text(message['to'], 'recipient'),
       sender: text(message['from'], 'sender'),
-      subject: optionalText(message['subject'], 'subject'),
-      body: optionalText(message['text'], 'body'),
+      subject: optionalText(message['subject'], 'subject', SUBJECT_MAX),
+      body: optionalText(message['text'], 'body', BODY_MAX),
       files: files.map(file),
     };
   },

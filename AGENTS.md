@@ -563,10 +563,39 @@ See [README.md](./README.md).
   lives in `routes/ingest.ts` and not a Fastify hook, because ADR-0033 keeps `server.ts` the
   boundary and nothing else. **Manual entry is never limited**, being the fallback that must
   not be blocked.
-- A malformed address and one that names no job get the **same 404**: an address is a
-  credential, and distinguishing them would tell a stranger when they had guessed the shape.
-  The 400 body is a fixed sentence and never the thrown text, which is derived from a payload
-  a stranger sent.
+- That count runs **twice and both matter** (ADR-0042). Counting then inserting is two
+  statements, so one check is not a bound: a burst all reads the same number and all passes.
+  The cheap read refuses a flood *before* its bytes are stored; the second runs inside a
+  transaction holding `pg_advisory_xact_lock` on the project and is what makes the limit a
+  bound. A test fires twenty at once and fails without the lock. Do not collapse them back
+  into one, and do not move the object-store write inside that transaction (ADR-0032).
+- **The address is resolved before the files are checked.** A stranger posting to an address
+  that names nothing must not be able to make the route walk a regular expression over
+  megabytes of base64 they chose. A malformed address and one that names no job get the
+  **same 404** — an address is a credential, and distinguishing them would say when the shape
+  had been guessed.
+- **Nothing on this route answers with a thrown message.** The 400 and the 500 are fixed
+  sentences: Fastify's default 500 body is `{ message: err.message }` and this product sets
+  no error handler, so on the one route a stranger reaches that would hand out Prisma's or
+  the object store's own text. Scoped to `routes/ingest.ts` on purpose — an error handler on
+  the whole `/v1` context would change every other route's answer and is its own change.
+- `content-disposition` carries **both RFC 6266 forms**. Node refuses a header value outside
+  latin-1, so interpolating a sender's filename raw makes an em dash or any CJK character a
+  500 and the file unreachable because of what it was called.
+- **The agent is never given the ingest address.** `projectOnTheWire` carries it, and
+  `projects_get` in `agent.ts` had handed the project read through verbatim — so the
+  credential would have reached a model provider, the proposal and the audit. That tool now
+  returns the three fields its description names. A test asserts it and fails without the
+  projection. Anything else a project grows is covered by the same shape; do not go back to
+  passing the response through.
+- `InboundMailProvider.read` takes the **headers as well as the body**, which the stub
+  ignores: a real provider signs its webhooks in a header, and this is the one route where a
+  signature is the only thing that could say the caller is the provider. No adapter is
+  written, so that verification is a **known gap**, as is the fact that the tests exercise a
+  normalised envelope of this repo's invention rather than a vendor's recorded payload.
+- A sender's `subject` and `body` are **bounded and refused past the bound, never truncated**
+  — a silently shortened body is a record saying something the sender did not, ADR-0039's
+  base64 lesson.
 
 ## Agent skills
 

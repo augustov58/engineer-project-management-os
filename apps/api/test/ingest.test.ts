@@ -14,6 +14,7 @@ import {
   startTestApi,
 } from './harness.js';
 import { unconfiguredInboundMailProvider } from '../src/inbound-mail.js';
+import { caller, memoryRunTools } from '../src/agent.js';
 
 const started: TestApi[] = [];
 
@@ -311,6 +312,39 @@ describe('the files a message carried', () => {
     expect(bytes.headers.get('content-disposition')).toContain('attachment');
   });
 
+  test('a name outside latin-1 is still downloadable', async () => {
+    const app = await api();
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+
+    // Node refuses a header value outside latin-1, so interpolating the name
+    // raw makes an em dash a 500 and the file unreachable because of what it
+    // was called. The sender chooses this string.
+    const filename = 'RFI 014 — panel “schedule” 図面.pdf';
+    const created = await forward(
+      app,
+      envelope(project.ingestAddress!, {
+        files: [
+          { filename, contentType: 'application/pdf', bytes: A_PAGE },
+        ],
+      }),
+    );
+    expect(created.status).toBe(201);
+    const arrival = (await created.json()) as { files: { id: string }[] };
+
+    const bytes = await app.fetch(
+      `/v1/ingested-document-files/${arrival.files[0]!.id}/bytes`,
+    );
+
+    expect(bytes.status).toBe(200);
+    expect(Buffer.from(await bytes.arrayBuffer())).toEqual(
+      Buffer.from(A_PAGE, 'base64'),
+    );
+    const header = bytes.headers.get('content-disposition') ?? '';
+    expect(header).toContain('attachment');
+    // The real name travels percent-encoded; the plain form is ASCII only.
+    expect(header).toContain(`filename*=UTF-8''${encodeURIComponent(filename)}`);
+  });
+
   test('bytes for a file that is not there are a 404', async () => {
     const app = await api();
     const response = await app.fetch(
@@ -345,6 +379,24 @@ describe('an address that names no job', () => {
       expect([400, 404], to).toContain(response.status);
     }
 
+    expect(await arrivalsOn(app, project.id)).toEqual([]);
+  });
+
+  test('is turned away before its files are walked', async () => {
+    const app = await api();
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+
+    // A stranger who has no address should not be able to make this walk a
+    // regular expression over megabytes of base64 they chose. Only the
+    // envelope is read before the address is resolved, so a payload whose
+    // files are nonsense is refused for the address and never for the files.
+    const response = await forward(app, {
+      to: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA@ingest.test',
+      from: 'stranger@example.com',
+      files: [{ filename: 'x', contentType: 'y', bytes: 'not base64 at all!' }],
+    });
+
+    expect(response.status).toBe(404);
     expect(await arrivalsOn(app, project.id)).toEqual([]);
   });
 
@@ -420,6 +472,32 @@ describe('the rate limit on the address', () => {
       envelope(project.ingestAddress!, { files: [] }),
     );
     expect(later.status).toBe(201);
+  });
+
+  test('is a bound under concurrency, not a guess', async () => {
+    const clock = fakeTimeSource(new Date('2026-09-01T09:00:00.000Z'));
+    const app = await api({ timeSource: clock });
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+
+    for (let sent = 0; sent < 55; sent += 1) {
+      await forward(app, envelope(project.ingestAddress!, { files: [] }));
+    }
+
+    // Counting and then inserting is two statements. Without something making
+    // them one, all twenty read 55 and all twenty land — and this is the one
+    // route reachable without ADR-0020's gate, which names the rate limit as
+    // what stands in its place.
+    const together = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        forward(app, envelope(project.ingestAddress!, { files: [] })),
+      ),
+    );
+
+    const accepted = together.filter((one) => one.status === 201);
+    const refused = together.filter((one) => one.status === 429);
+    expect(accepted).toHaveLength(5);
+    expect(refused).toHaveLength(15);
+    expect(await arrivalsOn(app, project.id)).toHaveLength(60);
   });
 
   test('is per job, so a flood at one address does not silence another', async () => {
@@ -597,6 +675,27 @@ describe('inbound content', () => {
     expect((await arrivalsOn(app, project.id))[0]!['body']).toBe(hostile);
   });
 
+  test('is bounded, so a sender cannot make the record say anything at length', async () => {
+    const app = await api();
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+
+    // Refused and never truncated: a silently shortened body is a record that
+    // says something the sender did not.
+    const tooLong = await forward(
+      app,
+      envelope(project.ingestAddress!, { text: 'x'.repeat(262_145), files: [] }),
+    );
+    expect(tooLong.status).toBe(400);
+
+    const tooLongSubject = await forward(
+      app,
+      envelope(project.ingestAddress!, { subject: 'x'.repeat(1001), files: [] }),
+    );
+    expect(tooLongSubject.status).toBe(400);
+
+    expect(await arrivalsOn(app, project.id)).toEqual([]);
+  });
+
   test('is never enqueued: an arrival starts no job', async () => {
     // The API up with no worker is a state production has too. If an arrival
     // dispatched work, this is where it would sit unhandled — and there is no
@@ -654,5 +753,35 @@ describe('an arrival', () => {
 
     expect(response.status, method).toBe(404);
     expect(await arrivalsOn(app, project.id)).toHaveLength(1);
+  });
+});
+
+// ── The address is a credential, and the agent is not given one ──────────────
+
+describe('a memory run', () => {
+  test('is never handed the ingest address', async () => {
+    const app = await api();
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+    expect(project.ingestAddress).not.toBeNull();
+
+    const tools = memoryRunTools(caller(app.baseUrl), 'run-1', project.id);
+    const projectsGet = tools.find((tool) => tool.name === 'projects_get');
+    const result = await projectsGet!.execute({} as never, {} as never);
+
+    // Every other read tool hands the API's answer through. This one projects,
+    // because a project carries `ingestAddress` since issue #19 — the only
+    // credential on a path that bypasses the interface entirely — and handing
+    // it to a run would put it in a model provider's context, in the proposal
+    // it wrote and in the audit that keeps it (ADR-0042).
+    const text = result.content[0]!.text;
+    expect(text).not.toContain('@ingest.test');
+    expect(text).not.toContain(project.ingestAddress!.split('@')[0]);
+
+    const { body } = JSON.parse(text) as { body: Record<string, unknown> };
+    expect(Object.keys(body).sort()).toEqual([
+      'archivedAt',
+      'name',
+      'projectNumber',
+    ]);
   });
 });

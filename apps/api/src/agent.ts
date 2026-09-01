@@ -60,7 +60,7 @@ type CallApi = (
   init?: { method?: string; body?: unknown },
 ) => Promise<{ status: number; body: unknown }>;
 
-function caller(apiBaseUrl: string): CallApi {
+export function caller(apiBaseUrl: string): CallApi {
   return async (path, init) => {
     const response = await fetch(`${apiBaseUrl}/v1${path}`, {
       method: init?.method ?? 'GET',
@@ -108,7 +108,12 @@ const NO_PARAMS = Type.Object({});
  * consent-gated step 5 and not this ticket; the draft-creating tools of that
  * list belong to the capture and ingest slices that own their records.
  */
-function memoryRunTools(call: CallApi, runId: string, projectId: string) {
+/**
+ * Exported for the test that holds the read set to what it says it returns.
+ * No Pi type crosses this signature, so ADR-0040's rule that none appears
+ * outside this file still holds.
+ */
+export function memoryRunTools(call: CallApi, runId: string, projectId: string) {
   const get = (path: string) => async () => {
     const { status, body } = await call(path);
     return asResult(status, body);
@@ -121,7 +126,29 @@ function memoryRunTools(call: CallApi, runId: string, projectId: string) {
       description:
         'The project this run is about: its number, name, and whether it is archived.',
       parameters: NO_PARAMS,
-      execute: get(`/projects/${projectId}`),
+      /**
+       * The three fields the description names, and not the response.
+       *
+       * Every other tool here hands the API's answer through, and this one
+       * deliberately does not: a project carries `ingestAddress` since issue
+       * #19, which is the only credential on a path that bypasses the
+       * interface entirely (ADR-0042) — handing it to a run would put it in a
+       * model provider's context, in the proposal it wrote and in the audit.
+       * Projecting here rather than adding a second project read keeps that
+       * true of anything else a project grows, and makes the description above
+       * a description rather than an approximation.
+       */
+      execute: async () => {
+        const { status, body } = await call(`/projects/${projectId}`);
+        if (status !== 200 || typeof body !== 'object' || body === null) {
+          return asResult(status, body);
+        }
+        const { projectNumber, name, archivedAt } = body as Record<
+          string,
+          unknown
+        >;
+        return asResult(status, { projectNumber, name, archivedAt });
+      },
     },
     {
       name: 'projects_get_exposure',

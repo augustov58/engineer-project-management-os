@@ -1,11 +1,18 @@
 /** The ingest address and what arrives at it (issue #19). */
 
 import { randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
-import type { Prisma } from '../../generated/prisma/client.js';
+import type {
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+} from 'fastify';
+import type {
+  Prisma,
+  PrismaClient,
+} from '../../generated/prisma/client.js';
 import { NOT_BLANK, type RouteDependencies } from '../http.js';
 import type { InboundFile, InboundMessage } from '../inbound-mail.js';
-import { noSuchIngestedDocumentFile, noSuchProject } from '../refusals.js';
+import { noSuchProject, refuse, type Refusal } from '../refusals.js';
 
 /**
  * Whole quartets, as a document version's bytes are and unlike a photograph's
@@ -98,6 +105,22 @@ function arrivalOnTheWire(arrival: StoredArrival) {
 }
 
 /**
+ * `content-disposition` for a filename an untrusted sender chose.
+ *
+ * Two forms, per RFC 6266. Node refuses a header value outside latin-1, so
+ * interpolating the name raw makes an em dash, a curly quote or any CJK
+ * character an `ERR_INVALID_CHAR` and a 500 — which would make a file
+ * undownloadable because of what it was called. The ASCII form is stripped to
+ * what a header can carry and the `filename*` form carries the real name
+ * percent-encoded, which every current browser prefers.
+ */
+function disposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '');
+  const fallback = ascii.trim() === '' ? 'download' : ascii;
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+/**
  * The token out of the address a message was sent to.
  *
  * Handles `Name <token@domain>` as well as a bare address, because a provider
@@ -124,7 +147,6 @@ function checkedFiles(files: InboundFile[]): FileBody[] {
   if (files.length > 100) {
     throw new Error('too many files on one message');
   }
-  let total = 0;
   return files.map((file) => {
     if (file.filename.trim() === '' || file.filename.length > 255) {
       throw new Error('a file has no usable name');
@@ -132,16 +154,74 @@ function checkedFiles(files: InboundFile[]): FileBody[] {
     if (file.contentType.trim() === '' || file.contentType.length > 255) {
       throw new Error('a file has no usable content type');
     }
-    total += file.bytes.length;
+    // Per file, exactly as `fileBodySchema` caps it. The total across a
+    // message is `INGEST_BODY_LIMIT`, which bounds both writers identically
+    // because it bounds the request; an aggregate check here as well would be
+    // the two paths into one table enforcing different limits.
     if (
       file.bytes.length < 4 ||
-      total > INGEST_BASE64_MAX ||
+      file.bytes.length > INGEST_BASE64_MAX ||
       !base64.test(file.bytes)
     ) {
       throw new Error('a file did not arrive as whole base64');
     }
     return file;
   });
+}
+
+/** Both this record's own refusals, which nothing else sends (ADR-0033). */
+const TOO_MUCH_LATELY: Refusal = {
+  code: 429,
+  message: 'that ingest address has taken too much lately',
+};
+
+const NO_SUCH_FILE: Refusal = {
+  code: 404,
+  message: 'no ingested document file with that id',
+};
+
+const UNREADABLE: Refusal = {
+  code: 400,
+  message: 'that message could not be read',
+};
+
+const NO_SUCH_ADDRESS: Refusal = {
+  code: 404,
+  message: 'no ingest address matches that recipient',
+};
+
+/**
+ * Fastify's default 500 body is `{ message: err.message }`, and there is no
+ * `setErrorHandler` in this product — so a Prisma or object-store failure
+ * would put its own text in front of whoever posted. Everywhere else that is
+ * a developer reading their own logs; here it is a stranger, because this is
+ * the one route reachable without whatever ADR-0020 puts in front of the API.
+ *
+ * Scoped to this route deliberately. A `setErrorHandler` on the whole `/v1`
+ * context would change what every other route answers, which is its own
+ * change and not this ticket's (ADR-0033 keeps `server.ts` the boundary).
+ */
+const UNAVAILABLE: Refusal = {
+  code: 500,
+  message: 'that message could not be accepted',
+};
+
+/**
+ * Whether this address has taken its hour's worth already.
+ *
+ * Takes the client rather than closing over one, so the transaction below can
+ * ask the same question inside its lock that the cheap read asked outside it.
+ */
+async function overTheLimit(
+  client: Pick<PrismaClient, 'ingestedDocument'>,
+  projectId: string,
+  now: Date,
+): Promise<boolean> {
+  const since = new Date(now.getTime() - INGEST_WINDOW_MS);
+  const recent = await client.ingestedDocument.count({
+    where: { projectId, source: 'EMAIL', arrivedAt: { gte: since } },
+  });
+  return recent >= INGEST_LIMIT_PER_WINDOW;
 }
 
 /**
@@ -191,6 +271,16 @@ export function ingestRoutes(
     '/ingest/inbound-mail',
     { bodyLimit: INGEST_BODY_LIMIT },
     async (request, reply) => {
+      try {
+        return await acceptForwarded(request, reply);
+      } catch (error) {
+        request.log.error(error, 'an inbound message could not be accepted');
+        return refuse(reply, UNAVAILABLE);
+      }
+    },
+  );
+
+  async function acceptForwarded(request: FastifyRequest, reply: FastifyReply) {
       if (!inboundMail.configured) {
         // A deployment fact, not a payload fact. Reporting it as a 400 would
         // tell a provider to stop retrying something that will work as soon
@@ -201,18 +291,16 @@ export function ingestRoutes(
       }
 
       let message: InboundMessage;
-      let files: FileBody[];
       try {
-        message = inboundMail.read(request.body);
-        files = checkedFiles(message.files);
+        message = inboundMail.read(request.body, request.headers);
       } catch {
-        // Deliberately not the thrown text: it is derived from a payload a
-        // stranger sent, and this is the one endpoint a stranger reaches.
-        return reply
-          .code(400)
-          .send({ message: 'that message could not be read' });
+        return refuse(reply, UNREADABLE);
       }
 
+      // The address is resolved **before** the files are checked, so that a
+      // stranger posting to an address that names nothing is turned away
+      // before this walks a regular expression over megabytes of base64 they
+      // chose. Only the envelope has been read to get here.
       const token = tokenIn(message.recipient);
       const project =
         token === null
@@ -226,40 +314,66 @@ export function ingestRoutes(
         // The same answer for a malformed address and for one that names no
         // job: an address is a credential, and saying which of the two it was
         // would tell a stranger when they had guessed the shape.
-        return reply
-          .code(404)
-          .send({ message: 'no ingest address matches that recipient' });
+        return refuse(reply, NO_SUCH_ADDRESS);
+      }
+
+      let files: FileBody[];
+      try {
+        files = checkedFiles(message.files);
+      } catch {
+        // Deliberately not the thrown text: it is derived from a payload a
+        // stranger sent, and this is the one endpoint a stranger reaches.
+        return refuse(reply, UNREADABLE);
       }
 
       const now = timeSource.now();
-      const since = new Date(now.getTime() - INGEST_WINDOW_MS);
-      const recent = await prisma.ingestedDocument.count({
-        where: { projectId: project.id, source: 'EMAIL', arrivedAt: { gte: since } },
-      });
-      if (recent >= INGEST_LIMIT_PER_WINDOW) {
-        return reply
-          .code(429)
-          .send({ message: 'that ingest address has taken too much lately' });
+
+      // Twice, and both are load-bearing. This read is cheap and refuses a
+      // flood *before* its bytes are written, so a stranger who has the
+      // address cannot fill the object store with garbage nobody reads.
+      if (await overTheLimit(prisma, project.id, now)) {
+        return refuse(reply, TOO_MUCH_LATELY);
       }
 
       const stored = await storeFiles(objectStore, files, now);
-      const arrival = await prisma.ingestedDocument.create({
-        data: {
-          projectId: project.id,
-          source: 'EMAIL',
-          arrivedAt: now,
-          sender: message.sender,
-          recipient: message.recipient,
-          subject: message.subject ?? null,
-          body: message.body ?? null,
-          files: { create: stored },
-        },
-        include: ingestedDocumentInclude,
+
+      const arrival = await prisma.$transaction(async (tx) => {
+        // The second read is what makes the limit a bound rather than a
+        // guess. Counting and then inserting is two statements, so without
+        // this every message arriving in the same instant reads the same
+        // count and every one of them passes — and this is the single route
+        // in the product reachable without whatever ADR-0020 puts in front of
+        // the API, where that ADR names the rate limit as what stands in its
+        // place. A lock per project, so one job's mail cannot delay another's.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${project.id}))`;
+        if (await overTheLimit(tx, project.id, now)) {
+          return null;
+        }
+        return tx.ingestedDocument.create({
+          data: {
+            projectId: project.id,
+            source: 'EMAIL',
+            arrivedAt: now,
+            sender: message.sender,
+            recipient: message.recipient,
+            subject: message.subject ?? null,
+            body: message.body ?? null,
+            files: { create: stored },
+          },
+          include: ingestedDocumentInclude,
+        });
       });
 
+      // The bytes are already stored and are now unreferenced. That is
+      // ADR-0032's accepted trade in the direction it accepts it: an orphaned
+      // object is garbage no reader reaches, where a row pointing at bytes
+      // that are not there is not.
+      if (arrival === null) {
+        return refuse(reply, TOO_MUCH_LATELY);
+      }
+
       return reply.code(201).send(arrivalOnTheWire(arrival));
-    },
-  );
+  }
 
   /**
    * Entering one by hand (story 93).
@@ -342,7 +456,7 @@ export function ingestRoutes(
         where: { id: request.params.id },
       });
       if (file === null) {
-        return noSuchIngestedDocumentFile(reply);
+        return refuse(reply, NO_SUCH_FILE);
       }
 
       const bytes = await objectStore.get(file.storageKey);
@@ -350,12 +464,8 @@ export function ingestRoutes(
         .header('content-type', 'application/octet-stream')
         .header('x-content-type-options', 'nosniff')
         // `attachment` is the token from RFC 6266 and is not this product's
-        // word for anything (ADR-0042). The filename is a stranger's text, so
-        // only the quoted form goes out and quotes are dropped from it.
-        .header(
-          'content-disposition',
-          `attachment; filename="${file.filename.replace(/["\\\r\n]/g, '')}"`,
-        )
+        // word for anything (ADR-0042).
+        .header('content-disposition', disposition(file.filename))
         .send(bytes);
     },
   );
