@@ -1,5 +1,10 @@
 /**
- * The refusals more than one route module reaches for.
+ * The refusals more than one writer reaches for.
+ *
+ * "Writer" rather than "route module" since issue #21: `worker.ts` reads
+ * `PROCESSING_LOCATION_IS_LOCAL` so the run it fails says what the route that
+ * refuses the ask said. ADR-0033 bars a leaf importing a route module, which
+ * is not that.
  *
  * The sixteen 404s are here as a **set** rather than by the count rule ADR-0033
  * otherwise applies — most are used by one record, but a route naming the
@@ -8,7 +13,7 @@
  * makes before writing that another record makes too.
  *
  * The 4xx bodies a single record sends inline stay with that record; there are
- * thirty-two of them, and hoisting them here would empty the route modules of
+ * thirty-six of them, and hoisting them here would empty the route modules of
  * the reasons they refuse.
  */
 

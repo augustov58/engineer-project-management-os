@@ -79,6 +79,29 @@ function newIngestToken(): string {
   return randomBytes(24).toString('base64url');
 }
 
+/**
+ * One change to a project's processing location: what to write, the state
+ * that write is narrowed to, and how the audit and a lost race each say it.
+ */
+interface LocationChange {
+  data: {
+    processingLocation: 'LOCAL' | 'CLOUD';
+    cloudSignoffReference: string | null;
+    cloudSignoffAt: Date | null;
+  };
+  where: {
+    id: string;
+    cloudSignoffReference?: null;
+    processingLocation?: 'CLOUD';
+  };
+  action: string;
+  detail: string;
+  lost: string;
+}
+
+/** Thrown inside the transaction to roll it back as the 409 the read chose. */
+class StateMovedUnderneath extends Error {}
+
 export function projectRoutes(
   v1: FastifyInstance,
   { prisma, timeSource, ingestDomain }: RouteDependencies,
@@ -224,7 +247,12 @@ export function projectRoutes(
         return noSuchProject(reply);
       }
 
-      let data;
+      // The four things a change to this setting is, decided once in the
+      // branch that knows them rather than re-reading the discriminant at
+      // each use. `where` is what makes the refusals above bounds instead of
+      // checks: it narrows the write to the state they were read against, so
+      // a request that loses the race is refused rather than overwriting.
+      let change: LocationChange;
       if (location === 'CLOUD') {
         if (signoffReference === undefined || signoffAt === undefined) {
           return reply.code(400).send({
@@ -237,52 +265,79 @@ export function projectRoutes(
             message: 'a written sign-off is already recorded on this project',
           });
         }
-        data = {
-          processingLocation: 'CLOUD',
-          cloudSignoffReference: signoffReference,
-          cloudSignoffAt: new Date(signoffAt),
-        } as const;
+        const signedAt = new Date(signoffAt);
+        change = {
+          data: {
+            processingLocation: 'CLOUD',
+            cloudSignoffReference: signoffReference,
+            cloudSignoffAt: signedAt,
+          },
+          where: { id, cloudSignoffReference: null },
+          action: 'processing location set to cloud',
+          detail: `the firm signed off in writing on ${signedAt.toISOString()}, reference ${signoffReference}`,
+          lost: 'a written sign-off is already recorded on this project',
+        };
       } else {
         if (signoffReference !== undefined || signoffAt !== undefined) {
-          return reply
-            .code(400)
-            .send({ message: 'switching to local processing records no sign-off' });
+          return reply.code(400).send({
+            message: 'switching to local processing records no sign-off',
+          });
         }
         if (project.processingLocation === 'LOCAL') {
           return reply
             .code(409)
             .send({ message: 'this project is already set to local processing' });
         }
-        data = {
-          processingLocation: 'LOCAL',
-          cloudSignoffReference: null,
-          cloudSignoffAt: null,
-        } as const;
+        change = {
+          data: {
+            processingLocation: 'LOCAL',
+            cloudSignoffReference: null,
+            cloudSignoffAt: null,
+          },
+          where: { id, processingLocation: 'CLOUD' },
+          action: 'processing location set to local',
+          // The reference is named here because the columns are about to be
+          // emptied, and this row is the only place it will survive.
+          detail:
+            project.cloudSignoffReference === null
+              ? 'no sign-off had been recorded'
+              : `the recorded sign-off ${project.cloudSignoffReference} was cleared`,
+          lost: 'this project is already set to local processing',
+        };
       }
 
       // The change and the audit of it in one statement, so no path exists on
       // which the setting moved and the log does not say so (ADR-0040's rule,
       // reaching a record other than memory for the first time — ADR-0044).
       const at = timeSource.now();
-      const updated = await prisma.$transaction(async (tx) => {
-        const written = await tx.project.update({ where: { id }, data });
-        await tx.auditEntry.create({
-          data: {
-            projectId: id,
-            action: `processing location set to ${location.toLowerCase()}`,
-            detail:
-              data.processingLocation === 'CLOUD'
-                ? `the firm signed off in writing on ${data.cloudSignoffAt.toISOString()}, reference ${data.cloudSignoffReference}`
-                : project.cloudSignoffReference === null
-                  ? 'no sign-off had been recorded'
-                  : `the recorded sign-off ${project.cloudSignoffReference} was cleared`,
-            createdAt: at,
-          },
+      try {
+        const updated = await prisma.$transaction(async (tx) => {
+          const settled = await tx.project.updateMany({
+            where: change.where,
+            data: change.data,
+          });
+          if (settled.count === 0) {
+            throw new StateMovedUnderneath();
+          }
+          await tx.auditEntry.create({
+            data: {
+              projectId: id,
+              action: change.action,
+              detail: change.detail,
+              createdAt: at,
+            },
+          });
+          return tx.project.findUniqueOrThrow({ where: { id } });
         });
-        return written;
-      });
-
-      return projectOnTheWire(updated, ingestDomain);
+        return projectOnTheWire(updated, ingestDomain);
+      } catch (error) {
+        if (error instanceof StateMovedUnderneath) {
+          // The answer the read above would have given, for a request that
+          // lost the race rather than arriving late.
+          return reply.code(409).send({ message: change.lost });
+        }
+        throw error;
+      }
     },
   );
 

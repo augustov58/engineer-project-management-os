@@ -329,15 +329,18 @@ export function extractionRoutes(
       if (document === null) {
         return reply.code(404).send({ message: 'no document with that id' });
       }
-      // As above, and for the same reason: the ask is refused here and the
-      // run is refused again in the worker.
-      if (document.project.processingLocation === 'LOCAL') {
-        return reply.code(409).send({ message: PROCESSING_LOCATION_IS_LOCAL });
-      }
       if (document.referencedFile) {
         return reply
           .code(409)
           .send({ message: 'a referenced file is not an extraction target' });
+      }
+      // After the referenced-file refusal and not before it: being a
+      // referenced file is permanent and a property of this document, where
+      // the processing location is a project setting that changes, so the
+      // more specific and more durable reason is the one to give. As on the
+      // arrival path, the run is refused again in the worker.
+      if (document.project.processingLocation === 'LOCAL') {
+        return reply.code(409).send({ message: PROCESSING_LOCATION_IS_LOCAL });
       }
 
       const version = await prisma.documentVersion.findFirst({

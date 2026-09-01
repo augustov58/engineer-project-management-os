@@ -649,8 +649,9 @@ See [README.md](./README.md).
   (`reference IS NULL = at IS NULL`), and that weakening is what the resolution cost.
   Switching to cloud requires `signoffReference` and `signoffAt` and refuses a second;
   recording the first against a default project is not a second. Switching to **local
-  requires nothing and is always available** — consent can be withdrawn, and that asymmetry
-  keeps ADR-0039's principle while inverting its mechanism. It **clears** the sign-off, safe
+  requires nothing and no consent fact can refuse it** — consent can be withdrawn, and that
+  asymmetry keeps ADR-0039's principle while inverting its mechanism. The one refusal it
+  has is the no-op, on a project already local. It **clears** the sign-off, safe
   only because the audit entry carries the reference and the date.
 - `cloud_signoff_at` is **supplied and never the `TimeSource`'s** — `held_since`'s frame and
   ADR-0037's answer for `disposed_at`. When the switch happened is the audit row's
@@ -661,6 +662,12 @@ See [README.md](./README.md).
   cloud is already in Redis when consent is withdrawn. The setting is read on the row and
   never carried on the job. One sentence, `PROCESSING_LOCATION_IS_LOCAL` in `refusals.ts`,
   said by both. Do not collapse them into one.
+- Issue #21's second criterion — "switching a project to cloud requires a recorded written
+  sign-off" — is met **literally and not as an outcome**, and ADR-0044 says so rather than
+  counting it met. Its force came from local being the default; under a cloud default no
+  project need ever be switched, so **cloud processing with no recorded consent is the
+  ordinary case**. Whoever writes the OCR adapter must read each existing project's
+  location before the first run, not after.
 - The **audit widens exactly once** here (ADR-0044), which is the change ADR-0043 said would
   be its own: one action, on the project's own setting, in the same transaction as the
   update. Extraction mutations still write no audit rows. Note that

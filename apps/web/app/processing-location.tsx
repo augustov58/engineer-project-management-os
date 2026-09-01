@@ -10,6 +10,46 @@ import type { Project } from './api';
 import { day } from './open-item';
 
 /**
+ * The reference and the date, which only ever travel together and only ever
+ * to `CLOUD`. Both branches below render it, differing in nothing but the
+ * button, so it is one component rather than the same twenty-five lines twice.
+ */
+function SignoffForm({
+  action,
+  pending,
+  label,
+  variant,
+}: {
+  action: (formData: FormData) => void;
+  pending: boolean;
+  label: string;
+  variant?: 'outline';
+}) {
+  return (
+    <form action={action} className="flex flex-wrap items-end gap-3">
+      <input type="hidden" name="location" value="CLOUD" />
+      <div className="grid gap-1.5">
+        <Label htmlFor="signoffReference">Written sign-off reference</Label>
+        <Input
+          id="signoffReference"
+          name="signoffReference"
+          required
+          placeholder="DPA-2026-014"
+          className="min-w-48 font-mono"
+        />
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor="signoffAt">Date signed</Label>
+        <Input id="signoffAt" name="signoffAt" type="date" required />
+      </div>
+      <Button type="submit" variant={variant} disabled={pending}>
+        {label}
+      </Button>
+    </form>
+  );
+}
+
+/**
  * Where this job's documents are read, and what the firm signed (issue #21,
  * stories 91 and 92).
  *
@@ -60,54 +100,19 @@ export function ProcessingLocation({ project }: { project: Project }) {
       )}
 
       {local ? (
-        <form action={action} className="flex flex-wrap items-end gap-3">
-          <input type="hidden" name="location" value="CLOUD" />
-          <div className="grid gap-1.5">
-            <Label htmlFor="signoffReference">Written sign-off reference</Label>
-            <Input
-              id="signoffReference"
-              name="signoffReference"
-              required
-              placeholder="DPA-2026-014"
-              className="min-w-48 font-mono"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="signoffAt">Date signed</Label>
-            <Input id="signoffAt" name="signoffAt" type="date" required />
-          </div>
-          <Button type="submit" disabled={pending}>
-            Switch to cloud processing
-          </Button>
-        </form>
+        <SignoffForm action={action} pending={pending} label="Switch to cloud processing" />
       ) : (
         <div className="flex flex-wrap items-end gap-3">
           {project.cloudSignoffReference === null && (
             // The only way a job that was never switched records what the firm
             // agreed to. Recording it is not a second sign-off; it is the
             // first, and a second is refused.
-            <form action={action} className="flex flex-wrap items-end gap-3">
-              <input type="hidden" name="location" value="CLOUD" />
-              <div className="grid gap-1.5">
-                <Label htmlFor="signoffReference">
-                  Written sign-off reference
-                </Label>
-                <Input
-                  id="signoffReference"
-                  name="signoffReference"
-                  required
-                  placeholder="DPA-2026-014"
-                  className="min-w-48 font-mono"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="signoffAt">Date signed</Label>
-                <Input id="signoffAt" name="signoffAt" type="date" required />
-              </div>
-              <Button type="submit" variant="outline" disabled={pending}>
-                Record the sign-off
-              </Button>
-            </form>
+            <SignoffForm
+              action={action}
+              pending={pending}
+              label="Record the sign-off"
+              variant="outline"
+            />
           )}
 
           <form action={action}>

@@ -1833,7 +1833,10 @@ export async function setProcessingLocation(
               signoffReference: reference,
               // A date input gives a day; the record keeps an instant, the
               // frame every typed date in this product is composed in.
-              signoffAt: date === null ? null : `${date as string}T00:00:00.000Z`,
+              signoffAt:
+                date === null
+                  ? undefined
+                  : `${date as string}T00:00:00.000Z`,
             }
           : {}),
       }),

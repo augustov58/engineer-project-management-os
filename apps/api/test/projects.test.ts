@@ -360,7 +360,7 @@ test('a sign-off offered to a switch to local is refused, not ignored', async ()
   });
 });
 
-test('setting a project to the location it is already on is refused', async () => {
+test('switching a project to local when it is already local is refused', async () => {
   const app = await api();
   const project = await createProject(app, 'T-1', 'Riser replacement');
   await setProcessingLocation(app, project.id, { location: 'LOCAL' });
@@ -421,4 +421,45 @@ test('the processing location of an unknown project is a 404', async () => {
 
   expect(response.status).toBe(404);
   expect(await response.json()).toEqual({ message: 'no project with that id' });
+});
+
+test('two sign-offs racing settle as one, and the loser overwrites nothing', async () => {
+  const app = await api();
+  const project = await createProject(app, 'T-1', 'Riser replacement');
+
+  // Twenty at once, as the ingest limit's test fires twenty. What this pins is
+  // the outcome: however many arrive together, exactly one sign-off is
+  // recorded and the audit says so once — the one column on a project that
+  // must never be last-write-wins.
+  //
+  // It does NOT isolate the compare-and-set in the route. That write is
+  // narrowed to `cloudSignoffReference: null` on ADR-0042's reasoning — that
+  // reading and writing are two statements, so the read alone is not a bound —
+  // but this harness could not be made to lose the race: removing the
+  // narrowing leaves this test green, because the handlers never interleave
+  // between their read and their write. The narrowing is kept as the archive
+  // route above keeps its own, and is unproven by this suite.
+  const sent = await Promise.all(
+    Array.from({ length: 20 }, (_, n) =>
+      setProcessingLocation(app, project.id, {
+        location: 'CLOUD',
+        signoffReference: `DPA-2026-${String(n).padStart(3, '0')}`,
+        signoffAt: SIGNOFF_AT,
+      }),
+    ),
+  );
+
+  expect(sent.filter((one) => one.status === 200)).toHaveLength(1);
+  expect(sent.filter((one) => one.status === 409)).toHaveLength(19);
+
+  // Exactly one sign-off stands, and it is one of the two that were sent —
+  // never a mix of one request's reference and the other's date.
+  const read = await app.fetch(`/v1/projects/${project.id}`);
+  const settled = (await read.json()) as typeof project;
+  expect(settled.processingLocation).toBe('CLOUD');
+  expect(settled.cloudSignoffReference).toMatch(/^DPA-2026-\d{3}$/);
+  expect(settled.cloudSignoffAt).toBe(SIGNOFF_AT);
+
+  // And the audit records one change, not two.
+  expect(await auditOn(app, project.id)).toHaveLength(1);
 });
