@@ -31,18 +31,22 @@ stable per-project identifiers, issue #10), slice 10 (photo binning, issue #11),
 (voice capture, issue #12), slice 12 (the site visit report, issue #13), slice 13
 (registers, entries and the ball-in-court history, issue #14), slice 14
 (the clock and dispositions, issue #15), slice 15 (the morning screen, issue #16),
-slice 16 (referenced files, issue #17) and slice 17 (project memory, issue #18) are
+slice 16 (referenced files, issue #17), slice 17 (project memory, issue #18) and slice 18 (the ingest
+address and untrusted inbound mail, issue #19) are
 built. `apps/api/src/server.ts` was split across thirteen files between slices 10 and 11,
 as its own change and behind an identical route table (ADR-0033); slice 17 adds a
-fourteenth. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
+fourteenth and slice 18 a fifteenth. The plan is the six-step **Revised MVP sequence** in `PRD and Architecture.md`, and
 the MVP is ticketed as GitHub issues #2-#22. **Step 3, site visit capture, is complete** —
 issues #9, #10, #11, #12 and #13 — **step 4, registers, is complete** — issues #14 and
 #15 — and **step 6, curated project memory, is complete** — issue #18. Issue #16, the
 morning screen, sits outside the six steps and is the daily layer steps
 2 and 4 fed; it is done. Issue #17, referenced files, is **outside** step 5's consent gate —
 nothing in it reads a document's contents — and is done; ADR-0039 and the vault's ADR README
-record that narrowing. The rest of step 5 (the ingest address, extraction, the confirmation
-screen) stays gated, so issues #19-#22 sit behind that gate or the remaining open picks.
+record that narrowing. **Issue #19, the ingest address, landed inside the gate without lifting it** (ADR-0042):
+the inbound mail provider sits behind a port with **no adapter written**, so nothing leaves
+the process and the gate now fires on writing that adapter and naming a vendor, rather than
+on nobody having built the feature. Extraction and the confirmation screen stay gated, so
+issues #20-#22 sit behind that gate or the remaining open picks.
 Step 1, entering T-1's own open items, needs no
 further code and is the author's to do. Work one ticket at a time, and only when asked.
 
@@ -525,6 +529,73 @@ See [README.md](./README.md).
 - `AgentRunService` is the port ADR-0002 requires and **no Pi type appears outside `agent.ts`** — the SDK is imported lazily so a test process never loads it. The default refuses with "no model provider is configured"; `AGENT=pi` builds the real adapter. The domain tools call the internal API over HTTP and never the database, are registered with **underscored names** (provider APIs reject the PRD's dotted spelling), and the session's tool list is an **allowlist** naming this product's domain tools and nothing else, so every built-in is absent rather than denied — the file tools `read`, `grep`, `find` and `ls` included. They were kept in slice 17 and described as scoped by `cwd`; the SDK's `resolvePath` uses `cwd` only as the base for a *relative* path, returns an absolute one as given and expands `~`, with no containment check in any of the four, so `cwd` never bounded them and a run could read the SDK's own credential store. A memory run reads no file, so they were removed rather than fenced (ADR-0041). Do not re-enable one without reading the vendor's resolver first.
 - Every memory mutation writes an `audit_entries` row **in the same transaction**, and nothing updates or deletes one — append-only by construction. The audit is scoped to memory; widening it to every record's mutations is its own change.
 - The memory screen's stream carries both lists (`{runs, proposals}`) and `useLiveList` is generic over the payload since this slice; the `sseFrames` test helper moved into the harness when `memory.test.ts` became the second reader of a stream.
+- The **ingest address** is a high-entropy token on `projects`, composed with `INGEST_DOMAIN`
+  on read and **null** where none is configured — never a plausible address that receives
+  nothing (ADR-0042). Never ADR-0009's `rfi+{project-key}@...`: that phrase is struck by the
+  glossary and an address built from `T-1` is guessable off a document header. The token
+  never reaches the wire alone; `projectOnTheWire` swaps it for `ingestAddress` the way it
+  strips `issuesAllocated`. Not rotatable — a recorded gap, not an oversight.
+- The `InboundMailProvider` port has **no adapter written** and that is load-bearing: it is
+  what keeps the employer-consent gate, since nothing leaves the process until somebody
+  writes one. The default refuses; `INBOUND_MAIL=stub` reads one documented normalised
+  envelope and must never be pointed at a real mailbox. `configured` is on the interface
+  because the route must tell a deployment fact (503) from a payload fact (400) — a
+  `Transcriber` needs no such flag, since its refusal lands on a row that already exists.
+- An **ingested document is not a `Document`** (ADR-0042). `referenced_file` is required with
+  no default, and `revision` and the title are the engineer's and never allocated, so an
+  arrival cannot be one without inventing all three — which is exactly what ADR-0039 refused.
+  Extraction proposes them and the engineer confirms, in issue #20. The files it carries are
+  `ingested_document_files` and are **never called attachments**: that word is struck by three
+  of the glossary's `_Avoid_` lists.
+- An arrival's `content_type` is **free text**, deliberately not ADR-0039's closed three:
+  refusing a `.dwg` would lose the record the manual fallback exists to protect. The
+  served-under-our-origin hole that opens is closed at the read instead —
+  `GET /v1/ingested-document-files/:id/bytes` answers `application/octet-stream` **always**,
+  with `nosniff` and a disposition, and never echoes the sender's claim into a header. A
+  document version's route still hands its own type back, and may, because that set is closed.
+- `ingested_documents.arrived_at` is stamped from the `TimeSource` and the sender's `Date`
+  header is **not read** — the opposite answer to `photos.taken_at` and
+  `voice_captures.recorded_at`, because the only value on offer here is one an untrusted
+  party controls (ADR-0042).
+- The **rate limit is a count of `EMAIL` rows in the trailing hour**, not a counter beside
+  them — exposure's and the clock's shape. No Redis key: a counter in a second store is a
+  second place the number lives, with its own expiry and its own answer to being empty. It
+  lives in `routes/ingest.ts` and not a Fastify hook, because ADR-0033 keeps `server.ts` the
+  boundary and nothing else. **Manual entry is never limited**, being the fallback that must
+  not be blocked.
+- That count runs **twice and both matter** (ADR-0042). Counting then inserting is two
+  statements, so one check is not a bound: a burst all reads the same number and all passes.
+  The cheap read refuses a flood *before* its bytes are stored; the second runs inside a
+  transaction holding `pg_advisory_xact_lock` on the project and is what makes the limit a
+  bound. A test fires twenty at once and fails without the lock. Do not collapse them back
+  into one, and do not move the object-store write inside that transaction (ADR-0032).
+- **The address is resolved before the files are checked.** A stranger posting to an address
+  that names nothing must not be able to make the route walk a regular expression over
+  megabytes of base64 they chose. A malformed address and one that names no job get the
+  **same 404** — an address is a credential, and distinguishing them would say when the shape
+  had been guessed.
+- **Nothing on this route answers with a thrown message.** The 400 and the 500 are fixed
+  sentences: Fastify's default 500 body is `{ message: err.message }` and this product sets
+  no error handler, so on the one route a stranger reaches that would hand out Prisma's or
+  the object store's own text. Scoped to `routes/ingest.ts` on purpose — an error handler on
+  the whole `/v1` context would change every other route's answer and is its own change.
+- `content-disposition` carries **both RFC 6266 forms**. Node refuses a header value outside
+  latin-1, so interpolating a sender's filename raw makes an em dash or any CJK character a
+  500 and the file unreachable because of what it was called.
+- **The agent is never given the ingest address.** `projectOnTheWire` carries it, and
+  `projects_get` in `agent.ts` had handed the project read through verbatim — so the
+  credential would have reached a model provider, the proposal and the audit. That tool now
+  returns the three fields its description names. A test asserts it and fails without the
+  projection. Anything else a project grows is covered by the same shape; do not go back to
+  passing the response through.
+- `InboundMailProvider.read` takes the **headers as well as the body**, which the stub
+  ignores: a real provider signs its webhooks in a header, and this is the one route where a
+  signature is the only thing that could say the caller is the provider. No adapter is
+  written, so that verification is a **known gap**, as is the fact that the tests exercise a
+  normalised envelope of this repo's invention rather than a vendor's recorded payload.
+- A sender's `subject` and `body` are **bounded and refused past the bound, never truncated**
+  — a silently shortened body is a record saying something the sender did not, ADR-0039's
+  base64 lesson.
 
 ## Agent skills
 

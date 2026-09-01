@@ -6,6 +6,10 @@ import { Client } from 'pg';
 import { inject } from 'vitest';
 import type { AgentRunService } from '../src/agent.js';
 import { createRuntime } from '../src/runtime.js';
+import {
+  type InboundMailProvider,
+  stubInboundMailProvider,
+} from '../src/inbound-mail.js';
 import { buildServer } from '../src/server.js';
 import { systemTimeSource, type TimeSource } from '../src/time-source.js';
 import type { Transcriber } from '../src/transcription.js';
@@ -66,6 +70,20 @@ export async function startTestApi(
      * seam to hold open, the way `heldTranscriber` does for a transcription.
      */
     worker?: boolean;
+    /**
+     * How an inbound webhook payload is read (issue #19).
+     *
+     * Defaults to the stub, as the transcriber defaults to a working fake —
+     * a test that wants the refusal passes `unconfiguredInboundMailProvider`
+     * the way one wanting a failed transcription passes `refusingTranscriber`.
+     * Production defaults the other way: no adapter is written (ADR-0042).
+     */
+    inboundMail?: InboundMailProvider;
+    /**
+     * The public half of an ingest address. `null` configures none, which is
+     * how the "no address is offered" state becomes one a test can look at.
+     */
+    ingestDomain?: string | null;
   } = {},
 ): Promise<TestApi> {
   const adminUrl = inject('postgresAdminUrl');
@@ -92,11 +110,16 @@ export async function startTestApi(
     objectStoreDir,
   });
 
+  const ingestDomain =
+    options.ingestDomain === undefined ? 'ingest.test' : options.ingestDomain;
+
   const app = buildServer({
     prisma: runtime.prisma,
     queue: runtime.queue,
     objectStore: runtime.objectStore,
     timeSource: options.timeSource,
+    inboundMail: options.inboundMail ?? stubInboundMailProvider,
+    ...(ingestDomain === null ? {} : { ingestDomain }),
   });
 
   const worker =
@@ -167,6 +190,8 @@ export interface ProjectResponse {
   name: string;
   createdAt: string;
   archivedAt: string | null;
+  /** Composed from the token and the domain; null when none is configured. */
+  ingestAddress: string | null;
 }
 
 /** Fixtures are built through the API, never by writing to the database. */

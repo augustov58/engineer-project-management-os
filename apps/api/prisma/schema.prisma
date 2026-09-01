@@ -45,6 +45,20 @@ model Project {
   /// printed in an issued report stays valid forever.
   issuesAllocated Int @default(0) @map("issues_allocated")
 
+  /// The secret half of this job's forward-to-ingest address (issue #19,
+  /// stories 82 and 83). Twenty-four random bytes, base64url, written in the
+  /// same statement as the project.
+  ///
+  /// Deliberately NOT the project number, which ADR-0009 sketched as
+  /// `rfi+{project-key}@ingest.{domain}`. That phrasing is struck vocabulary
+  /// and, worse, an address built from `T-1` is guessable off any document
+  /// header — and story 83 asks for unguessable. This token shares nothing
+  /// with any identifier the engineer writes down (ADR-0042).
+  ///
+  /// Never on the wire by itself: the API returns the composed
+  /// `ingestAddress`, or null where no domain is configured.
+  ingestToken String @unique @map("ingest_token")
+
   phases      ProjectPhase[] @relation("ProjectPhases")
   submissions Submission[]
   siteVisits  SiteVisit[]
@@ -58,6 +72,12 @@ model Project {
   /// identity — this project, this submission, this entry — and never by
   /// similarity to a query (ADR-0019).
   documents Document[]
+
+  /// What has arrived from outside and not yet been read (issue #19). Raw
+  /// arrivals, deliberately not `Document`s: a message carries no title, no
+  /// revision and no referenced-file answer, and all three are extraction's
+  /// to propose and the engineer's to confirm (ADR-0042).
+  ingestedDocuments IngestedDocument[]
 
   /// The curated prose and its history (issue #18): every state the memory
   /// has been in, every edit the agent has proposed, every run, and the
@@ -1541,4 +1561,113 @@ model AuditEntry {
 
   @@index([projectId, createdAt])
   @@map("audit_entries")
+}
+
+/// Where an arrival came from (issue #19, ADR-0042).
+///
+/// A database enum, following ADR-0036's `register_kind` rather than
+/// ADR-0031's text-with-a-CHECK: both members name themselves and neither
+/// contains a character a Prisma enum member cannot carry.
+enum IngestSource {
+  EMAIL
+  MANUAL
+
+  @@map("ingest_source")
+}
+
+/// A document that arrived from outside, before anything has read it
+/// (issue #19, stories 84 and 93; [[glossary]]: **Ingest**).
+///
+/// This is deliberately NOT a `Document`. Three of that record's columns have
+/// no answer at the moment a message lands: `referenced_file` is required with
+/// no default because "a default classifies by omission" (ADR-0039), and
+/// `revision` and the title are the engineer's and never allocated. Inventing
+/// all three and calling them facts is exactly what ADR-0039 refused. They are
+/// extraction's to propose and the engineer's to confirm, which is issue #20 —
+/// the shape ADR-0034 gave a voice capture, where committing writes an
+/// ordinary observation rather than the draft having been one all along.
+///
+/// Nothing here is parsed, extracted, indexed or summarised. No route reads
+/// the body, no job name exists and nothing is enqueued by an arrival, which
+/// is what makes story 89 true by construction rather than by a guard.
+model IngestedDocument {
+  id String @id @default(uuid())
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// The mail path or the fallback. Manual entry produces this same record.
+  source IngestSource
+
+  /// When it reached us, from the injected TimeSource and never a database
+  /// default (ADR-0022).
+  ///
+  /// The message carries a `Date` header and it is NOT read. This answers the
+  /// opposite way to `photos.taken_at` and `voice_captures.recorded_at`, which
+  /// are both supplied so a delayed upload is not misdated — and the
+  /// difference is the sender. A photograph's timestamp comes from the
+  /// engineer's own camera; an email's comes from whoever sent it, and a
+  /// header an untrusted party controls is not a timestamp this product will
+  /// run a clock against (ADR-0042).
+  arrivedAt DateTime @map("arrived_at")
+
+  /// The envelope, stored verbatim and never interpreted. All four are null on
+  /// the manual path, which is what makes it the same record shape rather than
+  /// a second one; a CHECK holds the mail path to supplying the first two.
+  sender    String?
+  recipient String?
+  subject   String?
+
+  /// What the message said. Untrusted text kept exactly as it arrived —
+  /// nothing trims it, normalises it or re-wraps it, the posture ADR-0029 took
+  /// toward a captured block and ADR-0034 toward a transcript.
+  body String?
+
+  /// A line the engineer typed when entering one by hand. Null on the mail
+  /// path: there is nobody to type it.
+  note String?
+
+  files IngestedDocumentFile[]
+
+  @@index([projectId, arrivedAt])
+  @@map("ingested_documents")
+}
+
+/// One file carried by an arrival (issue #19).
+///
+/// Called a *file* and never an attachment: that word is struck by three of
+/// [[glossary]]'s `_Avoid_` lists — **Document**, **Photo** and **Referenced
+/// file** — and ADR-0032 already enforced it once. The ticket's own wording is
+/// not the vocabulary (ADR-0042).
+model IngestedDocumentFile {
+  id String @id @default(uuid())
+
+  ingestedDocumentId String           @map("ingested_document_id")
+  ingestedDocument   IngestedDocument @relation(fields: [ingestedDocumentId], references: [id])
+
+  /// The name it arrived with. Untrusted, stored as data, and never used to
+  /// build a path: the bytes go under a generated key.
+  filename String
+
+  /// What the sender *claimed* it is. Free text and deliberately not
+  /// ADR-0039's closed set of three: refusing a `.dwg` would lose the record,
+  /// which is the one thing story 93's fallback exists to prevent.
+  ///
+  /// The hole a free type would open — ADR-0039's "a row carrying `text/html`
+  /// would be a page this product served under its own origin" — is closed at
+  /// the read instead. The bytes route answers `application/octet-stream`
+  /// always and never echoes this value into a header (ADR-0042).
+  contentType String @map("content_type")
+
+  byteSize Int @map("byte_size")
+
+  /// Where the bytes are. Written to the store BEFORE this row and never
+  /// inside a transaction with it (ADR-0032's order). NOT NULL, because no
+  /// queue sits between the row and the file. Never reaches the wire.
+  storageKey String @unique @map("storage_key")
+
+  createdAt DateTime @map("created_at")
+
+  @@index([ingestedDocumentId, createdAt])
+  @@map("ingested_document_files")
 }

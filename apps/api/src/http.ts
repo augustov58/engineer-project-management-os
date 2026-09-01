@@ -11,6 +11,7 @@
 import type { Queue } from 'bullmq';
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 import type { ObjectStore } from './object-store.js';
+import type { InboundMailProvider } from './inbound-mail.js';
 import type { TimeSource } from './time-source.js';
 
 const UNIQUE_VIOLATION = 'P2002';
@@ -90,4 +91,8 @@ export interface RouteDependencies {
   queue: Queue;
   objectStore: ObjectStore;
   timeSource: TimeSource;
+  /** How a webhook payload is read. No adapter is written (ADR-0042). */
+  inboundMail: InboundMailProvider;
+  /** The half of an ingest address that is not secret. Null when unset. */
+  ingestDomain: string | null;
 }

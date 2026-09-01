@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { agentRunServiceFromEnv } from './agent.js';
+import { inboundMailProviderFromEnv } from './inbound-mail.js';
 import { createRuntime } from './runtime.js';
 import { buildServer } from './server.js';
 import { systemTimeSource } from './time-source.js';
@@ -39,6 +40,15 @@ const app = buildServer({
   prisma: runtime.prisma,
   queue: runtime.queue,
   objectStore: runtime.objectStore,
+  // No adapter is written, so this refuses unless INBOUND_MAIL=stub, and a
+  // deployment receives no mail until one is (issue #19, ADR-0042).
+  inboundMail: inboundMailProviderFromEnv(),
+  // Optional on purpose: absent means no ingest address is offered at all,
+  // rather than a plausible one that receives nothing.
+  ...(process.env['INGEST_DOMAIN'] === undefined ||
+  process.env['INGEST_DOMAIN'] === ''
+    ? {}
+    : { ingestDomain: process.env['INGEST_DOMAIN'] }),
   logger: true,
 });
 

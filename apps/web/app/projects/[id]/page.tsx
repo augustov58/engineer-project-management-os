@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   addDocument,
+  addIngestedDocument,
   archiveProject,
   createOpenItem,
   createSiteVisit,
@@ -15,6 +16,7 @@ import {
   listClock,
   listDocuments,
   listExposure,
+  listIngestedDocuments,
   listIssues,
   listMemoryAudit,
   listMemoryProposals,
@@ -29,6 +31,8 @@ import {
 } from '../../api';
 import { DocumentForm } from '../../document-form';
 import { DocumentList } from '../../documents';
+import { IngestForm } from '../../ingest-form';
+import { IngestAddress, IngestedDocumentList } from '../../ingest';
 import { MemoryActivityList, MemoryForm } from '../../memory';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
@@ -66,6 +70,7 @@ export default async function ProjectRecord({
     memoryRuns,
     memoryProposals,
     memoryAudit,
+    arrivals,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -89,6 +94,8 @@ export default async function ProjectRecord({
     listMemoryRuns(id),
     listMemoryProposals(id),
     listMemoryAudit(id),
+    // What has arrived from outside and not yet been read (issue #19).
+    listIngestedDocuments(id),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -430,6 +437,41 @@ export default async function ProjectRecord({
             issued against stays answerable.
           </p>
           <DocumentForm submit={addDocument.bind(null, id)} />
+        </CardContent>
+      </Card>
+
+      {/*
+        What has arrived from outside (issue #19). A section of its own and not
+        part of Documents: an arrival carries no title, no revision and no
+        referenced-file answer, because nobody has read it — those are what
+        extraction proposes and the engineer confirms, which is the next
+        ticket. Nothing here is parsed, and nothing acts on what it says.
+      */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Arrived</h2>
+          <span className="text-muted-foreground text-sm">
+            {arrivals.length === 0
+              ? 'nothing yet'
+              : `${arrivals.filter((one) => one.source === 'EMAIL').length} forwarded of ${arrivals.length}`}
+          </span>
+        </div>
+
+        <IngestAddress address={project.ingestAddress} />
+        <IngestedDocumentList arrivals={arrivals} />
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Record what arrived</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            The fallback, for when something comes by hand or the mail path is
+            down. It makes the same record a forwarded message does, and it is
+            never rate limited.
+          </p>
+          <IngestForm submit={addIngestedDocument.bind(null, id)} />
         </CardContent>
       </Card>
 

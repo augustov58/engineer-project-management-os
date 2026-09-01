@@ -1651,3 +1651,58 @@ export async function rejectMemoryProposal(
   );
   revalidateMemory(projectId);
 }
+
+// ── What has arrived from outside (issue #19) ────────────────────────────────
+
+/**
+ * Entering a document by hand (story 93).
+ *
+ * The fallback path, so a provider outage or an unusual source never blocks
+ * the record — and the one path here that is deliberately not rate limited,
+ * because a limit on it would be a limit on the engineer's own hands.
+ *
+ * One action carrying every file, unlike the photograph form's request per
+ * file (ADR-0032): a walk uploads a hundred photographs and a fallback entry
+ * is a handful, so nothing here approaches the body limit that shape exists
+ * to stay under.
+ */
+export async function addIngestedDocument(
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const chosen = formData
+    .getAll('files')
+    .filter((one): one is File => one instanceof File && one.size > 0);
+
+  const note = omitIfBlank(formData, 'note');
+  if (chosen.length === 0 && note === undefined) {
+    return {
+      added: previous.added,
+      error: 'choose a file, or say what arrived',
+    };
+  }
+
+  const files = await Promise.all(
+    chosen.map(async (file) => ({
+      filename: file.name,
+      // What the browser claimed it is. Stored as data and never handed back
+      // as a response header, so an unrecognised type is kept rather than
+      // refused — the closed set of three a document version has would lose
+      // the record this path exists to protect (ADR-0042).
+      contentType: file.type === '' ? 'application/octet-stream' : file.type,
+      bytes: Buffer.from(await file.arrayBuffer()).toString('base64'),
+    })),
+  );
+
+  const error = await refusal(
+    await send(`/projects/${projectId}/ingested-documents`, { note, files }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+  return { added: previous.added + 1 };
+}

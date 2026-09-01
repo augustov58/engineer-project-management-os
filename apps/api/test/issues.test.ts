@@ -662,6 +662,9 @@ test('the identifier sequence is bookkeeping and never reaches the wire', async 
     'createdAt',
     'currentPhaseId',
     'id',
+    // The composed address, which replaces `ingestToken` on the way out for
+    // the same reason `issuesAllocated` is stripped (issue #19, ADR-0042).
+    'ingestAddress',
     'name',
     'projectNumber',
   ];

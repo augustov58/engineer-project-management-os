@@ -47,6 +47,12 @@ test('no users, roles, permissions or tenants table is introduced', async () => 
   expect(tables).toContain('memory_proposals');
   expect(tables).toContain('agent_runs');
   expect(tables).toContain('audit_entries');
+
+  // The raw arrivals (issue #19). Deliberately not columns on `documents`:
+  // three of that record's have no answer when a message lands (ADR-0042).
+  expect(tables).toContain('ingested_documents');
+  expect(tables).toContain('ingested_document_files');
+
   expect(tables).not.toContain('users');
   expect(tables).not.toContain('roles');
   expect(tables).not.toContain('permissions');

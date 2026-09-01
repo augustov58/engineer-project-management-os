@@ -2,10 +2,15 @@ import type { Queue } from 'bullmq';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { ObjectStore } from './object-store.js';
+import {
+  type InboundMailProvider,
+  unconfiguredInboundMailProvider,
+} from './inbound-mail.js';
 import { systemTimeSource, type TimeSource } from './time-source.js';
 import { assumptionRecordRoutes } from './routes/assumption-records.js';
 import { documentRoutes } from './routes/documents.js';
 import { healthRoutes } from './routes/health.js';
+import { ingestRoutes } from './routes/ingest.js';
 import { issueRoutes } from './routes/issues.js';
 import { memoryRoutes } from './routes/memory.js';
 import { openItemRoutes } from './routes/open-items.js';
@@ -25,6 +30,17 @@ export interface ServerDependencies {
   objectStore: ObjectStore;
   /** Defaults to the real clock; tests pass a fake and advance it by hand. */
   timeSource?: TimeSource;
+  /**
+   * How an inbound webhook payload is read. Defaults to the one that refuses:
+   * no adapter is written, and that is what keeps the consent gate (ADR-0042).
+   */
+  inboundMail?: InboundMailProvider;
+  /**
+   * The half of a project's ingest address that is not secret. Absent means
+   * no address is offered at all, rather than a plausible one that receives
+   * nothing.
+   */
+  ingestDomain?: string;
   logger?: boolean;
 }
 
@@ -48,6 +64,8 @@ export function buildServer({
   queue,
   objectStore,
   timeSource = systemTimeSource,
+  inboundMail = unconfiguredInboundMailProvider,
+  ingestDomain,
   logger = false,
 }: ServerDependencies): FastifyInstance {
   const app = Fastify({
@@ -59,10 +77,17 @@ export function buildServer({
     ajv: { customOptions: { removeAdditional: false } },
   });
 
-  const dependencies = { prisma, queue, objectStore, timeSource };
+  const dependencies = {
+    prisma,
+    queue,
+    objectStore,
+    timeSource,
+    inboundMail,
+    ingestDomain: ingestDomain ?? null,
+  };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The fourteen below are plain functions
+  // spelled into every path (ADR-0023). The fifteen below are plain functions
   // and not plugins on purpose: a plugin would open an encapsulation context of
   // its own, and there is nothing here that wants one.
   app.register(
@@ -80,6 +105,7 @@ export function buildServer({
       reportRoutes(v1, dependencies);
       registerRoutes(v1, dependencies);
       documentRoutes(v1, dependencies);
+      ingestRoutes(v1, dependencies);
       memoryRoutes(v1, dependencies);
     },
     { prefix: API_PREFIX },

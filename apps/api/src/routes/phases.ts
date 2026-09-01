@@ -47,7 +47,7 @@ const currentPhaseBodySchema = {
 
 export function phaseRoutes(
   v1: FastifyInstance,
-  { prisma }: RouteDependencies,
+  { prisma, ingestDomain }: RouteDependencies,
 ): void {
   /**
    * Phases are rows on a project, never an enum: some jobs run 50% CD and
@@ -219,6 +219,7 @@ export function phaseRoutes(
           where: { id },
           data: { currentPhaseId: request.body.phaseId },
         }),
+        ingestDomain,
       );
     },
   );
