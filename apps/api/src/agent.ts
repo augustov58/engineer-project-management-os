@@ -215,10 +215,22 @@ Never write to memory directly: your proposal is reviewed by the engineer, who a
  * row, not Pi's session files.
  *
  * The coding-agent primitives are off. The session is built with an explicit
- * tool allowlist, so `bash`, `edit` and `write` are never enabled; the file
- * tools that remain (`read`, `grep`, `find`, `ls`) are scoped by `cwd` to a
- * per-project workspace under `workspaceRoot`, which is the whole of the
- * blast radius a bad run has (ADR-0002, story 108).
+ * tool allowlist naming this product's own domain tools and nothing else, so
+ * no built-in is enabled — `bash`, `edit` and `write` are absent rather than
+ * denied, and since this fix so are `read`, `grep`, `find` and `ls`.
+ *
+ * Those four were enabled here, scoped by `cwd`, until the SDK's own resolver
+ * was read: `resolvePath` uses `cwd` as the base for a *relative* path only
+ * and returns an absolute one as given, `~` expands to the home directory,
+ * and none of the four tools carries a containment check. So `cwd` never
+ * bounded them, and a run could have read the SDK's own credential store and
+ * put it in a proposal. A memory run needs no file at all — every fact it
+ * reads arrives over HTTP — so they are removed rather than fenced
+ * (ADR-0002, story 108).
+ *
+ * `cwd` still points at an empty per-project directory under `workspaceRoot`,
+ * so a built-in that a future SDK default enables lands there rather than in
+ * the repository.
  *
  * Provider auth is the SDK's own `ModelRuntime` — server-side, from its auth
  * store or the environment. No credential is read, held or logged by this
@@ -251,9 +263,10 @@ export function piAgentRunService({
         sessionManager: sdk.SessionManager.inMemory(),
         modelRuntime,
         // The allowlist, which is the disabling: a tool not named here is not
-        // enabled, so shell, edit and write are off by construction rather
-        // than by a denylist that a new built-in would slip past.
-        tools: ['read', 'grep', 'find', 'ls', ...tools.map((tool) => tool.name)],
+        // enabled, so every built-in — shell, edit, write and the file tools
+        // alike — is off by construction rather than by a denylist that a new
+        // built-in would slip past.
+        tools: tools.map((tool) => tool.name),
         customTools: tools.map((tool) => sdk.defineTool(tool)),
       });
       try {
