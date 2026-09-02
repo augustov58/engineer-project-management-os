@@ -33,6 +33,8 @@ changes with it.
 /                                          ← this repo (code workspace)
 ├── CONTEXT.md                             ← entry pointer + decision table
 ├── AGENTS.md                              ← CLAUDE.md is a symlink to this
+├── .claude/rules/                         ← ground rules per path family, loaded when a matching file is read
+├── docs/changelog.md                      ← one row per slice, moved out of CONTEXT.md
 └── docs/agents/                           ← these files
 
 <vault>/                                   ← source of truth (docs)
