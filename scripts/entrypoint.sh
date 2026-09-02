@@ -12,4 +12,10 @@ store="${OBJECT_STORE_DIR:-/data/objects}"
 mkdir -p "$store"
 chown -R 10001:10001 "$store"
 
+# `setpriv` changes the uid and nothing else, so HOME would still be /root —
+# and the pnpm the build put in corepack's cache lives under /home/app. Without
+# this the first `pnpm` call dies with EACCES on /root/.cache and the machine
+# restart-loops to its limit, which is exactly what the first deploy did.
+export HOME=/home/app
+
 exec setpriv --reuid=10001 --regid=10001 --init-groups ./scripts/start.sh
