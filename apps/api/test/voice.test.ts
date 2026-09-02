@@ -193,6 +193,29 @@ test('the boundary refuses what a phone browser cannot have produced', async () 
   ).toBe(400);
 });
 
+test('a recording that is not whole base64 is refused, not truncated', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'V-4b');
+
+  // A whole number of quartets with no padding, so one character past it is a
+  // length of 4n+1 — which is not base64 at all. `Buffer.from` does not refuse
+  // that; it silently drops the trailing character, so the looser pattern this
+  // route carried until now stored a clipped recording and answered 201, and
+  // the audio a walk rests on would be short with nothing to say so (ADR-0039).
+  const whole = A_SOUND.slice(0, -4);
+  const response = await post(
+    app,
+    `/v1/site-visits/${walk.id}/voice-captures`,
+    voiceCaptureBody({ bytes: `${whole}x` }),
+  );
+  expect(response.status).toBe(400);
+  expect((await visit(app, walk.id)).voiceCaptures).toEqual([]);
+
+  // The whole string still passes, and keeps every byte of it.
+  const capture = await addVoiceCapture(app, walk.id, { bytes: whole });
+  expect(capture.byteSize).toBe(Buffer.from(whole, 'base64').byteLength);
+});
+
 // ── Losing signal in a building, and reconciling (story 112) ──────────────
 
 test('the same recording sent twice lands once and answers with the row', async () => {

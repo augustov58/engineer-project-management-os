@@ -217,6 +217,29 @@ test('a photograph with no time is refused rather than binned to now', async () 
   expect(response.status).toBe(400);
 });
 
+test('a photograph that is not whole base64 is refused, not truncated', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'P-8');
+
+  // A whole number of quartets with no padding, so one character past it is a
+  // length of 4n+1 — which is not base64 at all. `Buffer.from` does not refuse
+  // that; it silently drops the trailing character, so the looser pattern this
+  // route carried until now stored a short file and answered 201, with nothing
+  // downstream able to read it back against what was taken (ADR-0039).
+  const whole = A_PIXEL.slice(0, -4);
+  const response = await post(
+    app,
+    `/v1/site-visits/${walk.id}/photos`,
+    photoBody({ bytes: `${whole}x` }),
+  );
+  expect(response.status).toBe(400);
+  expect((await visit(app, walk.id)).photos).toEqual([]);
+
+  // The whole string still passes, and stores every byte of it.
+  const photo = await addPhoto(app, walk.id, { bytes: whole });
+  expect(photo.byteSize).toBe(Buffer.from(whole, 'base64').byteLength);
+});
+
 // ── Binning to a floor by the timestamp (story 63) ───────────────────────
 
 test.each([

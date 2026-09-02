@@ -71,9 +71,18 @@ const voiceCaptureBodySchema = {
     contentType: { type: 'string', enum: [...AUDIO_CONTENT_TYPES] },
     // Four characters of base64 is one byte or more, so a body that passes
     // here can never decode to the nothing the CHECK constraint refuses.
+    // Strict base64: whole quartets, with the only short tail being the one
+    // padding makes legal. The looser `[A-Za-z0-9+/]+={0,2}` this carried
+    // until now admits a length of 4n+1, which is not base64 at all, and
+    // which `Buffer.from` **silently truncates** rather than refusing — so a
+    // clipped recording would store and the route would answer 201, and the
+    // audio the walk rests on would be short with nothing to say so. ADR-0039
+    // wrote this pattern for a document version and recorded that the fix
+    // here belonged to a change about this record; this is that change.
     bytes: {
       type: 'string',
-      pattern: '^[A-Za-z0-9+/]+={0,2}$',
+      pattern:
+        '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$',
       minLength: 4,
       maxLength: AUDIO_BASE64_MAX,
     },

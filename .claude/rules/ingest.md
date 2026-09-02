@@ -49,8 +49,10 @@ apply to every path stay in `AGENTS.md`.
   `^[A-Za-z0-9+/]+={0,2}$` a photograph and a recording use. That looser one admits a length
   of 4n+1, which `Buffer.from` **silently truncates** rather than refusing, so a short file
   would store and the route would answer 201 (ADR-0039). `routes/photos.ts` and
-  `routes/voice.ts` still carry the loose pattern and the same latent truncation — fixing
-  either belongs to a change about that record, not to this rule.
+  `routes/voice.ts` carried the loose pattern and the same latent truncation until
+  2026-09-02, when the change about those records ADR-0039 said it would take was made
+  (issue #54): all three now spell the strict pattern, and each of the three has a test
+  sending a whole quartet plus one character and expecting a 400.
 - `documents` is the **identity** — the title and the referenced-file answer, no bytes and no
   state — and `document_versions` holds the file. Deliberately not ADR-0028's one-table
   chain: two links of a supersede chain share nothing, two versions of a drawing set share
