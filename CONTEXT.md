@@ -14,7 +14,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ├── PRD and Architecture.md   ← requirements, architecture, milestones, backlog
 ├── docs/
-│   ├── adr/                  ← architecture decisions 0001-0039 (check Status lines)
+│   ├── adr/                  ← architecture decisions 0001-0045 (check Status lines)
 │   └── glossary.md           ← domain terms
 ```
 
@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Forty-four ADRs (0020 was Proposed until 2026-09-01 and is now Accepted, confirmed by the author and built as slice 21; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20; slice 21 wrote no new ADR, confirming 0020 instead and recording what building it settled inside that ADR; issue #42 wrote none either, recording what reviewing slice 17 found inside 0040). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Forty-five ADRs (0020 was Proposed until 2026-09-01 and is now Accepted, confirmed by the author and built as slice 21; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20; slice 21 wrote no new ADR, confirming 0020 instead and recording what building it settled inside that ADR; issue #42 wrote none either, recording what reviewing slice 17 found inside 0040). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -42,7 +42,7 @@ in my court past its clock as the daily layer under it.
 | 0017 | No money model (strikes budget from 0006, 0010) |
 | 0018 | Capture and extraction first, copilot later (narrows 0004) |
 | 0019 | No vector search; retrieval by identity |
-| 0020 | Single shared secret at the edge — **Proposed**, closes the gap between 0003 and 0012 |
+| 0020 | Single shared secret at the edge — **Accepted** 2026-09-01, closes the gap between 0003 and 0012 |
 | 0002 | Pi SDK behind `AgentRunService` port — required by the author |
 | 0003 | Cloud-managed deployment |
 | 0009 | Email forward-to-ingest |
@@ -70,6 +70,8 @@ in my court past its clock as the daily layer under it.
 | 0041 | The memory agent gets **no file tools at all**, amending 0040's tool-list section. The allowlist half of 0040 was verified and stands; the claim that `read`, `grep`, `find` and `ls` were "scoped by `cwd`" was wrong — the SDK's `resolvePath` uses `cwd` only as the base for a *relative* path, returns an absolute path as given and expands `~`, and none of the four tools carries a containment check, so a run could have read the SDK's own credential store and put it in a proposal. A containment check was refused as this product re-implementing a guarantee inside a vendor's path resolution; a memory run reads no file, so the tools are removed rather than fenced. The rule it leaves: a sandbox claimed for a vendor's tool is not a sandbox until the vendor's resolver has been read |
 | 0042 | The ingest address is built and the mail provider is **not**: the port has no adapter, the default refuses, so nothing leaves the process and the employer-consent gate moves from a note in the vault to a fact about the code — it now fires on writing the adapter and naming the vendor. 0042 also prices, for the first time anywhere, that an inbound-parse provider holds the **whole message** and is a stronger consent case than the OCR API 0008 and 0013 scope the trade-off to. An arrival is **not a document**: `referenced_file`, `revision` and the title have no answer when a message lands, and inventing them is what 0039 refused. Its content type is free text where a document version's is a closed three, because refusing a `.dwg` loses the record the manual fallback protects — and the served-under-our-origin hole that opens is closed at the read, where the bytes route answers `application/octet-stream` always. `arrived_at` is stamped and the sender's `Date` header is never read. The rate limit is a count of the rows in the trailing hour, not a counter beside them |
 | 0043 | Extraction is **one record** that runs, proposes and resolves — the run's stamps, the proposal's fields and the resolution on `register_entry_extractions`, the state derived and no status column. The source is **exactly one** of an arrival's file or a document version (a CHECK holds it), and the enqueue is **manual and per file**, narrowing story 84's "automatically". The OCR vendor sits behind a port whose default refuses, and the extraction agent's default refuses too — the gate kept a second time, inside the built feature, so a run fails honestly with the vendor's sentence. The agent's one tool is `extraction_propose`; the content reaches it as delimited untrusted data under an explicit directive, and the proposal is constrained to the typed shape. **Confirming is the commit**: one transaction writes the document and version (on the mail path, reusing the arrival's storage key), the register entry, its first handoff and the join. Rejecting keeps the source as it arrived. The review is against the OCR text, not a rendering — the honest version of side-by-side, since arrival bytes are deliberately served as attachments. Referenced sheets are deliberately not extracted, priced for a later ticket |
+| 0044 | The processing-location default is **cloud**, settling the 0013-vs-glossary contradiction in 0013's favour; the written sign-off gates the **switch** and not the state, so "cloud implies a sign-off" is false by design and no CHECK holds it; switching to local requires nothing, because consent can be withdrawn; and whoever writes the OCR adapter must read every existing project's location **before** the first run |
+| 0045 | Fly is the host and one machine runs both halves — the API on loopback, Next on every interface, which is 0020's arrangement made literal; the health check is `/unlock` because 0020 gates `/v1/health` deliberately; the object store is a mounted volume, so the S3 pick stays deferred rather than forced; `NODE_ENV=production` in `fly.toml` is what finally makes `apps/api`'s guard against the committed dev secret fire; and Chrome's sandbox is verified **on the machine that serves**, because Docker's seccomp profile makes a laptop unable to answer that question |
 
 ## Stack
 
@@ -102,6 +104,7 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | 0s | Extraction to a draft, human-confirmed (issue #20) | **Done** 2026-09-01 |
 | 0s | Processing location per project (issue #21) | **Done** 2026-09-01 |
 | 0t | The edge gate: one secret in front of every route (issue #22) | **Done** 2026-09-01 |
+| 0u | The deployment: Fly, one machine, both halves (issue #56) | **Done** 2026-09-02 |
 | 1 | T-1 open items entered | Unblocked — no code needed |
 | 2 | Open items + submissions (provisional, supersede) | **Done** — issues #4, #5, #6, #7 |
 | 3 | Site visit capture (voice, photos, stable issue IDs, the report) | **Done** — issues #9, #10, #11, #12 and #13 |
@@ -111,7 +114,9 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 
 ## Open decisions (deferred to implementation)
 
-- Fly vs Render (hosting)
+- ~~Fly vs Render (hosting)~~ — settled 2026-09-02 by ADR-0045: **Fly**, deployed as slice 22
+  (issue #56). One machine runs both halves, the object store is a mounted volume, and the
+  health check is `/unlock` because ADR-0020 gates `/v1/health` deliberately.
 - Textract vs Google Document AI (OCR)
 - Object storage (S3 vs R2 vs B2) — added 2026-08-28; it was on no list here or in the vault
   though the stack has said "S3-compatible" since ADR-0003. Slice 10 put it behind the
@@ -125,9 +130,10 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 ~~Clerk vs Auth0 (OIDC provider)~~ — struck 2026-08-24, dead under ADR-0012. Access control
 is ADR-0020's single edge secret, which is a gate, not an identity provider.
 
-**Two contradictions open in the vault**, recorded in `docs/adr/README.md`, neither resolved:
-ADR-0013 vs the glossary on the processing-location default; and ADR-0010 / 0011 / 0006
-reading Accepted while appearing in neither the MVP workflow list nor the sequence above.
+**One contradiction open in the vault**, recorded in `docs/adr/README.md`: ADR-0010 / 0011 /
+0006 read Accepted while appearing in neither the MVP workflow list nor the sequence above.
+The processing-location contradiction that stood beside it was **resolved 2026-09-01** by
+ADR-0044, in ADR-0013's favour.
 
 ## Change log
 
