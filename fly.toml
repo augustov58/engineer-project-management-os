@@ -1,0 +1,65 @@
+# The deployment ADR-0003 asked for, and issue #22's gate is what makes it safe
+# to have one (issue #56).
+
+app = "epmos-t1"
+primary_region = "iad"
+
+[build]
+
+[env]
+  # `apps/api`'s guard against the development `EDGE_SECRET` only fires when
+  # this is set — Next sets it itself, `apps/api` does not (ADR-0020 records
+  # the asymmetry). Setting it here is what makes both halves refuse the
+  # secret that is committed to this repository.
+  NODE_ENV = "production"
+
+  # The object store is a directory on the volume mounted below. The
+  # S3-compatible adapter is still unwritten and the vendor pick (S3 vs R2 vs
+  # B2) is still open; a Fly volume is a real disk, so the pick stays deferred
+  # rather than being forced by the deployment.
+  OBJECT_STORE_DIR = "/data/objects"
+
+  # Fly's Managed Postgres has no TLS on the private network: 6PN is
+  # WireGuard-encrypted end to end, and its pgbouncer closes a TLS handshake
+  # with `P1011: unexpected EOF`. `scripts/start.sh` appends this to
+  # DATABASE_URL, so the credential itself never encodes a transport choice and
+  # changing this never means rewriting a secret.
+  DATABASE_SSLMODE = "disable"
+
+  # The API listens on loopback inside the machine and nothing outside it can
+  # reach that port. Every call is made by the Next server (ADR-0020), which is
+  # the same arrangement `pnpm dev` has and the reason ADR-0032 refused a
+  # presigned URL.
+  API_PORT = "3001"
+  NEXT_PUBLIC_API_URL = "http://127.0.0.1:3001"
+
+[[mounts]]
+  source = "epmos_data"
+  destination = "/data"
+
+[http_service]
+  # Next, not the API. The one listener the internet can see is the one the
+  # gate sits in front of.
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # One machine, and never more: the volume above can be mounted by exactly one,
+  # and `photos.taken_at` binning plus the BullMQ worker both assume one writer.
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "40s"
+    method = "GET"
+    # `/unlock` and not `/v1/health`: ADR-0020 gates the health route with
+    # everything else, deliberately, so a platform check would have to carry
+    # the secret. `/unlock` is the one path the gate lets by, so checking it
+    # needs no credential and still proves the Next server is serving.
+    path = "/unlock"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  # Chrome needs room to lay out a report. 512mb was not enough to launch it.
+  memory = "1gb"
