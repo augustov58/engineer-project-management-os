@@ -14,15 +14,15 @@ The Obsidian vault is the single source of truth for this project's documentatio
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ```
 
-- `PRD and Architecture.md` - product requirements, architecture, milestones, backlog.
-- `docs/adr/` - architecture decision records 0001-0039; check each `Status:` line, several are superseded and one is only Proposed.
+- `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it, and what is planned beyond the MVP is one sentence, the five items deferred with named triggers.
+- `docs/adr/` - architecture decision records 0001-0045; check each `Status:` line. Three are superseded (0001, 0005, 0007) and six are Accepted with a qualifier; **none is Proposed** — 0020 was the last one and was accepted 2026-09-01.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
 
 ## Current status
 
-Slices 1 through 21 — issues #2 to #22 — are built, with the three correctness gaps found
+Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with the three correctness gaps found
 reviewing project memory closed as issue #42 and the root typecheck repaired as issue #49.
 That is every step of the six-step **Revised MVP sequence** in `PRD and Architecture.md`
 except step 1, entering T-1's own open items, which needs no code and is the author's to do;
