@@ -19,6 +19,13 @@ primary_region = "iad"
   # rather than being forced by the deployment.
   OBJECT_STORE_DIR = "/data/objects"
 
+  # Fly's Managed Postgres has no TLS on the private network: 6PN is
+  # WireGuard-encrypted end to end, and its pgbouncer closes a TLS handshake
+  # with `P1011: unexpected EOF`. `scripts/start.sh` appends this to
+  # DATABASE_URL, so the credential itself never encodes a transport choice and
+  # changing this never means rewriting a secret.
+  DATABASE_SSLMODE = "disable"
+
   # The API listens on loopback inside the machine and nothing outside it can
   # reach that port. Every call is made by the Next server (ADR-0020), which is
   # the same arrangement `pnpm dev` has and the reason ADR-0032 refused a
