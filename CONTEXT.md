@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Forty-five ADRs (0020 was Proposed until 2026-09-01 and is now Accepted, confirmed by the author and built as slice 21; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20; slice 21 wrote no new ADR, confirming 0020 instead and recording what building it settled inside that ADR; issue #42 wrote none either, recording what reviewing slice 17 found inside 0040). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Forty-six ADRs (0020 was Proposed until 2026-09-01 and is now Accepted, confirmed by the author and built as slice 21; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20; slice 21 wrote no new ADR, confirming 0020 instead and recording what building it settled inside that ADR; issue #42 wrote none either, recording what reviewing slice 17 found inside 0040). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
@@ -72,6 +72,7 @@ in my court past its clock as the daily layer under it.
 | 0043 | Extraction is **one record** that runs, proposes and resolves — the run's stamps, the proposal's fields and the resolution on `register_entry_extractions`, the state derived and no status column. The source is **exactly one** of an arrival's file or a document version (a CHECK holds it), and the enqueue is **manual and per file**, narrowing story 84's "automatically". The OCR vendor sits behind a port whose default refuses, and the extraction agent's default refuses too — the gate kept a second time, inside the built feature, so a run fails honestly with the vendor's sentence. The agent's one tool is `extraction_propose`; the content reaches it as delimited untrusted data under an explicit directive, and the proposal is constrained to the typed shape. **Confirming is the commit**: one transaction writes the document and version (on the mail path, reusing the arrival's storage key), the register entry, its first handoff and the join. Rejecting keeps the source as it arrived. The review is against the OCR text, not a rendering — the honest version of side-by-side, since arrival bytes are deliberately served as attachments. Referenced sheets are deliberately not extracted, priced for a later ticket |
 | 0044 | The processing-location default is **cloud**, settling the 0013-vs-glossary contradiction in 0013's favour; the written sign-off gates the **switch** and not the state, so "cloud implies a sign-off" is false by design and no CHECK holds it; switching to local requires nothing, because consent can be withdrawn; and whoever writes the OCR adapter must read every existing project's location **before** the first run |
 | 0045 | Fly is the host and one machine runs both halves — the API on loopback, Next on every interface, which is 0020's arrangement made literal; the health check is `/unlock` because 0020 gates `/v1/health` deliberately; the object store is a mounted volume, so the S3 pick stays deferred rather than forced; `NODE_ENV=production` in `fly.toml` is what finally makes `apps/api`'s guard against the committed dev secret fire; and Chrome's sandbox is verified **on the machine that serves**, because Docker's seccomp profile makes a laptop unable to answer that question |
+| 0046 | The statuses were wrong, not the sequence: 0006, 0010 and 0011 read Accepted while appearing in neither the MVP workflows nor the six-step sequence, and the sequence is the half that was executed — all three are deferred with named triggers rather than struck, and 0011 inherits 0031's problem that the `issues` name is taken |
 
 ## Stack
 
@@ -130,10 +131,10 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 ~~Clerk vs Auth0 (OIDC provider)~~ — struck 2026-08-24, dead under ADR-0012. Access control
 is ADR-0020's single edge secret, which is a gate, not an identity provider.
 
-**One contradiction open in the vault**, recorded in `docs/adr/README.md`: ADR-0010 / 0011 /
-0006 read Accepted while appearing in neither the MVP workflow list nor the sequence above.
-The processing-location contradiction that stood beside it was **resolved 2026-09-01** by
-ADR-0044, in ADR-0013's favour.
+**No contradiction is open in the vault.** Both are now resolved: the processing-location
+default on 2026-09-01 by ADR-0044, in ADR-0013's favour; and the 0010 / 0011 / 0006 statuses
+on 2026-09-02 by ADR-0046, which found the statuses wrong rather than the sequence and
+deferred all three with named triggers rather than striking them.
 
 ## Change log
 
