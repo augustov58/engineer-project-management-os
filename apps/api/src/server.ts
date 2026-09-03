@@ -11,6 +11,7 @@ import { systemTimeSource, type TimeSource } from './time-source.js';
 import { assumptionRecordRoutes } from './routes/assumption-records.js';
 import { documentRoutes } from './routes/documents.js';
 import { extractionRoutes } from './routes/extractions.js';
+import { exportRoutes } from './routes/export.js';
 import { healthRoutes } from './routes/health.js';
 import { ingestRoutes } from './routes/ingest.js';
 import { issueRoutes } from './routes/issues.js';
@@ -107,6 +108,7 @@ export function buildServer({
   app.register(
     async (v1) => {
       healthRoutes(v1, dependencies);
+      exportRoutes(v1, dependencies);
       projectRoutes(v1, dependencies);
       openItemRoutes(v1, dependencies);
       phaseRoutes(v1, dependencies);
