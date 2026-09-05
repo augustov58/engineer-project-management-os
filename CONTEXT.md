@@ -14,7 +14,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ├── PRD and Architecture.md   ← requirements, architecture, milestones, backlog
 ├── docs/
-│   ├── adr/                  ← architecture decisions 0001-0048 (check Status lines)
+│   ├── adr/                  ← architecture decisions 0001-0049 (check Status lines)
 │   └── glossary.md           ← domain terms
 ```
 
@@ -25,7 +25,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ## Key decisions (from vault ADRs)
 
-Forty-eight ADRs (0020 was Proposed until 2026-09-01 and is now Accepted, confirmed by the author and built as slice 21; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20; slice 21 wrote no new ADR, confirming 0020 instead and recording what building it settled inside that ADR; issue #42 wrote none either, recording what reviewing slice 17 found inside 0040). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
+Forty-nine ADRs (0020 was Proposed until 2026-09-01 and is now Accepted, confirmed by the author and built as slice 21; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20; slice 21 wrote no new ADR, confirming 0020 instead and recording what building it settled inside that ADR; issue #42 wrote none either, recording what reviewing slice 17 found inside 0040). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
 that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
 do not treat 0001-0011 as current without checking.
 
