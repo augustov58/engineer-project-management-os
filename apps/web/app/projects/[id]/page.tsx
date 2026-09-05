@@ -517,11 +517,25 @@ export default async function ProjectRecord({
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-lg font-medium">Memory</h2>
-          <span className="text-muted-foreground text-sm">
-            {memory.versions === 0
-              ? 'nothing written yet'
-              : `${memory.versions} ${memory.versions === 1 ? 'version' : 'versions'}`}
-          </span>
+          {/*
+            The count links to the versions it counted, the way exposure's and
+            the clock's do (issue #63) — before this there was no screen
+            anywhere showing a past version, so ADR-0040's "nothing is ever
+            overwritten" was true and unobservable.
+          */}
+          {memory.versions === 0 ? (
+            <span className="text-muted-foreground text-sm">
+              nothing written yet
+            </span>
+          ) : (
+            <Link
+              href={`/projects/${id}/memory`}
+              className="text-muted-foreground hover:text-foreground text-sm underline-offset-4 transition-colors hover:underline"
+            >
+              {memory.versions}{' '}
+              {memory.versions === 1 ? 'version' : 'versions'}
+            </Link>
+          )}
         </div>
 
         {memory.content !== null && memory.versionedAt !== null && (
