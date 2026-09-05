@@ -697,3 +697,110 @@ test('the identifier sequence is bookkeeping and never reaches the wire', async 
   });
   expect(Object.keys((await current.json()) as object).sort()).toEqual(keys);
 });
+
+// ── Open findings across every project (issue #64) ─────────────────────────
+
+/** The across-every-project view, with the job attached to each row. */
+async function openIssues(app: TestApi, query = '') {
+  const response = await app.fetch(`/v1/issues${query}`);
+  expect(response.status).toBe(200);
+  return (await response.json()) as (IssueResponse & {
+    project: { id: string; projectNumber: string; name: string };
+  })[];
+}
+
+test('every open finding across every project, oldest first, with its job', async () => {
+  const time = fakeTimeSource(new Date('2026-07-23T13:00:00.000Z'));
+  const app = await api({ timeSource: time });
+
+  const first = await seen(app, 'I-25', 'Riverside clinic');
+  const older = await createIssue(app, first.observation.id);
+
+  time.advance(24 * 60 * 60 * 1000);
+  const second = await seen(app, 'I-26', 'Depot fit-out');
+  const newer = await createIssue(app, second.observation.id);
+
+  // Which findings are still open across every job — the question that took
+  // one page per job to answer before this route existed.
+  const listed = await openIssues(app);
+  expect(listed.map((issue) => issue.id)).toEqual([older.id, newer.id]);
+  expect(listed.map((issue) => issue.project)).toEqual([
+    { id: first.project.id, projectNumber: 'I-25', name: 'Riverside clinic' },
+    { id: second.project.id, projectNumber: 'I-26', name: 'Depot fit-out' },
+  ]);
+
+  // Everything a finding is read through comes with it: an issue owns no
+  // content, so a row with no sighting on it would say nothing at all.
+  expect(listed[0]?.observations.map((row) => row.id)).toEqual([
+    first.observation.id,
+  ]);
+
+  const newestFirst = await openIssues(app, '?sort=newest');
+  expect(newestFirst.map((issue) => issue.id)).toEqual([newer.id, older.id]);
+});
+
+test('a closed finding leaves the across-every-project list and comes back reopened', async () => {
+  const app = await api();
+  const { project, walk, observation } = await seen(app, 'I-27', 'Closed out');
+  const closing = await createIssue(app, observation.id);
+  const standing = await createIssue(
+    app,
+    (await createObservation(app, walk.id, { observed: 'Still there' })).id,
+  );
+
+  expect((await closeIssue(app, closing.id, { note: 'Sealed' })).status).toBe(
+    200,
+  );
+
+  // Only what is still open, the way the pending items view lists only what
+  // is unresolved. The project's own list still carries both, because there
+  // the lifecycle is the point of the record.
+  expect((await openIssues(app)).map((issue) => issue.id)).toEqual([
+    standing.id,
+  ]);
+  expect((await issues(app, project.id)).map((issue) => issue.id)).toEqual([
+    closing.id,
+    standing.id,
+  ]);
+
+  expect((await reopenIssue(app, closing.id)).status).toBe(200);
+  expect((await openIssues(app)).map((issue) => issue.id).sort()).toEqual(
+    [closing.id, standing.id].sort(),
+  );
+});
+
+test('the category narrows the across-every-project list, and a sixth is refused', async () => {
+  const app = await api();
+  const { walk, observation } = await seen(app, 'I-28', 'Categories');
+  const access = await createIssue(app, observation.id, 'Accessibility');
+  await createIssue(
+    app,
+    (await createObservation(app, walk.id, { observed: 'A crack' })).id,
+    'Physical / Safety',
+  );
+
+  expect(
+    (await openIssues(app, '?category=Accessibility')).map((issue) => issue.id),
+  ).toEqual([access.id]);
+
+  // The same closed set the way in is refused against, so a sixth is a 400
+  // here rather than a filter that silently matches nothing.
+  const response = await app.fetch('/v1/issues?category=Punch%20item');
+  expect(response.status).toBe(400);
+});
+
+test('an open finding on an archived job stays on the across-every-project list', async () => {
+  const app = await api();
+  const { project, observation } = await seen(app, 'I-29', 'Finished job');
+  const raised = await createIssue(app, observation.id);
+
+  expect((await post(app, `/v1/projects/${project.id}/archive`)).status).toBe(
+    200,
+  );
+
+  // The line the pending items view draws, and for its reason: this is not
+  // one of the two daily counts, and a finding still open on a finished job
+  // is exactly the thing that would otherwise be lost. Exposure and the clock
+  // draw it the other way because they are.
+  expect((await openIssues(app)).map((issue) => issue.id)).toEqual([raised.id]);
+});

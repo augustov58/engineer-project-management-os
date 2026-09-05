@@ -133,6 +133,36 @@ export default async function Home() {
       )}
 
       {/*
+        Open findings across every project (issue #64). Here for the reason
+        the export below is here: it is an across-every-project reading and
+        this is the across-every-project screen, where the nav stays at four
+        links because the product's shape leans on it.
+
+        **No count.** The two cards above are the daily layer and ADR-0016
+        keeps them apart precisely so nothing can combine them into a score;
+        a third figure on this screen is the shape that combination would
+        arrive in. The link carries the question and the list carries the
+        number, which is the same reason exposure and the clock are lists.
+      */}
+      <section className="space-y-2 border-t pt-6">
+        <h2 className="text-muted-foreground text-sm font-medium">
+          Across the jobs
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          <Link
+            href="/issues"
+            className="text-foreground underline underline-offset-4"
+          >
+            Findings still open on every job
+          </Link>{' '}
+          &mdash; the register of what has been found, read across the jobs
+          rather than one at a time, filterable by category and sortable by
+          age. Closed findings are not there: they stay on the job they were
+          found on.
+        </p>
+      </section>
+
+      {/*
         The whole record as one file (story 113, ADR-0047), reachable at last
         (issue #68). Here and not in the header: the export is an action across
         every project, and this is the across-every-project screen the engineer

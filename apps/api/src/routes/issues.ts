@@ -93,6 +93,26 @@ const closeIssueBodySchema = {
 } as const;
 
 /**
+ * The across-every-project view's two controls (issue #64), which are the
+ * pending items view's two with this record's closed set in place of a party:
+ * the category to narrow to, and which end of the age to read from.
+ *
+ * The category is the same five, so a sixth is a 400 here as it is on the way
+ * in — and there is no `projectId`: what one job's findings are is
+ * `GET /projects/:id/issues`, which lists the closed ones too, and a second
+ * route answering the same question differently is the second place the same
+ * fact lives.
+ */
+const openIssuesQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    category: { type: 'string', enum: ISSUE_CATEGORIES },
+    sort: { type: 'string', enum: ['oldest', 'newest'], default: 'oldest' },
+  },
+} as const;
+
+/**
  * The stable identifier in a path. Declared as an integer so that a number
  * that is not one is a 400 from the schema rather than a lookup that quietly
  * finds nothing.
@@ -258,6 +278,64 @@ export function issueRoutes(
         include: issueInclude,
       });
       return listed.map(withSightings);
+    },
+  );
+
+  /**
+   * Every finding still open, across every project (issue #64).
+   *
+   * The second across-every-project list in the product, and the pending
+   * items view is its precedent in every respect: only what is still open,
+   * oldest first because the age is the reason to look, filterable, and the
+   * job attached to each row because the view is unusable without knowing
+   * which one it is on. *Which findings are still open across all six jobs*
+   * had no answer here without opening six pages.
+   *
+   * A **list and never a number**, the shape ADR-0027 gave exposure and
+   * ADR-0037 gave the clock. It is deliberately not offered as a third figure
+   * beside those two: ADR-0016 keeps them apart precisely so nothing can
+   * combine them into a score, and a count of this on the morning screen is
+   * the shape a third one would arrive in. Nothing renders its length there.
+   *
+   * Archived projects are **included**, the line the pending items view draws
+   * and for its reason: this is not one of the two daily counts, and a finding
+   * still open on a finished job is exactly the thing that would otherwise be
+   * lost. Exposure and the clock draw it the other way because they are.
+   *
+   * `id` breaks the tie so the order is total. `created_at` is `TIMESTAMP(3)`
+   * and there is no sequence on this record, so the tie-break is arbitrary —
+   * but it is stable, which is all that is asked of it here: nothing reads
+   * this order to decide which row is current, which is what made a random
+   * uuid the wrong answer for memory versions (issue #42).
+   */
+  v1.get<{ Querystring: { category?: IssueCategory; sort: 'oldest' | 'newest' } }>(
+    '/issues',
+    { schema: { querystring: openIssuesQuerySchema } },
+    async (request) => {
+      const { category, sort } = request.query;
+
+      const listed = await prisma.issue.findMany({
+        where: {
+          closedAt: null,
+          ...(category === undefined ? {} : { category }),
+        },
+        orderBy: [
+          { createdAt: sort === 'newest' ? 'desc' : 'asc' },
+          { id: 'asc' },
+        ],
+        include: {
+          ...issueInclude,
+          // The job it is on, joined rather than fetched afterwards as the
+          // pending items view has to: an open item's subject is polymorphic
+          // and an issue's project is a foreign key.
+          project: { select: { id: true, projectNumber: true, name: true } },
+        },
+      });
+
+      return listed.map(({ project, ...found }) => ({
+        ...withSightings(found),
+        project,
+      }));
     },
   );
 
