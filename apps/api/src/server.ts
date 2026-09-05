@@ -8,6 +8,7 @@ import {
   unconfiguredInboundMailProvider,
 } from './inbound-mail.js';
 import { systemTimeSource, type TimeSource } from './time-source.js';
+import { activityRoutes } from './routes/activity.js';
 import { assumptionRecordRoutes } from './routes/assumption-records.js';
 import { documentRoutes } from './routes/documents.js';
 import { extractionRoutes } from './routes/extractions.js';
@@ -102,7 +103,7 @@ export function buildServer({
   };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The sixteen below are plain functions
+  // spelled into every path (ADR-0023). The eighteen below are plain functions
   // and not plugins on purpose: a plugin would open an encapsulation context of
   // its own, and there is nothing here that wants one.
   app.register(
@@ -124,6 +125,7 @@ export function buildServer({
       ingestRoutes(v1, dependencies);
       memoryRoutes(v1, dependencies);
       extractionRoutes(v1, dependencies);
+      activityRoutes(v1, dependencies);
     },
     { prefix: API_PREFIX },
   );

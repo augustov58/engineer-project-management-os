@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it, and what is planned beyond the MVP is one sentence, the five items deferred with named triggers.
-- `docs/adr/` - architecture decision records 0001-0047; check each `Status:` line. Three are superseded (0001, 0005, 0007) and six are Accepted with a qualifier; **none is Proposed** — 0020 was the last one and was accepted 2026-09-01.
+- `docs/adr/` - architecture decision records 0001-0048; check each `Status:` line. Three are superseded (0001, 0005, 0007) and six are Accepted with a qualifier; **none is Proposed** — 0020 was the last one and was accepted 2026-09-01.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -67,7 +67,7 @@ was rewritten.
 | photographs, binning, the filename grammar | [photos.md](./.claude/rules/photos.md) |
 | voice captures, transcription | [voice.md](./.claude/rules/voice.md) |
 | registers, entries, ball-in-court, the clock, dispositions | [registers.md](./.claude/rules/registers.md) |
-| project memory, proposals, agent runs, the audit | [memory.md](./.claude/rules/memory.md) |
+| project memory, proposals, agent runs, the audit, the activity feed | [memory.md](./.claude/rules/memory.md) |
 | the ingest address, documents and referenced files, extraction, the processing location | [ingest.md](./.claude/rules/ingest.md) |
 | the edge gate, `EDGE_SECRET`, `proxy.ts`, `apiFetch` | [edge-gate.md](./.claude/rules/edge-gate.md) |
 
