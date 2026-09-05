@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it, and what is planned beyond the MVP is one sentence, the five items deferred with named triggers.
-- `docs/adr/` - architecture decision records 0001-0048; check each `Status:` line. Three are superseded (0001, 0005, 0007) and six are Accepted with a qualifier; **none is Proposed** — 0020 was the last one and was accepted 2026-09-01.
+- `docs/adr/` - architecture decision records 0001-0049; check each `Status:` line. Three are superseded (0001, 0005, 0007) and six are Accepted with a qualifier; **none is Proposed** — 0020 was the last one and was accepted 2026-09-01.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -25,15 +25,17 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with the three correctness gaps found
 reviewing project memory closed as issue #42 and the root typecheck repaired as issue #49.
 That is every step of the six-step **Revised MVP sequence** in `PRD and Architecture.md`
-except step 1, entering T-1's own open items, which needs no code and is the author's to do;
-what remains of step 5 is the OCR adapter and its vendor pick, which is where employer
-consent now attaches. The per-slice record is the milestone table in
+including step 1, which was done 2026-09-05 on job **260001** — the four items the PRD names
+are T-1's *examples* of an open item's shape, not a checklist, and reading them as one is what
+kept the step open; do not re-raise it. What remains of step 5 is the OCR adapter and its
+vendor pick, which is where employer consent now attaches. The per-slice record is the milestone table in
 [CONTEXT.md](./CONTEXT.md) and the change log in [docs/changelog.md](./docs/changelog.md).
 Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root
-and each pass. The frontend build is **not** part of either — `.claude/rules/web.md` says
-what it catches and how to run it. See [README.md](./README.md).
+and each pass. Since issue #50 (ADR-0049) `pnpm test` covers `apps/web` too — component-level
+Vitest, no browser. The frontend **build** is still part of neither — `.claude/rules/web.md`
+says what it catches and how to run it, including the generated `EDGE_SECRET` it needs. See [README.md](./README.md).
 
 ## Ground rules for agents
 
