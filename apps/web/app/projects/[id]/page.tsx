@@ -19,7 +19,6 @@ import {
   listExtractions,
   listIngestedDocuments,
   listIssues,
-  listMemoryAudit,
   listMemoryProposals,
   listMemoryRuns,
   listOpenItems,
@@ -72,7 +71,6 @@ export default async function ProjectRecord({
     memory,
     memoryRuns,
     memoryProposals,
-    memoryAudit,
     arrivals,
     extractions,
   ] = await Promise.all([
@@ -93,11 +91,12 @@ export default async function ProjectRecord({
     // What is stored against this job, reached through the job itself —
     // there is no search box here or anywhere else (ADR-0019).
     listDocuments(id),
-    // The curated prose, its runs, its proposals and its audit (issue #18).
+    // The curated prose, its runs and its proposals (issue #18). The audit is
+    // no longer read here: story 106 widened it past memory, so it is the
+    // job's activity and has a screen of its own (issue #83, ADR-0048).
     getMemory(id),
     listMemoryRuns(id),
     listMemoryProposals(id),
-    listMemoryAudit(id),
     // What has arrived from outside and not yet been read (issue #19).
     listIngestedDocuments(id),
     // The extractions asked for on this job and their states (issue #20).
@@ -135,6 +134,19 @@ export default async function ProjectRecord({
 
         <div className="text-muted-foreground mt-2 flex items-center gap-4 text-sm">
           <span>Created {day(project.createdAt)}</span>
+          {/*
+            The activity feed, here and not under Memory: story 106 widened the
+            audit from memory's mutations to all sixty-two, so it stopped being
+            a memory thing the moment it stopped being about memory (issue #83).
+            A link and never a count — the feed is bounded, so its length is
+            not the number of anything (ADR-0048).
+          */}
+          <Link
+            href={`/projects/${id}/activity`}
+            className="hover:text-foreground underline-offset-4 transition-colors hover:underline"
+          >
+            What happened lately
+          </Link>
           {project.archivedAt === null && (
             <form action={archive}>
               <Button type="submit" variant="ghost" size="sm">
@@ -596,22 +608,6 @@ export default async function ProjectRecord({
           projectId={id}
           initial={{ runs: memoryRuns, proposals: memoryProposals }}
         />
-
-        {memoryAudit.length > 0 && (
-          <details className="text-sm">
-            <summary className="text-muted-foreground cursor-pointer">
-              The audit ({memoryAudit.length})
-            </summary>
-            <ul className="mt-2 space-y-1">
-              {memoryAudit.map((entry) => (
-                <li key={entry.id} className="text-muted-foreground">
-                  <span className="tabular-nums">{day(entry.createdAt)}</span>{' '}
-                  &middot; {entry.action} &middot; {entry.detail}
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
       </section>
 
       {resolved.length > 0 && (
