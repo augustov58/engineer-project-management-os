@@ -23,6 +23,7 @@ import {
   withDate,
   withLocation,
 } from '../wire.js';
+import { audit } from '../audit.js';
 
 /**
  * A site visit: one dated observation event against a building (issue #9).
@@ -202,13 +203,26 @@ export function siteVisitRoutes(
         return endsBeforeItStarted(reply);
       }
 
-      const created = await prisma.siteVisit.create({
-        data: {
+      const at = timeSource.now();
+      const created = await prisma.$transaction(async (tx) => {
+        const walk = await tx.siteVisit.create({
+          data: {
+            projectId: project.id,
+            startedAt: started,
+            endedAt: ended,
+            createdAt: at,
+          },
+        });
+        // The walk's own date and not the clock's: a visit typed up in the
+        // evening is a visit made in the afternoon (ADR-0030 derives the date
+        // from the start, so the line quotes the start).
+        await audit(tx, {
           projectId: project.id,
-          startedAt: started,
-          endedAt: ended,
-          createdAt: timeSource.now(),
-        },
+          action: 'site visit recorded',
+          detail: `started ${walk.startedAt.toISOString()}`,
+          at,
+        });
+        return walk;
       });
       return reply.code(201).send(withDate(created));
     },
@@ -294,7 +308,7 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true, startedAt: true, endedAt: true },
+        select: { id: true, projectId: true, startedAt: true, endedAt: true },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
@@ -310,9 +324,19 @@ export function siteVisitRoutes(
         return endsBeforeItStarted(reply);
       }
 
-      const updated = await prisma.siteVisit.update({
-        where: { id: walk.id },
-        data: { endedAt: ended },
+      const at = timeSource.now();
+      const updated = await prisma.$transaction(async (tx) => {
+        const stamped = await tx.siteVisit.update({
+          where: { id: walk.id },
+          data: { endedAt: ended },
+        });
+        await audit(tx, {
+          projectId: walk.projectId,
+          action: 'site visit ended',
+          detail: `ended ${ended.toISOString()}`,
+          at,
+        });
+        return stamped;
       });
       return withDate(updated);
     },
@@ -332,19 +356,31 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, projectId: true },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
       }
 
+      const at = timeSource.now();
       try {
-        const created = await prisma.siteVisitFloor.create({
-          data: {
-            siteVisitId: walk.id,
-            floor: request.body.floor,
-            startedAt: instant(request.body.startedAt, timeSource),
-          },
+        const created = await prisma.$transaction(async (tx) => {
+          const row = await tx.siteVisitFloor.create({
+            data: {
+              siteVisitId: walk.id,
+              floor: request.body.floor,
+              startedAt: instant(request.body.startedAt, timeSource),
+            },
+          });
+          // "Floor" is supplied here and the column is not (ADR-0030), which
+          // is the same split the report prints under.
+          await audit(tx, {
+            projectId: walk.projectId,
+            action: 'floor started',
+            detail: `Floor ${row.floor}, at ${row.startedAt.toISOString()}`,
+            at,
+          });
+          return row;
         });
         return reply.code(201).send(created);
       } catch (error) {
@@ -372,7 +408,13 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const floor = await prisma.siteVisitFloor.findUnique({
         where: { id: request.params.id },
-        select: { id: true, startedAt: true, completedAt: true },
+        select: {
+          id: true,
+          floor: true,
+          startedAt: true,
+          completedAt: true,
+          siteVisit: { select: { projectId: true } },
+        },
       });
       if (floor === null) {
         return noSuchFloor(reply);
@@ -392,9 +434,19 @@ export function siteVisitRoutes(
         });
       }
 
-      return prisma.siteVisitFloor.update({
-        where: { id: floor.id },
-        data: { completedAt: completed },
+      const at = timeSource.now();
+      return prisma.$transaction(async (tx) => {
+        const stamped = await tx.siteVisitFloor.update({
+          where: { id: floor.id },
+          data: { completedAt: completed },
+        });
+        await audit(tx, {
+          projectId: floor.siteVisit.projectId,
+          action: 'floor completed',
+          detail: `Floor ${floor.floor}, at ${completed.toISOString()}`,
+          at,
+        });
+        return stamped;
       });
     },
   );
@@ -417,19 +469,31 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, projectId: true },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
       }
 
-      const created = await prisma.observation.create({
-        data: observationData(
-          request.body,
-          walk.id,
-          instant(request.body.observedAt, timeSource),
-          timeSource.now(),
-        ),
+      const at = timeSource.now();
+      const created = await prisma.$transaction(async (tx) => {
+        const observation = await tx.observation.create({
+          data: observationData(
+            request.body,
+            walk.id,
+            instant(request.body.observedAt, timeSource),
+            at,
+          ),
+        });
+        // The location as the grammar renders it and never the four columns
+        // (ADR-0030), so the line reads the way the screen does.
+        await audit(tx, {
+          projectId: walk.projectId,
+          action: 'observation recorded',
+          detail: `${withLocation(observation).location} — ${observation.observed}`,
+          at,
+        });
+        return observation;
       });
       return reply.code(201).send(withLocation(created));
     },

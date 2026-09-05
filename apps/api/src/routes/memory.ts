@@ -10,6 +10,7 @@ import {
 import { noSuchProject } from '../refusals.js';
 import { progressStreams } from '../stream.js';
 import { PROPOSE_MEMORY_EDIT, type ProposeMemoryEditJob } from '../worker.js';
+import { audit } from '../audit.js';
 
 /**
  * The size budget, in characters (story 101).
@@ -251,13 +252,11 @@ export function memoryRoutes(
         await tx.projectMemoryVersion.create({
           data: { projectId: project.id, content, createdAt: at },
         });
-        await tx.auditEntry.create({
-          data: {
-            projectId: project.id,
-            action: 'memory written',
-            detail: `${content.length} characters written directly`,
-            createdAt: at,
-          },
+        await audit(tx, {
+          projectId: project.id,
+          action: 'memory written',
+          detail: `${content.length} characters written directly`,
+          at,
         });
       });
 
@@ -325,9 +324,22 @@ export function memoryRoutes(
         return noSuchProject(reply);
       }
 
-      const run = await prisma.agentRun.create({
-        data: { projectId: project.id, createdAt: timeSource.now() },
-        select: runSelect,
+      // The one memory mutation slice 17 left unaudited: asking is a row, and
+      // a row is a mutation. Without this the trail says a proposal appeared
+      // with nobody having asked for one.
+      const at = timeSource.now();
+      const run = await prisma.$transaction(async (tx) => {
+        const created = await tx.agentRun.create({
+          data: { projectId: project.id, createdAt: at },
+          select: runSelect,
+        });
+        await audit(tx, {
+          projectId: project.id,
+          action: 'memory run asked for',
+          detail: 'the agent was asked for a proposal',
+          at,
+        });
+        return created;
       });
       await queue.add(PROPOSE_MEMORY_EDIT, {
         agentRunId: run.id,
@@ -396,13 +408,11 @@ export function memoryRoutes(
             },
             select: proposalSelect,
           });
-          await tx.auditEntry.create({
-            data: {
-              projectId: run.projectId,
-              action: 'proposal written',
-              detail: `the agent proposed ${content.length} characters`,
-              createdAt: at,
-            },
+          await audit(tx, {
+            projectId: run.projectId,
+            action: 'proposal written',
+            detail: `the agent proposed ${content.length} characters`,
+            at,
           });
           return written;
         });
@@ -511,16 +521,14 @@ export function memoryRoutes(
               createdAt: at,
             },
           });
-          await tx.auditEntry.create({
-            data: {
-              projectId: proposal.projectId,
-              action:
-                edited === undefined || edited === proposal.proposed
-                  ? 'proposal accepted'
-                  : 'proposal accepted with edits',
-              detail: `${content.length} characters committed`,
-              createdAt: at,
-            },
+          await audit(tx, {
+            projectId: proposal.projectId,
+            action:
+              edited === undefined || edited === proposal.proposed
+                ? 'proposal accepted'
+                : 'proposal accepted with edits',
+            detail: `${content.length} characters committed`,
+            at,
           });
         });
       } catch (error) {
@@ -575,13 +583,11 @@ export function memoryRoutes(
           if (settled.count === 0) {
             throw new AlreadyResolved();
           }
-          await tx.auditEntry.create({
-            data: {
-              projectId: proposal.projectId,
-              action: 'proposal rejected',
-              detail: `${proposal.proposed.length} characters declined`,
-              createdAt: at,
-            },
+          await audit(tx, {
+            projectId: proposal.projectId,
+            action: 'proposal rejected',
+            detail: `${proposal.proposed.length} characters declined`,
+            at,
           });
         });
       } catch (error) {
@@ -597,8 +603,15 @@ export function memoryRoutes(
   );
 
   /**
-   * The audit of every mutation above (story 106), oldest first — an audit
-   * is read in the order it was written.
+   * The audit of every mutation on this job (story 106), oldest first — an
+   * audit is read in the order it was written.
+   *
+   * The path says memory and the `where` never did: this has always been
+   * `{ projectId }` and has always returned the project's whole audit, which
+   * ADR-0044 recorded as a mismatch when it widened the writers once. Now
+   * that every record writes here the read is right and the **path** is the
+   * stale half. It is left where it is on purpose — a screen links to it, and
+   * moving it is a frontend change.
    */
   v1.get<{ Params: { id: string } }>(
     '/projects/:id/memory/audit',

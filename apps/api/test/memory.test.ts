@@ -72,6 +72,13 @@ async function proposals(app: TestApi, projectId: string) {
   return (await response.json()) as MemoryProposalResponse[];
 }
 
+/**
+ * The **whole** job's audit, which is what this route has always returned —
+ * its `where` is `{ projectId }` and always was. Since story 106 widened the
+ * writers to every record, that includes the line the project's own creation
+ * writes, and every expectation below names it: filtering it out here would
+ * make these tests unable to see a memory mutation that stopped writing one.
+ */
 async function auditTrail(app: TestApi, projectId: string) {
   const response = await app.fetch(`/v1/projects/${projectId}/memory/audit`);
   expect(response.status).toBe(200);
@@ -532,9 +539,12 @@ test('every mutation writes an audit entry, in the order it happened', async () 
   expect(
     trail.map((entry) => entry.action),
   ).toEqual([
+    'project recorded',
     'memory written',
+    'memory run asked for',
     'proposal written',
     'proposal accepted with edits',
+    'memory run asked for',
     'proposal written',
     'proposal rejected',
   ]);
@@ -570,6 +580,8 @@ test('an accept that edits nothing reads as a plain accept in the audit', async 
 
   const trail = await auditTrail(app, project.id);
   expect(trail.map((entry) => entry.action)).toEqual([
+    'project recorded',
+    'memory run asked for',
     'proposal written',
     'proposal accepted',
   ]);
@@ -645,7 +657,9 @@ test('accepting against a base the memory has moved past is refused', async () =
   expect(found.content).toBe('Second: the client chose 400 A.');
   expect(found.versions).toBe(2);
   expect((await auditTrail(app, project.id)).map((entry) => entry.action)).toEqual([
+    'project recorded',
     'memory written',
+    'memory run asked for',
     'proposal written',
     'memory written',
   ]);
@@ -719,6 +733,8 @@ test('a concurrent accept and reject settle on exactly one answer', async () => 
   // Exactly one audit line, because the loser's rolled back with its update.
   const trail = await auditTrail(app, project.id);
   expect(trail.map((entry) => entry.action)).toEqual([
+    'project recorded',
+    'memory run asked for',
     'proposal written',
     accept.status === 200 ? 'proposal accepted' : 'proposal rejected',
   ]);
@@ -734,6 +750,8 @@ test('two concurrent rejects leave one answer and one audit line', async () => {
   );
   expect(answers.map((answer) => answer.status).sort()).toEqual([200, 409]);
   expect((await auditTrail(app, project.id)).map((entry) => entry.action)).toEqual([
+    'project recorded',
+    'memory run asked for',
     'proposal written',
     'proposal rejected',
   ]);

@@ -8,6 +8,7 @@ import { noSuchSiteVisit, noSuchVoiceCapture } from '../refusals.js';
 import { progressStreams } from '../stream.js';
 import { TRANSCRIBE, type TranscribeJob } from '../worker.js';
 import { voiceCaptureOnTheWire, voiceCapturesMade } from '../wire.js';
+import { audit } from '../audit.js';
 import {
   type ObservationBody,
   observationBodySchema,
@@ -132,7 +133,7 @@ export function voiceRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, projectId: true },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
@@ -152,7 +153,9 @@ export function voiceRoutes(
       if (already !== null) {
         // The recording is here and the phone can let go of it. Nothing is
         // re-stored and nothing is re-queued: the transcript it already has,
-        // or the failure, is what a retry is for.
+        // or the failure, is what a retry is for. **And nothing is audited**
+        // — a resend writes no row, so a line here would say the walk had two
+        // recordings on the day the signal dropped once (ADR-0034).
         return voiceCaptureOnTheWire(already);
       }
 
@@ -166,19 +169,29 @@ export function voiceRoutes(
       const storageKey = `voice/${randomUUID()}`;
       await objectStore.put(storageKey, bytes, contentType);
 
+      const at = timeSource.now();
       let stored;
       try {
-        stored = await prisma.voiceCapture.create({
-          data: {
-            siteVisitId: walk.id,
-            captureKey,
-            recordedAt: new Date(request.body.recordedAt),
-            contentType,
-            byteSize: bytes.byteLength,
-            storageKey,
-            createdAt: timeSource.now(),
-          },
-          include: { observation: true },
+        stored = await prisma.$transaction(async (tx) => {
+          const row = await tx.voiceCapture.create({
+            data: {
+              siteVisitId: walk.id,
+              captureKey,
+              recordedAt: new Date(request.body.recordedAt),
+              contentType,
+              byteSize: bytes.byteLength,
+              storageKey,
+              createdAt: at,
+            },
+            include: { observation: true },
+          });
+          await audit(tx, {
+            projectId: walk.projectId,
+            action: 'voice capture recorded',
+            detail: `${row.captureKey}, recorded ${row.recordedAt.toISOString()}`,
+            at,
+          });
+          return row;
         });
       } catch (error) {
         // Two sends of the same recording crossing in flight. The read above
@@ -261,7 +274,13 @@ export function voiceRoutes(
     async (request, reply) => {
       const capture = await prisma.voiceCapture.findUnique({
         where: { id: request.params.id },
-        select: { id: true, siteVisitId: true, recordedAt: true },
+        select: {
+          id: true,
+          siteVisitId: true,
+          recordedAt: true,
+          transcript: true,
+          siteVisit: { select: { projectId: true } },
+        },
       });
       if (capture === null) {
         return noSuchVoiceCapture(reply);
@@ -275,13 +294,14 @@ export function voiceRoutes(
           ? capture.recordedAt
           : new Date(request.body.observedAt);
 
+      const at = timeSource.now();
       const committed = await prisma.$transaction(async (tx) => {
         const observation = await tx.observation.create({
           data: observationData(
             request.body,
             capture.siteVisitId,
             observedAt,
-            timeSource.now(),
+            at,
           ),
         });
 
@@ -296,6 +316,22 @@ export function voiceRoutes(
         if (claimed.count !== 1) {
           throw new AlreadyCommitted();
         }
+
+        // Whether the engineer changed the vendor's words, which is the fact
+        // keeping both columns exists to make checkable (ADR-0034). Neither
+        // text is quoted: the transcript stands on the row and the observation
+        // stands on its own, and an audit that copied either would be a second
+        // place the same words live.
+        await audit(tx, {
+          projectId: capture.siteVisit.projectId,
+          action:
+            capture.transcript !== null &&
+            capture.transcript === observation.observed
+              ? 'voice capture committed verbatim'
+              : 'voice capture committed with corrections',
+          detail: `observed ${observation.observedAt.toISOString()}`,
+          at,
+        });
 
         return tx.voiceCapture.findUniqueOrThrow({
           where: { id: capture.id },
@@ -335,7 +371,14 @@ export function voiceRoutes(
     async (request, reply) => {
       const capture = await prisma.voiceCapture.findUnique({
         where: { id: request.params.id },
-        select: { id: true, transcribedAt: true, observationId: true },
+        select: {
+          id: true,
+          captureKey: true,
+          transcribedAt: true,
+          observationId: true,
+          failure: true,
+          siteVisit: { select: { projectId: true } },
+        },
       });
       if (capture === null) {
         return noSuchVoiceCapture(reply);
@@ -354,10 +397,25 @@ export function voiceRoutes(
         });
       }
 
-      const reset = await prisma.voiceCapture.update({
-        where: { id: capture.id },
-        data: { transcribingSince: null, failedAt: null, failure: null },
-        include: { observation: true },
+      const at = timeSource.now();
+      const reset = await prisma.$transaction(async (tx) => {
+        const cleared = await tx.voiceCapture.update({
+          where: { id: capture.id },
+          data: { transcribingSince: null, failedAt: null, failure: null },
+          include: { observation: true },
+        });
+        // The failure is about to be cleared, so what the vendor said survives
+        // here or nowhere — the reason a reopen names the closure it cleared.
+        await audit(tx, {
+          projectId: capture.siteVisit.projectId,
+          action: 'transcription asked for again',
+          detail:
+            capture.failure === null
+              ? `${capture.captureKey}, which had not failed`
+              : `${capture.captureKey}, after "${capture.failure}"`,
+          at,
+        });
+        return cleared;
       });
       await queue.add(TRANSCRIBE, {
         voiceCaptureId: reset.id,

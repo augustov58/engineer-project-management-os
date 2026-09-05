@@ -13,6 +13,7 @@ import {
   refuse,
 } from '../refusals.js';
 import { projectOnTheWire } from '../wire.js';
+import { audit } from '../audit.js';
 
 /**
  * A phase is per-project free text — "50% CD", "90% CD", "Building Permit
@@ -47,7 +48,7 @@ const currentPhaseBodySchema = {
 
 export function phaseRoutes(
   v1: FastifyInstance,
-  { prisma, ingestDomain }: RouteDependencies,
+  { prisma, timeSource, ingestDomain }: RouteDependencies,
 ): void {
   /**
    * Phases are rows on a project, never an enum: some jobs run 50% CD and
@@ -66,15 +67,22 @@ export function phaseRoutes(
         return noSuchProject(reply);
       }
 
+      const at = timeSource.now();
       try {
-        const phase = await prisma.projectPhase.create({
-          data: {
+        const position = await prisma.projectPhase.count({
+          where: { projectId: project.id },
+        });
+        const phase = await prisma.$transaction(async (tx) => {
+          const created = await tx.projectPhase.create({
+            data: { projectId: project.id, name: request.body.name, position },
+          });
+          await audit(tx, {
             projectId: project.id,
-            name: request.body.name,
-            position: await prisma.projectPhase.count({
-              where: { projectId: project.id },
-            }),
-          },
+            action: 'phase added',
+            detail: `${created.name}, at position ${created.position}`,
+            at,
+          });
+          return created;
         });
         return reply.code(201).send(phase);
       } catch (error) {
@@ -121,10 +129,23 @@ export function phaseRoutes(
         return noSuchPhase(reply);
       }
 
+      const at = timeSource.now();
       try {
-        return await prisma.projectPhase.update({
-          where: { id },
-          data: { name: request.body.name },
+        return await prisma.$transaction(async (tx) => {
+          const renamed = await tx.projectPhase.update({
+            where: { id },
+            data: { name: request.body.name },
+          });
+          // Both names, because a rename propagates to every submission
+          // issued at this phase (ADR-0026) and the old one is not kept
+          // anywhere else.
+          await audit(tx, {
+            projectId: phase.projectId,
+            action: 'phase renamed',
+            detail: `${phase.name} is now ${renamed.name}`,
+            at,
+          });
+          return renamed;
         });
       } catch (error) {
         if (isUniqueViolation(error)) {
@@ -157,7 +178,7 @@ export function phaseRoutes(
       const { phaseIds } = request.body;
       const existing = await prisma.projectPhase.findMany({
         where: { projectId: project.id },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       const known = new Set(existing.map((phase) => phase.id));
       const named = new Set(phaseIds);
@@ -171,14 +192,24 @@ export function phaseRoutes(
         });
       }
 
-      await prisma.$transaction(
-        phaseIds.map((phaseId, position) =>
-          prisma.projectPhase.update({
+      const at = timeSource.now();
+      const nameOf = new Map(existing.map((phase) => [phase.id, phase.name]));
+      await prisma.$transaction(async (tx) => {
+        for (const [position, phaseId] of phaseIds.entries()) {
+          await tx.projectPhase.update({
             where: { id: phaseId },
             data: { position },
-          }),
-        ),
-      );
+          });
+        }
+        // The order and not the moves: the whole list is what was submitted
+        // (ADR-0026), so the whole list is what the line says.
+        await audit(tx, {
+          projectId: project.id,
+          action: 'phases reordered',
+          detail: phaseIds.map((phaseId) => nameOf.get(phaseId)).join(', '),
+          at,
+        });
+      });
 
       return prisma.projectPhase.findMany({
         where: { projectId: project.id },
@@ -214,10 +245,24 @@ export function phaseRoutes(
         return refuse(reply, badPhase);
       }
 
+      const at = timeSource.now();
+      const phase = await prisma.projectPhase.findUniqueOrThrow({
+        where: { id: request.body.phaseId },
+        select: { name: true },
+      });
       return projectOnTheWire(
-        await prisma.project.update({
-          where: { id },
-          data: { currentPhaseId: request.body.phaseId },
+        await prisma.$transaction(async (tx) => {
+          const updated = await tx.project.update({
+            where: { id },
+            data: { currentPhaseId: request.body.phaseId },
+          });
+          await audit(tx, {
+            projectId: id,
+            action: 'current phase set',
+            detail: phase.name,
+            at,
+          });
+          return updated;
         }),
         ingestDomain,
       );

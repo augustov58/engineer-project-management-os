@@ -16,6 +16,7 @@ import {
 } from '../refusals.js';
 import { UNRESOLVED_MAX, openItemBodySchema } from './open-items.js';
 import { itemOnSubmission } from './submissions.js';
+import { audit } from '../audit.js';
 
 /**
  * The durable artifact of engineering reasoning (issue #8): two blocks
@@ -187,21 +188,37 @@ export function assumptionRecordRoutes(
     async (request, reply) => {
       const set = await prisma.submission.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, projectId: true, revision: true },
       });
       if (set === null) {
         return noSuchSubmission(reply);
       }
 
       const { calculatedAt, ...rest } = request.body;
-      const record = await prisma.assumptionRecord.create({
-        data: {
-          ...rest,
-          submissionId: set.id,
-          calculatedAt: instant(calculatedAt, timeSource),
-          createdAt: timeSource.now(),
-        },
-        include: recordInclude,
+      const at = timeSource.now();
+      const record = await prisma.$transaction(async (tx) => {
+        const created = await tx.assumptionRecord.create({
+          data: {
+            ...rest,
+            submissionId: set.id,
+            calculatedAt: instant(calculatedAt, timeSource),
+            createdAt: at,
+          },
+          include: recordInclude,
+        });
+        // Neither block is quoted. They are captured verbatim on the row and
+        // an audit that copied them would be a second place the same text
+        // lives, free to be re-wrapped where the record must not be
+        // (ADR-0029). No count of entries either: which lines are entries is
+        // a question `withLines` answers for a screen, and a number here that
+        // disagreed with it would be worse than no number.
+        await audit(tx, {
+          projectId: set.projectId,
+          action: 'assumption record captured',
+          detail: `revision ${set.revision}, ${created.codeEdition}, calculated ${created.calculatedAt.toISOString()}`,
+          at,
+        });
+        return created;
       });
       return reply.code(201).send(withLines(record));
     },
@@ -257,7 +274,10 @@ export function assumptionRecordRoutes(
       const { id, line } = request.params;
       const record = await prisma.assumptionRecord.findUnique({
         where: { id },
-        select: { assumptions: true },
+        select: {
+          assumptions: true,
+          submission: { select: { projectId: true, revision: true } },
+        },
       });
       if (record === null) {
         return noSuchAssumptionRecord(reply);
@@ -268,14 +288,26 @@ export function assumptionRecordRoutes(
         return refuse(reply, entry);
       }
 
+      const at = timeSource.now();
       try {
-        const written = await prisma.counterfactual.create({
-          data: {
-            assumptionRecordId: id,
-            line,
-            counterfactual: request.body.counterfactual,
-          },
-          select: { line: true, counterfactual: true },
+        const written = await prisma.$transaction(async (tx) => {
+          const row = await tx.counterfactual.create({
+            data: {
+              assumptionRecordId: id,
+              line,
+              counterfactual: request.body.counterfactual,
+            },
+            select: { line: true, counterfactual: true },
+          });
+          // The line and not its text: an entry is addressed by its line
+          // number (ADR-0029), so that is what identifies it here too.
+          await audit(tx, {
+            projectId: record.submission.projectId,
+            action: 'counterfactual written',
+            detail: `revision ${record.submission.revision}, assumption line ${line} — ${row.counterfactual}`,
+            at,
+          });
+          return row;
         });
         return reply.code(201).send(written);
       } catch (error) {
@@ -325,7 +357,7 @@ export function assumptionRecordRoutes(
         where: { id },
         select: {
           flags: true,
-          submission: { select: { id: true, projectId: true } },
+          submission: { select: { id: true, projectId: true, revision: true } },
         },
       });
       if (record === null) {
@@ -351,6 +383,7 @@ export function assumptionRecordRoutes(
         });
       }
 
+      const at = timeSource.now();
       try {
         const item = await prisma.$transaction(async (tx) => {
           const created = await tx.openItem.create({
@@ -363,6 +396,14 @@ export function assumptionRecordRoutes(
           });
           await tx.raisedFlag.create({
             data: { assumptionRecordId: id, line, openItemId: created.id },
+          });
+          // In the same transaction as the raise, so the refused second raise
+          // rolls its line back with the open item it did not keep.
+          await audit(tx, {
+            projectId: record.submission.projectId,
+            action: 'flag raised as an open item',
+            detail: `revision ${record.submission.revision}, flag line ${line} — ${created.unresolved}`,
+            at,
           });
           return created;
         });

@@ -222,9 +222,18 @@ apply to every path stay in `AGENTS.md`.
   project need ever be switched, so **cloud processing with no recorded consent is the
   ordinary case**. Whoever writes the OCR adapter must read each existing project's
   location before the first run, not after.
-- The **audit widens exactly once** here (ADR-0044), which is the change ADR-0043 said would
+- The **audit widened exactly once** here (ADR-0044), which is the change ADR-0043 said would
   be its own: one action, on the project's own setting, in the same transaction as the
-  update. Extraction mutations still write no audit rows. Note that
+  update. **That is no longer the boundary** — story 106 widened the audit to every mutating
+  route, so an arrival, an extraction asked for, an extraction proposed, confirmed and
+  rejected each write a line now, and so do documents and their versions. Note that
   `GET /v1/projects/:id/memory/audit` has always returned the project's *whole* audit
   (`where: { projectId }`), so its path is now narrower than what it answers — recorded, not
   fixed; renaming it is a frontend change.
+- **No line on the mail path may carry text the sender wrote.** `sender`, `subject` and
+  `body` are the untrusted party's, kept verbatim on the row where they belong, and `sender`
+  carries no length bound at all — so a line naming one would let whoever has the address
+  choose what the audit of this job says and how large it grows. The arrival's line says how
+  many files came, and nothing else. A **filename** may be said: it is bounded at 255 both by
+  the body schema and by `checkedFiles`. The manual path's `note` may be said too — it is the
+  engineer's own and its body schema bounds it.

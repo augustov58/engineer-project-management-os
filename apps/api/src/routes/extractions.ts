@@ -23,6 +23,7 @@ import { progressStreams } from '../stream.js';
 import { EXTRACT, type ExtractJob } from '../worker.js';
 import { DOCUMENT_CONTENT_TYPES } from './documents.js';
 import { handoffBodySchema, handoffData, TURNAROUND_DAYS } from './registers.js';
+import { audit } from '../audit.js';
 
 /** This record's own 404, which nothing else sends (ADR-0033). */
 const NO_SUCH_FILE = {
@@ -261,6 +262,7 @@ export function extractionRoutes(
         where: { id: request.params.id },
         select: {
           id: true,
+          filename: true,
           ingestedDocument: {
             select: {
               projectId: true,
@@ -289,13 +291,26 @@ export function extractionRoutes(
           .send({ message: 'an extraction of that file is already in flight' });
       }
 
-      const extraction = await prisma.registerEntryExtraction.create({
-        data: {
+      const at = timeSource.now();
+      const extraction = await prisma.$transaction(async (tx) => {
+        const created = await tx.registerEntryExtraction.create({
+          data: {
+            projectId: file.ingestedDocument.projectId,
+            ingestedDocumentFileId: file.id,
+            createdAt: at,
+          },
+          select: extractionSelect,
+        });
+        // The filename is the sender's, and bounded at 255 by the boundary
+        // that stored it — so unlike the sender, subject and body, it may be
+        // said here. What the vendor read is on the row, never on this line.
+        await audit(tx, {
           projectId: file.ingestedDocument.projectId,
-          ingestedDocumentFileId: file.id,
-          createdAt: timeSource.now(),
-        },
-        select: extractionSelect,
+          action: 'extraction asked for over an arrival',
+          detail: file.filename,
+          at,
+        });
+        return created;
       });
       await queue.add(EXTRACT, {
         extractionId: extraction.id,
@@ -322,6 +337,7 @@ export function extractionRoutes(
         select: {
           id: true,
           projectId: true,
+          title: true,
           referencedFile: true,
           project: { select: { processingLocation: true } },
         },
@@ -346,7 +362,7 @@ export function extractionRoutes(
       const version = await prisma.documentVersion.findFirst({
         where: { documentId: document.id },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { id: true },
+        select: { id: true, revision: true },
       });
       if (version === null) {
         return reply
@@ -367,13 +383,25 @@ export function extractionRoutes(
         });
       }
 
-      const extraction = await prisma.registerEntryExtraction.create({
-        data: {
+      const at = timeSource.now();
+      const extraction = await prisma.$transaction(async (tx) => {
+        const created = await tx.registerEntryExtraction.create({
+          data: {
+            projectId: document.projectId,
+            documentVersionId: version.id,
+            createdAt: at,
+          },
+          select: extractionSelect,
+        });
+        // The version resolved now and stamped, so the line says which
+        // revision was read and not merely which document (ADR-0043).
+        await audit(tx, {
           projectId: document.projectId,
-          documentVersionId: version.id,
-          createdAt: timeSource.now(),
-        },
-        select: extractionSelect,
+          action: 'extraction asked for over a document',
+          detail: `${document.title}, revision ${version.revision}`,
+          at,
+        });
+        return created;
       });
       await queue.add(EXTRACT, {
         extractionId: extraction.id,
@@ -441,6 +469,7 @@ export function extractionRoutes(
         where: { id: request.params.id },
         select: {
           id: true,
+          projectId: true,
           ingestedDocumentFileId: true,
           runningSince: true,
           finishedAt: true,
@@ -476,33 +505,50 @@ export function extractionRoutes(
 
       const { kind, ballInCourt, question, response, turnaroundDays, title, revision, ...rest } =
         request.body;
+      const at = timeSource.now();
       // Compare-and-set, so a second proposal racing the first writes
       // nothing: the run's stamps and `proposed_at` are read in one
-      // statement with the write.
-      const written = await prisma.registerEntryExtraction.updateMany({
-        where: {
-          id: extraction.id,
-          proposedAt: null,
-          runningSince: { not: null },
-          finishedAt: null,
-          failedAt: null,
-        },
-        data: {
-          proposedAt: timeSource.now(),
-          proposedKind: kind,
-          ...mapRest(rest),
-          proposedQuestion: question ?? null,
-          proposedResponse: response ?? null,
-          proposedTurnaroundDays: turnaroundDays ?? null,
-          proposedParty: ballInCourt.party,
-          proposedInOurCourt: ballInCourt.inOurCourt,
-          proposedHeldSince:
-            ballInCourt.heldSince === undefined
-              ? null
-              : new Date(ballInCourt.heldSince),
-          proposedTitle: title ?? null,
-          proposedRevision: revision ?? null,
-        },
+      // statement with the write. First in the transaction, so the audit
+      // line rolls back with the update it describes (issue #42's rule).
+      const written = await prisma.$transaction(async (tx) => {
+        const settled = await tx.registerEntryExtraction.updateMany({
+          where: {
+            id: extraction.id,
+            proposedAt: null,
+            runningSince: { not: null },
+            finishedAt: null,
+            failedAt: null,
+          },
+          data: {
+            proposedAt: at,
+            proposedKind: kind,
+            ...mapRest(rest),
+            proposedQuestion: question ?? null,
+            proposedResponse: response ?? null,
+            proposedTurnaroundDays: turnaroundDays ?? null,
+            proposedParty: ballInCourt.party,
+            proposedInOurCourt: ballInCourt.inOurCourt,
+            proposedHeldSince:
+              ballInCourt.heldSince === undefined
+                ? null
+                : new Date(ballInCourt.heldSince),
+            proposedTitle: title ?? null,
+            proposedRevision: revision ?? null,
+          },
+        });
+        if (settled.count === 0) {
+          return settled;
+        }
+        // The agent's own mutation, and the half of story 106 that says
+        // "agent or human". The proposal commits nothing (ADR-0043), so the
+        // line says what was proposed and never that a record was written.
+        await audit(tx, {
+          projectId: extraction.projectId,
+          action: 'extraction proposed',
+          detail: `${kind === 'RFI' ? 'an RFI' : 'a submittal'}, ${rest.number}`,
+          at,
+        });
+        return settled;
       });
       if (written.count === 0) {
         return reply
@@ -663,6 +709,19 @@ export function extractionRoutes(
           if (settled.count === 0) {
             throw new AlreadyResolved();
           }
+          // One line for the one thing that happened. Confirming **is** the
+          // commit (ADR-0043) — the document, the version, the entry, its
+          // first handoff and the link are one transaction — so this is one
+          // event and not five, and the records it wrote each carry their own
+          // stamps for a reader who wants the parts.
+          await audit(tx, {
+            projectId: extraction.projectId,
+            action: 'extraction confirmed',
+            detail: `${body.kind === 'RFI' ? 'RFI' : 'submittal'} ${body.number} written${
+              file === null ? '' : `, from ${file.filename}`
+            }`,
+            at: now,
+          });
         });
       } catch (error) {
         if (error instanceof AlreadyResolved) {
@@ -700,7 +759,15 @@ export function extractionRoutes(
     async (request, reply) => {
       const extraction = await prisma.registerEntryExtraction.findUnique({
         where: { id: request.params.id },
-        select: { id: true, proposedAt: true, confirmedAt: true, rejectedAt: true },
+        select: {
+          id: true,
+          projectId: true,
+          proposedKind: true,
+          proposedNumber: true,
+          proposedAt: true,
+          confirmedAt: true,
+          rejectedAt: true,
+        },
       });
       if (extraction === null) {
         return noSuchExtraction(reply);
@@ -716,9 +783,26 @@ export function extractionRoutes(
           .send({ message: 'that extraction has not proposed' });
       }
 
-      const settled = await prisma.registerEntryExtraction.updateMany({
-        where: { id: extraction.id, confirmedAt: null, rejectedAt: null },
-        data: { rejectedAt: timeSource.now() },
+      const at = timeSource.now();
+      const settled = await prisma.$transaction(async (tx) => {
+        const answered = await tx.registerEntryExtraction.updateMany({
+          where: { id: extraction.id, confirmedAt: null, rejectedAt: null },
+          data: { rejectedAt: at },
+        });
+        if (answered.count === 0) {
+          return answered;
+        }
+        // The proposal stands on the row and the source stands as it arrived
+        // (ADR-0043); this line is the record that the engineer declined it.
+        await audit(tx, {
+          projectId: extraction.projectId,
+          action: 'extraction rejected',
+          detail: `${
+            extraction.proposedKind === 'RFI' ? 'an RFI' : 'a submittal'
+          }, ${extraction.proposedNumber ?? 'unnumbered'}`,
+          at,
+        });
+        return answered;
       });
       if (settled.count === 0) {
         return reply

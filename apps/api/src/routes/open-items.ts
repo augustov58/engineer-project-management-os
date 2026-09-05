@@ -3,6 +3,7 @@
 import type { FastifyInstance } from 'fastify';
 import { NOT_BLANK, type RouteDependencies, instant } from '../http.js';
 import { noSuchOpenItem, noSuchProject } from '../refusals.js';
+import { audit } from '../audit.js';
 
 /**
  * Caps are chosen the way the project name's 200 was: the plan states none,
@@ -113,13 +114,23 @@ export function openItemRoutes(
       }
 
       const { waitingSince, ...rest } = request.body;
-      const item = await prisma.openItem.create({
-        data: {
-          ...rest,
-          subjectType: 'PROJECT',
-          subjectId: project.id,
-          waitingSince: instant(waitingSince, timeSource),
-        },
+      const at = timeSource.now();
+      const item = await prisma.$transaction(async (tx) => {
+        const created = await tx.openItem.create({
+          data: {
+            ...rest,
+            subjectType: 'PROJECT',
+            subjectId: project.id,
+            waitingSince: instant(waitingSince, timeSource),
+          },
+        });
+        await audit(tx, {
+          projectId: project.id,
+          action: 'open item raised',
+          detail: created.unresolved,
+          at,
+        });
+        return created;
       });
       return reply.code(201).send(item);
     },
@@ -214,12 +225,23 @@ export function openItemRoutes(
           .send({ message: 'that open item is already resolved' });
       }
 
-      return prisma.openItem.update({
-        where: { id },
-        data: {
-          resolutionNote: request.body.note,
-          resolvedAt: instant(request.body.resolvedAt, timeSource),
-        },
+      // The resolution's own date may be the engineer's; the audit line's is
+      // always the clock's. Two different facts, both kept — ADR-0044's answer
+      // for a sign-off, arriving here for the same reason.
+      const at = timeSource.now();
+      const resolvedAt = instant(request.body.resolvedAt, timeSource);
+      return prisma.$transaction(async (tx) => {
+        const resolved = await tx.openItem.update({
+          where: { id },
+          data: { resolutionNote: request.body.note, resolvedAt },
+        });
+        await audit(tx, {
+          projectId: item.subjectId,
+          action: 'open item resolved',
+          detail: `${item.unresolved} — ${request.body.note}`,
+          at,
+        });
+        return resolved;
       });
     },
   );
@@ -239,9 +261,24 @@ export function openItemRoutes(
           .send({ message: 'that open item is not resolved' });
       }
 
-      return prisma.openItem.update({
-        where: { id },
-        data: { resolvedAt: null, resolutionNote: null },
+      // The note is about to be emptied, so the line names it: this is the
+      // only place the answer that turned out to be wrong survives.
+      const at = timeSource.now();
+      return prisma.$transaction(async (tx) => {
+        const reopened = await tx.openItem.update({
+          where: { id },
+          data: { resolvedAt: null, resolutionNote: null },
+        });
+        await audit(tx, {
+          projectId: item.subjectId,
+          action: 'open item reopened',
+          detail:
+            item.resolutionNote === null
+              ? item.unresolved
+              : `${item.unresolved} — the resolution "${item.resolutionNote}" was cleared`,
+          at,
+        });
+        return reopened;
       });
     },
   );
