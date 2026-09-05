@@ -938,6 +938,25 @@ export function listMemoryAudit(projectId: string): Promise<AuditEntry[]> {
   return read<AuditEntry[]>(`/projects/${projectId}/memory/audit`);
 }
 
+/**
+ * What happened on this job lately: the same rows, newest first and bounded
+ * (story 107, ADR-0048).
+ *
+ * A read over the audit and never a second stream — the two answers differ in
+ * their order and their bound, not in where they come from. No `limit` is
+ * passed and none is offered: the route's default is what "lately" is, and its
+ * maximum of 200 is load-bearing rather than a page size, so a screen that
+ * walked it would collapse story 107's two questions back into one. Asking for
+ * all of it means the audit read, which is where all of it lives.
+ *
+ * The result is a list whose **length is not a count**, unlike exposure's and
+ * the clock's: it is bounded, so its length is the bound or less. Never render
+ * it as a figure.
+ */
+export function listActivity(projectId: string): Promise<AuditEntry[]> {
+  return read<AuditEntry[]>(`/projects/${projectId}/activity`);
+}
+
 // ── What has arrived from outside (issue #19) ────────────────────────────────
 
 export interface IngestedDocumentFile {
