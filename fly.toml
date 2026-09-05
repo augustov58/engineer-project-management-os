@@ -19,11 +19,17 @@ primary_region = "iad"
   # rather than being forced by the deployment.
   OBJECT_STORE_DIR = "/data/objects"
 
-  # Fly's Managed Postgres has no TLS on the private network: 6PN is
-  # WireGuard-encrypted end to end, and its pgbouncer closes a TLS handshake
-  # with `P1011: unexpected EOF`. `scripts/start.sh` appends this to
-  # DATABASE_URL, so the credential itself never encodes a transport choice and
-  # changing this never means rewriting a secret.
+  # Postgres on Fly has no TLS on the private network: 6PN is WireGuard-encrypted
+  # end to end, and the Managed cluster's pgbouncer closed a TLS handshake with
+  # `P1011: unexpected EOF`. `scripts/start.sh` appends this to DATABASE_URL, so
+  # the credential itself never encodes a transport choice and changing it never
+  # means rewriting a secret.
+  #
+  # Since the swap to the unmanaged cluster (ADR-0045, 2026-09-05) this is a
+  # **no-op in practice**: `fly postgres attach` writes `?sslmode=disable` into
+  # the URL itself, and the script only appends when the URL carries none. It is
+  # kept rather than deleted because it is what makes a deployment survive a
+  # DATABASE_URL that does not carry one.
   DATABASE_SSLMODE = "disable"
 
   # The API listens on loopback inside the machine and nothing outside it can
