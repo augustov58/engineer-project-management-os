@@ -154,9 +154,13 @@ apply to every path stay in `AGENTS.md`.
   signature is the only thing that could say the caller is the provider. No adapter is
   written, so that verification is a **known gap**, as is the fact that the tests exercise a
   normalised envelope of this repo's invention rather than a vendor's recorded payload.
-- A sender's `subject` and `body` are **bounded and refused past the bound, never truncated**
-  — a silently shortened body is a record saying something the sender did not, ADR-0039's
-  base64 lesson.
+- A sender's `subject`, `body` and `sender` are **bounded and refused past the bound, never
+  truncated** — a silently shortened body is a record saying something the sender did not,
+  ADR-0039's base64 lesson. `sender` joined them on 2026-09-05 (issue #81) at `subject`'s
+  1,000 and not RFC 5321's 320, because `from` is a `From` header and may carry a display
+  name. All three are bounds **at the boundary** and none is a database constraint: the
+  columns are `text` and no existing row was rewritten, a silent truncating migration being
+  the same failure applied backwards.
 - An **extraction** is one record, `register_entry_extractions`: the run's four stamps, the
   proposal's fields and the resolution, with the state derived on every read and **no status
   column** — the shape a voice capture and a site visit report established (ADR-0043). The
@@ -231,9 +235,10 @@ apply to every path stay in `AGENTS.md`.
   (`where: { projectId }`), so its path is now narrower than what it answers — recorded, not
   fixed; renaming it is a frontend change.
 - **No line on the mail path may carry text the sender wrote.** `sender`, `subject` and
-  `body` are the untrusted party's, kept verbatim on the row where they belong, and `sender`
-  carries no length bound at all — so a line naming one would let whoever has the address
-  choose what the audit of this job says and how large it grows. The arrival's line says how
-  many files came, and nothing else. A **filename** may be said: it is bounded at 255 both by
+  `body` are the untrusted party's, kept verbatim on the row where they belong — so a line
+  naming one would let whoever has the address choose what the audit of this job says. That
+  stands unchanged now `sender` is bounded (issue #81): the bound answers how large the
+  record grows, never who chooses its words. The arrival's line says how many files came, and
+  nothing else. A **filename** may be said: it is bounded at 255 both by
   the body schema and by `checkedFiles`. The manual path's `note` may be said too — it is the
   engineer's own and its body schema bounds it.

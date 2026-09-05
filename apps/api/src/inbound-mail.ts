@@ -74,6 +74,21 @@ const SUBJECT_MAX = 1000;
 
 const BODY_MAX = 262_144;
 
+/**
+ * The sender's own bound (issue #81), matching `SUBJECT_MAX`.
+ *
+ * Not RFC 5321's 256 or 320: `from` is a `From` header and may carry a display
+ * name ahead of the address, so a path-length bound would refuse legitimate
+ * mail.
+ *
+ * This is a bound at the boundary and **not** a database constraint. The column
+ * stays Postgres `text` on purpose — existing rows are left exactly as they
+ * arrived, a migration that truncated them silently being the rewrite of an
+ * append-only record this product does not make. Do not go looking for the
+ * `@db.VarChar` that was deliberately not added.
+ */
+const SENDER_MAX = 1000;
+
 function fields(payload: unknown): Record<string, unknown> {
   if (typeof payload !== 'object' || payload === null) {
     throw new Error('the webhook payload is not an object');
@@ -81,9 +96,13 @@ function fields(payload: unknown): Record<string, unknown> {
   return payload as Record<string, unknown>;
 }
 
-function text(value: unknown, name: string): string {
+function text(value: unknown, name: string, limit?: number): string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new Error(`the webhook payload has no ${name}`);
+  }
+  // Refused and never truncated, for `optionalText`'s reason below.
+  if (limit !== undefined && value.length > limit) {
+    throw new Error(`the webhook payload's ${name} is too long`);
   }
   return value;
 }
@@ -143,7 +162,7 @@ export const stubInboundMailProvider: InboundMailProvider = {
     }
     return {
       recipient: text(message['to'], 'recipient'),
-      sender: text(message['from'], 'sender'),
+      sender: text(message['from'], 'sender', SENDER_MAX),
       subject: optionalText(message['subject'], 'subject', SUBJECT_MAX),
       body: optionalText(message['text'], 'body', BODY_MAX),
       files: files.map(file),
