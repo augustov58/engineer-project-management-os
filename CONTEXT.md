@@ -108,7 +108,7 @@ The five-phase plan is superseded by the revised sequence in `PRD and Architectu
 | 0t | The edge gate: one secret in front of every route (issue #22) | **Done** 2026-09-01 |
 | 0u | The deployment: Fly, one machine, both halves (issue #56) | **Done** 2026-09-02 |
 | 0v | Full export: every table in one document (issue #60, story 113) | **Done** 2026-09-02 |
-| 1 | T-1 open items entered | Unblocked — no code needed |
+| 1 | Real open items entered on the live job | **Done** 2026-09-05 — on 260001, not T-1; the four items the PRD named were T-1's examples, not a checklist |
 | 2 | Open items + submissions (provisional, supersede) | **Done** — issues #4, #5, #6, #7 |
 | 3 | Site visit capture (voice, photos, stable issue IDs, the report) | **Done** — issues #9, #10, #11, #12 and #13 |
 | 4 | Registers: submittals, RFIs, clock, dispositions | **Done** — issues #14 and #15 |
