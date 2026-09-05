@@ -1710,18 +1710,48 @@ export async function addIngestedDocument(
 // ── Extraction to a draft, human-confirmed (issue #20) ───────────────────────
 
 /**
+ * The ask behind both Extract buttons, answered rather than thrown (issue #67).
+ *
+ * Not `sendOrThrow`: a job on local processing refuses this with ADR-0044's
+ * sentence, and that is the gate firing exactly as designed — thrown, it
+ * reached the framework and read as a crash, which teaches the engineer to
+ * distrust the one refusal that keeps a client's documents from a third party.
+ * So the API's own message comes back for the button to show, as every other
+ * refusal on the page is shown. In flight already is still swallowed: it is
+ * the second half of a double click, and the re-render shows what is true.
+ */
+async function requestExtraction(
+  path: string,
+  tolerated: string,
+  projectId: string,
+): Promise<string | undefined> {
+  const response = await send(path);
+  if (response.status !== 201) {
+    const problem = (await response.json().catch(() => ({}))) as {
+      message?: string;
+    };
+    if (response.status !== 409 || problem.message !== tolerated) {
+      return problem.message ?? `the API returned ${response.status}`;
+    }
+  }
+  revalidatePath(`/projects/${projectId}`);
+  return undefined;
+}
+
+/**
  * Asking for an extraction over one file of an arrival (story 84). Manual and
  * per file: the engineer picks which file is the correspondence (ADR-0043).
  */
 export async function requestExtractionFromFile(
   projectId: string,
   fileId: string,
-): Promise<void> {
-  await sendOrThrow(`/ingested-document-files/${fileId}/extractions`, undefined, {
-    // In flight already is the second half of a double click.
-    tolerated: 'an extraction of that file is already in flight',
-  });
-  revalidatePath(`/projects/${projectId}`);
+  _previous: string | undefined,
+): Promise<string | undefined> {
+  return requestExtraction(
+    `/ingested-document-files/${fileId}/extractions`,
+    'an extraction of that file is already in flight',
+    projectId,
+  );
 }
 
 /**
@@ -1731,11 +1761,13 @@ export async function requestExtractionFromFile(
 export async function requestExtractionFromDocument(
   projectId: string,
   documentId: string,
-): Promise<void> {
-  await sendOrThrow(`/documents/${documentId}/extractions`, undefined, {
-    tolerated: 'an extraction of that document is already in flight',
-  });
-  revalidatePath(`/projects/${projectId}`);
+  _previous: string | undefined,
+): Promise<string | undefined> {
+  return requestExtraction(
+    `/documents/${documentId}/extractions`,
+    'an extraction of that document is already in flight',
+    projectId,
+  );
 }
 
 /**
