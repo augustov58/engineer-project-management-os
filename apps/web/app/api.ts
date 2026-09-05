@@ -550,6 +550,52 @@ export function listIssues(projectId: string): Promise<Issue[]> {
   return read<Issue[]>(`/projects/${projectId}/issues`);
 }
 
+/** The across-every-project view carries the job each finding is on. */
+export interface OpenIssue extends Issue {
+  project: { id: string; projectNumber: string; name: string };
+}
+
+/**
+ * Every finding still open, across every project (issue #64).
+ *
+ * The second across-every-project list after the pending items view, which is
+ * its precedent: only what is still open, oldest first because the age is the
+ * reason to look, and the job attached to every row. A **list and never a
+ * number** — nothing renders its length on the morning screen, where a third
+ * figure beside exposure and the clock is what ADR-0016 keeps out.
+ */
+export function listOpenIssues(options: {
+  category?: string;
+  sort?: 'oldest' | 'newest';
+}): Promise<OpenIssue[]> {
+  const query = new URLSearchParams({ sort: options.sort ?? 'oldest' });
+  if (options.category !== undefined && options.category !== '') {
+    query.set('category', options.category);
+  }
+  return read<OpenIssue[]>(`/issues?${query.toString()}`);
+}
+
+/**
+ * The closed set of exactly five, in the words the glossary writes them.
+ *
+ * A second copy of the API's list, the way every interface here is a second
+ * copy of the harness's — the two apps share no package, and they cannot
+ * drift silently, because the API refuses a category it does not know and a
+ * sixth typed here comes straight back as a refusal.
+ *
+ * Here rather than in `issue-form.tsx`, which held it until the filter on
+ * `/issues` became a second reader (issue #64): that reason licenses one copy
+ * on this side of the wire and not two, and this is where `REGISTER_NAMES`
+ * already keeps the same kind of fact.
+ */
+export const ISSUE_CATEGORIES = [
+  'Accessibility',
+  'Physical / Safety',
+  'Functional',
+  'Safety / Code',
+  'Design / Coordination',
+];
+
 /**
  * Resolving the stable identifier, which is what having one is for: a
  * reference printed in an issued report is looked up here.
