@@ -34,7 +34,7 @@ function size(bytes: number): string {
  * Through the Next server and never straight at the API: a link pointed at
  * `NEXT_PUBLIC_API_URL` would work on this machine and fail on the second
  * device, and it would be the one request in the product going around whatever
- * ADR-0020 eventually puts in front of the API.
+ * ADR-0020 puts in front of the API.
  */
 function VersionRow({ version }: { version: DocumentVersion }) {
   return (

@@ -263,7 +263,7 @@ export function ingestRoutes(
    * What comes back out of `read` is checked here like any other input.
    *
    * This route is the one thing in the product reachable without whatever
-   * ADR-0020 eventually puts in front of the API — that ADR carves the ingest
+   * ADR-0020 puts in front of the API — that ADR carves the ingest
    * addresses out by name, because inbound mail cannot present a cookie, and
    * says their unguessability and rate limiting stand in its place. Both are
    * below.

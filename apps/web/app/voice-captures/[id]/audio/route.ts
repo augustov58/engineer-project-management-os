@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * for the reason the photo byte proxy exists: an `<audio>` pointed at
  * `NEXT_PUBLIC_API_URL` would play on this machine and fail on the phone, and
  * it would be the one request in the product going around whatever ADR-0020
- * eventually puts in front of the API.
+ * puts in front of the API.
  *
  * The type is one of three the API refuses to store otherwise, and the browser
  * is told not to look for a fourth.

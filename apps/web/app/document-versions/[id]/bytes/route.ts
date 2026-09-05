@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
  * Every call to the API is made by the Next server rather than by the browser,
  * the way a photograph's bytes are: a link pointed at `NEXT_PUBLIC_API_URL`
  * would work on this machine and fail on the second device, and it would be
- * the one request in the product going around whatever ADR-0020 eventually
- * puts in front of the API.
+ * the one request in the product going around whatever ADR-0020 puts in
+ * front of the API.
  */
 export async function GET(
   _request: Request,
