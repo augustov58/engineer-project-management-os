@@ -282,8 +282,9 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
   shape ADR-0022 gave `TimeSource`: a filesystem adapter for dev and tests, the
   S3-compatible one when there is somewhere to deploy to. Not a presigned URL — that is a
   second thing reachable without the single edge secret ADR-0020 puts in front of every
-  route, and that ADR carved out its one exception explicitly and is still Proposed.
-  `apps/web` proxies `/photos/:id/bytes` so the browser never calls the API directly.
+  route, and that ADR carved out its one exception explicitly. `apps/web` proxies
+  `/photos/:id/bytes` so the browser never calls the API directly. (0020 read *still
+  Proposed* here until issue #84; it was Accepted 2026-09-01 and built as slice 21.)
 - **Photo evidence lands on the floor and the finding, not the observation** (ADR-0032),
   correcting a promise the glossary's **Observation** entry had carried since slice 8. No
   mechanism picks one observation out of the dozen made on a floor, and the join that would

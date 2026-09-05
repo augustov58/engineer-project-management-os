@@ -333,8 +333,8 @@ export function photoRoutes(
    *
    * Not a presigned URL. [[0020]] puts one shared secret in front of every
    * route and carved out exactly one exception, reasoning about it
-   * explicitly; a second carve-out deserves the same treatment, and that
-   * ADR is still Proposed.
+   * explicitly; a second carve-out deserves the same treatment. (0020 read
+   * *still Proposed* here until issue #84; it was Accepted 2026-09-01.)
    */
   v1.get<{ Params: { id: string } }>(
     '/photos/:id/bytes',

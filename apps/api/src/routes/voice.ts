@@ -223,7 +223,8 @@ export function voiceRoutes(
    * The audio itself, served through the API.
    *
    * Not a presigned URL, for the reason a photograph's bytes are not
-   * ([[0020]] is still Proposed) — and this route is half of what "a failed
+   * ([[0020]] read *still Proposed* here until issue #84; it was Accepted
+   * 2026-09-01) — and this route is half of what "a failed
    * or rejected transcription leaves the audio recoverable" means. The
    * other half is the retry below; between them, the engineer can listen to
    * what they said and write it down by hand.

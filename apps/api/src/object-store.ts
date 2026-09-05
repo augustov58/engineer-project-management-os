@@ -13,7 +13,9 @@ import { dirname, join, normalize, resolve, sep } from 'node:path';
  *
  * Deliberately two methods. A presigned URL is not here: it would be a second
  * thing reachable without the single edge secret ADR-0020 puts in front of
- * every route, and that ADR is still Proposed. Bytes go out through the API.
+ * every route. Bytes go out through the API. (ADR-0020 was Proposed when this
+ * was written and was Accepted 2026-09-01; the reason stands either way, and
+ * stands harder now the gate is built — issue #84.)
  */
 export interface ObjectStore {
   put(key: string, bytes: Buffer, contentType: string): Promise<void>;
