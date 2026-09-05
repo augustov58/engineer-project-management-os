@@ -17,7 +17,7 @@ import type {
 } from './actions';
 import type { MemoryActivity, MemoryProposal } from './api';
 import { useLiveList } from './live-list';
-import { diffLines } from './memory-diff';
+import { DiffView } from './memory-versions';
 
 /** What "renders differently" means for the runs and proposals together. */
 function summarise(activity: MemoryActivity): string {
@@ -254,27 +254,14 @@ function ProposalCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
-  const diff = diffLines(proposal.baseContent, proposal.proposed);
 
   return (
     <li className="rounded-lg border">
-      <div className="space-y-1 px-4 py-3 font-mono text-sm">
-        {diff.map((line, index) => (
-          <p
-            key={index}
-            className={
-              line.kind === 'added'
-                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                : line.kind === 'removed'
-                  ? 'bg-red-500/10 text-red-700 line-through dark:text-red-400'
-                  : 'text-muted-foreground'
-            }
-          >
-            {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
-            {line.text}
-          </p>
-        ))}
-      </div>
+      {/*
+        Drawn by the same component the version history draws its diffs with
+        (issue #63) — one rendering of "what changed", not two that can drift.
+      */}
+      <DiffView base={proposal.baseContent} proposed={proposal.proposed} />
 
       {proposal.stale ? (
         <div className="space-y-2 border-t px-4 py-3">
