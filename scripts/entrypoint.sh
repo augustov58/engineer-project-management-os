@@ -26,6 +26,25 @@ chown -R 10001:10001 "$store"
 if [ -n "${PI_CODING_AGENT_DIR:-}" ]; then
   mkdir -p "$PI_CODING_AGENT_DIR"
   chown -R 10001:10001 "$PI_CODING_AGENT_DIR"
+
+  # And the same directory again under $HOME, because a provider extension
+  # does not honour the variable above.
+  #
+  # `pi-alibaba-models` computes its own paths as
+  # `path.join(os.homedir(), ".pi", "agent")` — auth, config and both model
+  # caches — so with only the variable set, pi's core wrote the credential to
+  # the volume while the extension read `$HOME/.pi/agent/auth.json`, found
+  # nothing, and registered zero models. pi hides a provider that has no
+  # models, so the symptom was `Unknown provider "alibaba-plan"` on a
+  # credential that was present and valid.
+  #
+  # A symlink rather than moving the store: pi's core does honour the
+  # variable, so the two have to agree rather than one giving way, and $HOME
+  # stays /home/app because corepack's cache lives there.
+  mkdir -p /home/app/.pi
+  ln -sfn "$PI_CODING_AGENT_DIR" /home/app/.pi/agent
+  chown 10001:10001 /home/app/.pi
+  chown -h 10001:10001 /home/app/.pi/agent
 fi
 
 # `setpriv` changes the uid and nothing else, so HOME would still be /root —
