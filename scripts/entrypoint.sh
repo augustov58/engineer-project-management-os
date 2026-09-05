@@ -12,6 +12,22 @@ store="${OBJECT_STORE_DIR:-/data/objects}"
 mkdir -p "$store"
 chown -R 10001:10001 "$store"
 
+# The model provider's credential, on the volume for the same reason the object
+# store is: everything else on this machine is the image, and the image is
+# replaced by every deploy. The Pi SDK resolves its auth store to
+# `PI_CODING_AGENT_DIR` or, failing that, `$HOME/.pi/agent` — and $HOME here is
+# inside the image, so a credential left at the default would be authenticated
+# once and gone on the next `fly deploy`.
+#
+# Created and chowned here rather than by the login, because `fly ssh console`
+# lands as root: without this the credential would be written root-owned into a
+# directory the application cannot read (ADR-0041 removed the agent's file
+# tools, so it has no way to tell you that is why it failed).
+if [ -n "${PI_CODING_AGENT_DIR:-}" ]; then
+  mkdir -p "$PI_CODING_AGENT_DIR"
+  chown -R 10001:10001 "$PI_CODING_AGENT_DIR"
+fi
+
 # `setpriv` changes the uid and nothing else, so HOME would still be /root —
 # and the pnpm the build put in corepack's cache lives under /home/app. Without
 # this the first `pnpm` call dies with EACCES on /root/.cache and the machine

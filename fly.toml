@@ -19,6 +19,17 @@ primary_region = "iad"
   # rather than being forced by the deployment.
   OBJECT_STORE_DIR = "/data/objects"
 
+  # Where the Pi SDK keeps the model provider's credential. On the volume, and
+  # not at its default of `$HOME/.pi/agent`, because $HOME is inside the image
+  # and the image is replaced by every deploy — a credential left at the default
+  # would be authenticated once and gone by the next one.
+  #
+  # This product reads nothing from here. ADR-0040 put provider auth in the
+  # SDK's own `ModelRuntime`, and ADR-0041 removed the agent's file tools
+  # entirely after finding `cwd` never bounded them — so the agent cannot read
+  # this directory either, which is the point.
+  PI_CODING_AGENT_DIR = "/data/pi-agent"
+
   # Postgres on Fly has no TLS on the private network: 6PN is WireGuard-encrypted
   # end to end, and the Managed cluster's pgbouncer closed a TLS handshake with
   # `P1011: unexpected EOF`. `scripts/start.sh` appends this to DATABASE_URL, so
