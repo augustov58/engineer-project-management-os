@@ -697,7 +697,30 @@ describe('inbound content', () => {
     );
     expect(tooLongSubject.status).toBe(400);
 
-    expect(await arrivalsOn(app, project.id)).toEqual([]);
+    // The sender is the third of them (issue #81). Bounded at the boundary and
+    // not by the column, so a `From` header at length is refused rather than
+    // stored, and no existing row was rewritten to make that true.
+    const tooLongSender = await forward(
+      app,
+      envelope(project.ingestAddress!, {
+        from: `${'x'.repeat(1001)}@example.com`,
+        files: [],
+      }),
+    );
+    expect(tooLongSender.status).toBe(400);
+
+    // One character under the bound still arrives: the refusal is the length
+    // and not the shape of a long address.
+    const atTheBound = await forward(
+      app,
+      envelope(project.ingestAddress!, {
+        from: `${'x'.repeat(988)}@example.com`,
+        files: [],
+      }),
+    );
+    expect(atTheBound.status).toBe(201);
+
+    expect((await arrivalsOn(app, project.id)).length).toBe(1);
   });
 
   test('is never enqueued: an arrival starts no job', async () => {
