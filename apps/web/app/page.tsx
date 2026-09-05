@@ -131,6 +131,32 @@ export default async function Home() {
           <ProjectList projects={archived} archived />
         </section>
       )}
+
+      {/*
+        The whole record as one file (story 113, ADR-0047), reachable at last
+        (issue #68). Here and not in the header: the export is an action across
+        every project, and this is the across-every-project screen the engineer
+        is already on each morning — the nav is four links and the product's
+        shape leans on it staying that size. Last on the page because it is
+        occasional where everything above it is daily.
+
+        A plain anchor and never `Link`: the route answers a file, and a
+        client-side navigation or a prefetch of it would fetch the entire
+        record to render nothing.
+      */}
+      <section className="space-y-2 border-t pt-6">
+        <h2 className="text-muted-foreground text-sm font-medium">The record</h2>
+        <p className="text-muted-foreground text-sm">
+          <a href="/export" className="text-foreground underline underline-offset-4">
+            Download the whole record as one file
+          </a>{' '}
+          &mdash; every project, live and archived, every table, as one JSON
+          file named for today. The photographs, recordings and documents it
+          names are served by their own paths and are not inside it. Nothing
+          here changes when you take it, and there is no import: changing
+          employers does not mean losing the record.
+        </p>
+      </section>
     </div>
   );
 }
