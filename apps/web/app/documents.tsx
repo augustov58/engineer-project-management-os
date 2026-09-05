@@ -6,7 +6,6 @@ import {
   requestExtractionFromDocument,
 } from './actions';
 import { DocumentVersionForm } from './document-form';
-import { ExtractButton } from './extract-button';
 import { day } from './open-item';
 import {
   documentKind,
@@ -112,16 +111,19 @@ export function DocumentList({
                   Asking for an extraction over the latest version (issue #20).
                   Offered exactly where the referenced-file mark is not: the
                   two are the same predicate, so this button and that badge
-                  can never disagree. The API's refusal, if any, is shown
-                  beside the button (issue #67).
+                  can never disagree.
                 */}
-                <ExtractButton
-                  request={requestExtractionFromDocument.bind(
+                <form
+                  action={requestExtractionFromDocument.bind(
                     null,
                     projectId,
                     document.id,
                   )}
-                />
+                >
+                  <Button type="submit" variant="ghost" size="sm">
+                    Extract
+                  </Button>
+                </form>
                 <form
                   action={markReferencedFile.bind(null, document.id, projectId)}
                 >

@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { requestExtractionFromFile } from './actions';
 import type { IngestedDocument } from './api';
-import { ExtractButton } from './extract-button';
 
 /** Bytes as a person reads them, matching the documents list. */
 function size(bytes: number): string {
@@ -137,16 +137,19 @@ export function IngestedDocumentList({
                     Asking for an extraction over this file (story 84). Manual
                     and per file: the engineer picks which file is the
                     correspondence — the covering note and the referenced
-                    drawings are not (ADR-0043). The API's refusal, if any,
-                    is shown beside the button (issue #67).
+                    drawings are not (ADR-0043).
                   */}
-                  <ExtractButton
-                    request={requestExtractionFromFile.bind(
+                  <form
+                    action={requestExtractionFromFile.bind(
                       null,
                       arrival.projectId,
                       file.id,
                     )}
-                  />
+                  >
+                    <Button type="submit" variant="ghost" size="sm">
+                      Extract
+                    </Button>
+                  </form>
                 </li>
               ))}
             </ul>
