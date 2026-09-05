@@ -55,10 +55,12 @@ primary_region = "iad"
   # every vendor port in this product takes (ADR-0040), and this is the one
   # place that posture is lifted.
   #
-  # Unlike `TRANSCRIBER=stub` and `OCR=stub` — set as Fly secrets so they stay
-  # out of source and cannot outlive a test — this belongs in the deployment
-  # config, because it is a real setting the author chose rather than a
-  # fixture. What it turns on: a memory run sends the project's curated prose
+  # `TRANSCRIBER` and `OCR` are set **nowhere**: both ports' defaults refuse,
+  # which is what keeps the employer-consent gate (ADR-0042, ADR-0043). They
+  # were briefly set as Fly secrets and were unset on 2026-09-05; this comment
+  # claimed they still were until issue #84. `AGENT` is different and belongs
+  # in the deployment config, because it is a real setting the author chose
+  # rather than a fixture. What it turns on: a memory run sends the project's curated prose
   # to a model provider. Not client documents; ADR-0041 removed the agent's
   # file tools entirely, so it reads nothing off this disk.
   AGENT = "pi"

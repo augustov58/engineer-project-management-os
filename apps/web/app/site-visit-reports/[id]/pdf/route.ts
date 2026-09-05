@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
  * The same shape as a photograph's bytes and a recording's audio, and for the
  * same reason: every call to the API is made by this server, so the one thing
  * this product issues outside itself does not go around whatever ADR-0020
- * eventually puts in front of the API.
+ * puts in front of the API.
  *
  * `encodeURIComponent`, as those two do — ADR-0032 found that hole in the
  * photo route, and this is the same route written again.

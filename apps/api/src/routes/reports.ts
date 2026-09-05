@@ -85,8 +85,9 @@ export function reportRoutes(
    * Through the API and not a presigned URL, for the reason a photograph's
    * bytes and a recording's are (ADR-0032): a presigned URL would be a second
    * thing reachable without the single edge gate ADR-0020 puts in front of
-   * every route, and that ADR is still Proposed. `apps/web` proxies this so
-   * the browser never calls the API directly.
+   * every route. `apps/web` proxies this so the browser never calls the API
+   * directly. (0020 read *still Proposed* here until issue #84; it was
+   * Accepted 2026-09-01 and built as slice 21.)
    */
   v1.get<{ Params: { id: string } }>(
     '/site-visit-reports/:id/pdf',

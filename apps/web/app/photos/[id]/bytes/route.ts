@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * An `<img>` pointed at `NEXT_PUBLIC_API_URL` would render on this machine and
  * fail on the second device, which is the failure mode the README warns about
  * — and it would be the one request in the product going around whatever
- * ADR-0020 eventually puts in front of the API.
+ * ADR-0020 puts in front of the API.
  *
  * The type is one of four images the API refuses to store otherwise, and the
  * browser is told not to look for a fifth.

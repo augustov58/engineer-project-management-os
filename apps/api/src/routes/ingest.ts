@@ -263,7 +263,7 @@ export function ingestRoutes(
    * What comes back out of `read` is checked here like any other input.
    *
    * This route is the one thing in the product reachable without whatever
-   * ADR-0020 eventually puts in front of the API — that ADR carves the ingest
+   * ADR-0020 puts in front of the API — that ADR carves the ingest
    * addresses out by name, because inbound mail cannot present a cookie, and
    * says their unguessability and rate limiting stand in its place. Both are
    * below.
@@ -469,8 +469,9 @@ export function ingestRoutes(
 
   /**
    * The bytes of one file, served through the API and not a presigned URL —
-   * that would be a second thing reachable without ADR-0020's gate, and 0020
-   * is still Proposed (ADR-0032, ADR-0039).
+   * that would be a second thing reachable without ADR-0020's gate
+   * (ADR-0032, ADR-0039). 0020 read *still Proposed* here until issue #84; it
+   * was Accepted 2026-09-01 and the gate is built.
    *
    * Always `application/octet-stream`, and never the type the sender claimed.
    * ADR-0039 could hand a document version's own type back because that set is

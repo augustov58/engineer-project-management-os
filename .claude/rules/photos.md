@@ -19,8 +19,9 @@ apply to every path stay in `AGENTS.md`.
 - A photograph's bytes go to the injected `ObjectStore` port and never into the database
   (ADR-0032). The row keeps `storage_key` and that key never reaches the wire. The bytes are
   read back through `GET /v1/photos/:id/bytes` and **not** a presigned URL: that would be a
-  second thing reachable without the edge gate ADR-0020 carved its one exception out of, and
-  0020 is still Proposed. `apps/web` proxies the route so the browser never calls the API.
+  second thing reachable without the edge gate ADR-0020 carved its one exception out of.
+  `apps/web` proxies the route so the browser never calls the API. (0020 read *still
+  Proposed* here until issue #84; it was Accepted 2026-09-01 and built as slice 21.)
 - The **filename grammar** is `/(?<![a-z])(?:issue|iss)[-_ ]?(\d+)/gi`, written down for the first
   time in ADR-0032 after ADR-0031, the glossary and the schema all recorded that it was
   written down nowhere and refused to invent it. **A marker is required and a bare integer

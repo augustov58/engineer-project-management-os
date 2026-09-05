@@ -402,7 +402,8 @@ export function documentRoutes(
    *
    * Not a presigned URL, for ADR-0032's reason: [[0020]] puts one shared
    * secret in front of every route and carved out exactly one exception,
-   * reasoning about it explicitly, and that ADR is still Proposed.
+   * reasoning about it explicitly. (0020 read *still Proposed* here until
+   * issue #84; it was Accepted 2026-09-01.)
    */
   v1.get<{ Params: { id: string } }>(
     '/document-versions/:id/bytes',
