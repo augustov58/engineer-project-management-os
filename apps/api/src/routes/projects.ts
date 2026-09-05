@@ -9,6 +9,7 @@ import {
 } from '../http.js';
 import { noSuchProject } from '../refusals.js';
 import { projectOnTheWire } from '../wire.js';
+import { audit } from '../audit.js';
 
 /**
  * No format for the project number is written down anywhere — only that it is
@@ -112,26 +113,43 @@ export function projectRoutes(
     async (request, reply) => {
       try {
         const now = timeSource.now();
-        const project = await prisma.project.create({
-          data: {
-            ...request.body,
-            createdAt: now,
-            // Written with the job, as the two registers are: there is no
-            // route that issues one afterwards and no state in which a
-            // project has no address (issue #19).
-            ingestToken: newIngestToken(),
-            // Both correspondence logs, written with the job and never
-            // afterwards (issue #14). Which types exist is a fact about the
-            // product rather than a choice about a job, so there is no route
-            // that creates one and no state in which a project has only one:
-            // `@@unique([projectId, kind])` is what keeps that true.
-            registers: {
-              create: [
-                { kind: 'SUBMITTAL', createdAt: now },
-                { kind: 'RFI', createdAt: now },
-              ],
+        // The job and the first line of its own audit in one transaction. The
+        // line's `project_id` points at the row being written beside it, which
+        // is legal because both statements are inside the same transaction —
+        // and it is the reason the audit of a project reads from the beginning
+        // rather than from whatever was done to it second.
+        const project = await prisma.$transaction(async (tx) => {
+          const created = await tx.project.create({
+            data: {
+              ...request.body,
+              createdAt: now,
+              // Written with the job, as the two registers are: there is no
+              // route that issues one afterwards and no state in which a
+              // project has no address (issue #19).
+              ingestToken: newIngestToken(),
+              // Both correspondence logs, written with the job and never
+              // afterwards (issue #14). Which types exist is a fact about the
+              // product rather than a choice about a job, so there is no route
+              // that creates one and no state in which a project has only one:
+              // `@@unique([projectId, kind])` is what keeps that true.
+              registers: {
+                create: [
+                  { kind: 'SUBMITTAL', createdAt: now },
+                  { kind: 'RFI', createdAt: now },
+                ],
+              },
             },
-          },
+          });
+          // The address is never named: it is a credential, and the audit is
+          // read on a screen (ADR-0042, ADR-0047's reason for dropping it from
+          // the export).
+          await audit(tx, {
+            projectId: created.id,
+            action: 'project recorded',
+            detail: `${created.projectNumber} — ${created.name}`,
+            at: now,
+          });
+          return created;
         });
         return reply.code(201).send(projectOnTheWire(project, ingestDomain));
       } catch (error) {
@@ -188,9 +206,24 @@ export function projectRoutes(
     '/projects/:id/archive',
     async (request, reply) => {
       const { id } = request.params;
-      await prisma.project.updateMany({
-        where: { id, archivedAt: null },
-        data: { archivedAt: timeSource.now() },
+      const at = timeSource.now();
+      await prisma.$transaction(async (tx) => {
+        const stamped = await tx.project.updateMany({
+          where: { id, archivedAt: null },
+          data: { archivedAt: at },
+        });
+        // Nothing moved, so nothing is recorded. The second call is a no-op
+        // and an audit line for it would say a job was archived on a day it
+        // was not — the count is what tells the two apart, the way a
+        // compare-and-set does on a proposal (issue #42).
+        if (stamped.count === 1) {
+          await audit(tx, {
+            projectId: id,
+            action: 'project archived',
+            detail: `archived on ${at.toISOString()}`,
+            at,
+          });
+        }
       });
 
       const project = await prisma.project.findUnique({ where: { id } });
@@ -319,13 +352,11 @@ export function projectRoutes(
           if (settled.count === 0) {
             throw new StateMovedUnderneath();
           }
-          await tx.auditEntry.create({
-            data: {
-              projectId: id,
-              action: change.action,
-              detail: change.detail,
-              createdAt: at,
-            },
+          await audit(tx, {
+            projectId: id,
+            action: change.action,
+            detail: change.detail,
+            at,
           });
           return tx.project.findUniqueOrThrow({ where: { id } });
         });

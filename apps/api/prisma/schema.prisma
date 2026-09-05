@@ -1603,16 +1603,27 @@ model AgentRun {
 /// One line of the append-only audit record (issue #18, story 106,
 /// [[glossary]]: **Audit log**).
 ///
-/// Every mutation of a project's memory writes one: a version written
-/// directly, a proposal arriving, an accept, an accept-with-edit, a reject.
-/// Nothing updates a row and nothing deletes one — there is no route that
+/// **Every mutation writes one, agent or human**, which is the whole of story
+/// 106. Nothing updates a row and nothing deletes one — there is no route that
 /// touches this table but the writers, which is what "append-only" means
 /// here by construction rather than by a guard.
 ///
-/// This is the audit log the glossary defines and not the activity feed,
-/// which is a separate stream the MVP does not build. The scope is memory,
-/// because that is what this ticket's mutations are; widening it to every
-/// record's mutations is its own change, not something to do row by row.
+/// The scope was memory alone when this table was written, because that was
+/// slice 17's ticket; ADR-0044 widened it once, for the processing location,
+/// and both records said that widening it to every record was "its own change,
+/// not something to do row by row". That change is now taken, in one pass over
+/// every one of the sixty-two mutating routes, and `src/audit.ts` is the one
+/// way a line is written. `test/audit.test.ts` reads the routes Fastify
+/// registered and fails if a mutating one is not on its list, so a route added
+/// later cannot quietly go unrecorded.
+///
+/// **Nothing an untrusted party wrote reaches a line.** The mail path's
+/// sender, subject and body are the one place this product stores text nobody
+/// here chose, and `sender` carries no length bound at all — so the arrival's
+/// line says how many files came and nothing else.
+///
+/// This table is the audit log the glossary defines. The **activity event** it
+/// also defines is still a separate question, and story 107's.
 model AuditEntry {
   id String @id @default(uuid())
 

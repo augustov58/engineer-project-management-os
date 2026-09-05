@@ -21,6 +21,7 @@ import {
 } from '../refusals.js';
 import { openItemBodySchema, resolveBodySchema } from './open-items.js';
 import { issueInclude, withSightings } from '../wire.js';
+import { audit } from '../audit.js';
 
 /**
  * The closed set of exactly five, in the words the glossary writes them
@@ -145,6 +146,7 @@ function writeIssue(
   observation: { id: string; projectId: string },
   category: IssueCategory,
 ) {
+  const at = timeSource.now();
   return prisma.$transaction(async (tx) => {
     // The high-water mark, and never `MAX(number) + 1`: this only ever
     // increases, so a number is handed out once and never again — not after a
@@ -157,16 +159,26 @@ function writeIssue(
       select: { issuesAllocated: true },
     });
 
-    return tx.issue.create({
+    const raised = await tx.issue.create({
       data: {
         projectId: observation.projectId,
         number: issuesAllocated,
         category,
-        createdAt: timeSource.now(),
+        createdAt: at,
         observations: { create: { observationId: observation.id } },
       },
       include: issueInclude,
     });
+    // Inside the same transaction, so a promotion refused by the sighting's
+    // unique index takes its audit line back with the number it gave back.
+    // `Issue N` is the identifier's one format (ADR-0035).
+    await audit(tx, {
+      projectId: observation.projectId,
+      action: 'issue raised',
+      detail: `Issue ${raised.number}, ${raised.category}`,
+      at,
+    });
+    return raised;
   });
 }
 
@@ -294,7 +306,7 @@ export function issueRoutes(
       const { id, observationId } = request.params;
       const found = await prisma.issue.findUnique({
         where: { id },
-        select: { id: true, projectId: true },
+        select: { id: true, projectId: true, number: true },
       });
       if (found === null) {
         return noSuchIssue(reply);
@@ -325,9 +337,18 @@ export function issueRoutes(
         });
       }
 
+      const at = timeSource.now();
       try {
-        await prisma.issueObservation.create({
-          data: { issueId: id, observationId },
+        await prisma.$transaction(async (tx) => {
+          await tx.issueObservation.create({
+            data: { issueId: id, observationId },
+          });
+          await audit(tx, {
+            projectId: found.projectId,
+            action: 'issue seen again',
+            detail: `Issue ${found.number}, on a later observation`,
+            at,
+          });
         });
       } catch (error) {
         // The lookup above answers the ordinary case; this is the race,
@@ -360,7 +381,7 @@ export function issueRoutes(
     async (request, reply) => {
       const found = await prisma.issue.findUnique({
         where: { id: request.params.id },
-        select: { id: true, closedAt: true },
+        select: { id: true, projectId: true, number: true, closedAt: true },
       });
       if (found === null) {
         return noSuchIssue(reply);
@@ -371,13 +392,23 @@ export function issueRoutes(
           .send({ message: 'that issue is already closed' });
       }
 
-      const closed = await prisma.issue.update({
-        where: { id: found.id },
-        data: {
-          closedAt: instant(request.body.closedAt, timeSource),
-          closureNote: request.body.note,
-        },
-        include: issueInclude,
+      const at = timeSource.now();
+      const closed = await prisma.$transaction(async (tx) => {
+        const stamped = await tx.issue.update({
+          where: { id: found.id },
+          data: {
+            closedAt: instant(request.body.closedAt, timeSource),
+            closureNote: request.body.note,
+          },
+          include: issueInclude,
+        });
+        await audit(tx, {
+          projectId: found.projectId,
+          action: 'issue closed',
+          detail: `Issue ${found.number} — ${request.body.note}`,
+          at,
+        });
+        return stamped;
       });
       return withSightings(closed);
     },
@@ -393,7 +424,13 @@ export function issueRoutes(
     async (request, reply) => {
       const found = await prisma.issue.findUnique({
         where: { id: request.params.id },
-        select: { id: true, closedAt: true },
+        select: {
+          id: true,
+          projectId: true,
+          number: true,
+          closedAt: true,
+          closureNote: true,
+        },
       });
       if (found === null) {
         return noSuchIssue(reply);
@@ -404,10 +441,22 @@ export function issueRoutes(
           .send({ message: 'that issue is not closed' });
       }
 
-      const reopened = await prisma.issue.update({
-        where: { id: found.id },
-        data: { closedAt: null, closureNote: null },
-        include: issueInclude,
+      const at = timeSource.now();
+      const reopened = await prisma.$transaction(async (tx) => {
+        const cleared = await tx.issue.update({
+          where: { id: found.id },
+          data: { closedAt: null, closureNote: null },
+          include: issueInclude,
+        });
+        // Both columns are about to be emptied together (ADR-0024's shape),
+        // so the note that closed it survives here or nowhere.
+        await audit(tx, {
+          projectId: found.projectId,
+          action: 'issue reopened',
+          detail: `Issue ${found.number} — the closure "${found.closureNote ?? ''}" was cleared`,
+          at,
+        });
+        return cleared;
       });
       return withSightings(reopened);
     },
@@ -442,21 +491,31 @@ export function issueRoutes(
     async (request, reply) => {
       const found = await prisma.issue.findUnique({
         where: { id: request.params.id },
-        select: { id: true, projectId: true },
+        select: { id: true, projectId: true, number: true },
       });
       if (found === null) {
         return noSuchIssue(reply);
       }
 
       const { waitingSince, ...rest } = request.body;
-      const item = await prisma.openItem.create({
-        data: {
-          ...rest,
-          subjectType: 'PROJECT',
-          subjectId: found.projectId,
-          waitingSince: instant(waitingSince, timeSource),
-          issues: { create: { issueId: found.id } },
-        },
+      const at = timeSource.now();
+      const item = await prisma.$transaction(async (tx) => {
+        const created = await tx.openItem.create({
+          data: {
+            ...rest,
+            subjectType: 'PROJECT',
+            subjectId: found.projectId,
+            waitingSince: instant(waitingSince, timeSource),
+            issues: { create: { issueId: found.id } },
+          },
+        });
+        await audit(tx, {
+          projectId: found.projectId,
+          action: 'open item raised on an issue',
+          detail: `Issue ${found.number} — ${created.unresolved}`,
+          at,
+        });
+        return created;
       });
       return reply.code(201).send(item);
     },
@@ -473,7 +532,7 @@ export function issueRoutes(
       const { id, openItemId } = request.params;
       const found = await prisma.issue.findUnique({
         where: { id },
-        select: { id: true, projectId: true },
+        select: { id: true, projectId: true, number: true },
       });
       if (found === null) {
         return noSuchIssue(reply);
@@ -488,9 +547,22 @@ export function issueRoutes(
         return refuse(reply, badItem);
       }
 
+      const at = timeSource.now();
       try {
-        await prisma.issueOpenItem.create({
-          data: { issueId: found.id, openItemId },
+        await prisma.$transaction(async (tx) => {
+          await tx.issueOpenItem.create({
+            data: { issueId: found.id, openItemId },
+          });
+          const item = await tx.openItem.findUniqueOrThrow({
+            where: { id: openItemId },
+            select: { unresolved: true },
+          });
+          await audit(tx, {
+            projectId: found.projectId,
+            action: 'open item attached to an issue',
+            detail: `Issue ${found.number} — ${item.unresolved}`,
+            at,
+          });
         });
       } catch (error) {
         // Unqualified, and safe to be: the composite key is the only

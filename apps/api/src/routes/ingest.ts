@@ -13,6 +13,7 @@ import type {
 import { NOT_BLANK, type RouteDependencies } from '../http.js';
 import type { InboundFile, InboundMessage } from '../inbound-mail.js';
 import { noSuchProject, refuse, type Refusal } from '../refusals.js';
+import { audit } from '../audit.js';
 
 /**
  * Whole quartets, as a document version's bytes are and unlike a photograph's
@@ -349,7 +350,7 @@ export function ingestRoutes(
         if (await overTheLimit(tx, project.id, now)) {
           return null;
         }
-        return tx.ingestedDocument.create({
+        const created = await tx.ingestedDocument.create({
           data: {
             projectId: project.id,
             source: 'EMAIL',
@@ -362,6 +363,19 @@ export function ingestRoutes(
           },
           include: ingestedDocumentInclude,
         });
+        // **Nothing a stranger wrote reaches this line.** The sender, the
+        // subject and the body are all the untrusted party's, kept verbatim on
+        // the row where they belong; copying one here would let whoever has
+        // the address choose what the audit of this job says, and `sender`
+        // carries no length bound at all. The count of files is this
+        // product's own fact and is what a reader needs.
+        await audit(tx, {
+          projectId: project.id,
+          action: 'message arrived at the ingest address',
+          detail: `${stored.length} ${stored.length === 1 ? 'file' : 'files'}`,
+          at: now,
+        });
+        return created;
       });
 
       // The bytes are already stored and are now unreferenced. That is
@@ -396,15 +410,28 @@ export function ingestRoutes(
 
       const now = timeSource.now();
       const stored = await storeFiles(objectStore, request.body.files, now);
-      const arrival = await prisma.ingestedDocument.create({
-        data: {
+      const arrival = await prisma.$transaction(async (tx) => {
+        const created = await tx.ingestedDocument.create({
+          data: {
+            projectId: project.id,
+            source: 'MANUAL',
+            arrivedAt: now,
+            note: request.body.note ?? null,
+            files: { create: stored },
+          },
+          include: ingestedDocumentInclude,
+        });
+        // The note is the engineer's own and bounded by the body schema, so
+        // unlike the mail path's sender it may be said here.
+        await audit(tx, {
           projectId: project.id,
-          source: 'MANUAL',
-          arrivedAt: now,
-          note: request.body.note ?? null,
-          files: { create: stored },
-        },
-        include: ingestedDocumentInclude,
+          action: 'arrival entered by hand',
+          detail: `${stored.length} ${stored.length === 1 ? 'file' : 'files'}${
+            created.note === null ? '' : ` — ${created.note}`
+          }`,
+          at: now,
+        });
+        return created;
       });
 
       return reply.code(201).send(arrivalOnTheWire(arrival));

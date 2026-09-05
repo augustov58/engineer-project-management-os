@@ -204,11 +204,22 @@ async function setProcessingLocation(
   });
 }
 
+/**
+ * The whole job's audit. Since story 106 that opens with the line the
+ * project's own creation writes, so the counts below are one higher than they
+ * were and every literal trail names it — the widening is a fact these tests
+ * assert rather than one they filter away.
+ */
 async function auditOn(app: TestApi, projectId: string) {
   const response = await app.fetch(`/v1/projects/${projectId}/memory/audit`);
   expect(response.status).toBe(200);
   return (await response.json()) as { action: string; detail: string }[];
 }
+
+/** What `POST /v1/projects` writes, and the first line on every job. */
+const PROJECT_RECORDED = expect.objectContaining({
+  action: 'project recorded',
+});
 
 test('a new project is on cloud processing with no sign-off recorded', async () => {
   const app = await api();
@@ -239,6 +250,7 @@ test('switching to local needs nothing at all, and is one line in the audit', as
   // Consent can be withdrawn, so nothing may stand between the engineer and
   // stopping the sending. The asymmetry with the switch below is the point.
   expect(await auditOn(app, project.id)).toEqual([
+    PROJECT_RECORDED,
     expect.objectContaining({
       action: 'processing location set to local',
       detail: 'no sign-off had been recorded',
@@ -274,7 +286,9 @@ test('switching to cloud without the sign-off reference and date is refused', as
   expect(((await read.json()) as typeof project).processingLocation).toBe(
     'LOCAL',
   );
-  expect(await auditOn(app, project.id)).toHaveLength(1);
+  // The creation's line and the switch to local, and nothing from either
+  // refused attempt.
+  expect(await auditOn(app, project.id)).toHaveLength(2);
 });
 
 test('a written sign-off switches a project to cloud and is visible on it', async () => {
@@ -373,7 +387,8 @@ test('switching a project to local when it is already local is refused', async (
   expect(await again.json()).toEqual({
     message: 'this project is already set to local processing',
   });
-  expect(await auditOn(app, project.id)).toHaveLength(1);
+  // The creation's line and the one switch that landed.
+  expect(await auditOn(app, project.id)).toHaveLength(2);
 });
 
 test('going back to local clears the sign-off, and the audit is what keeps it', async () => {
@@ -399,6 +414,7 @@ test('going back to local clears the sign-off, and the audit is what keeps it', 
   // And the reference survives, which is the only reason clearing is safe.
   // The audit is append-only: nothing updates or deletes a row in it.
   expect(await auditOn(app, project.id)).toEqual([
+    PROJECT_RECORDED,
     expect.objectContaining({
       action: 'processing location set to cloud',
       detail: `the firm signed off in writing on ${SIGNOFF_AT}, reference DPA-2026-014`,
@@ -460,6 +476,7 @@ test('two sign-offs racing settle as one, and the loser overwrites nothing', asy
   expect(settled.cloudSignoffReference).toMatch(/^DPA-2026-\d{3}$/);
   expect(settled.cloudSignoffAt).toBe(SIGNOFF_AT);
 
-  // And the audit records one change, not two.
-  expect(await auditOn(app, project.id)).toHaveLength(1);
+  // And the audit records one change, not twenty — beside the creation's own
+  // line, which is what makes two rather than one.
+  expect(await auditOn(app, project.id)).toHaveLength(2);
 });

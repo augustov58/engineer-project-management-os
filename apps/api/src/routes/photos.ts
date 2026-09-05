@@ -10,6 +10,7 @@ import {
   photoOnTheWire,
   withSightings,
 } from '../wire.js';
+import { audit } from '../audit.js';
 
 /**
  * The largest value a Prisma `Int` column holds. An identifier above it is not
@@ -284,20 +285,33 @@ export function photoRoutes(
       const storageKey = `photos/${randomUUID()}`;
       await objectStore.put(storageKey, bytes, contentType);
 
+      const at = timeSource.now();
       try {
-        const stored = await prisma.photo.create({
-          data: {
-            siteVisitId: walk.id,
-            filename,
-            takenAt,
-            contentType,
-            byteSize: bytes.byteLength,
-            storageKey,
-            floor: binToFloor(takenAt, walk.floors),
-            issueId: finding === null ? null : finding.id,
-            createdAt: timeSource.now(),
-          },
-          include: photoInclude,
+        const stored = await prisma.$transaction(async (tx) => {
+          const row = await tx.photo.create({
+            data: {
+              siteVisitId: walk.id,
+              filename,
+              takenAt,
+              contentType,
+              byteSize: bytes.byteLength,
+              storageKey,
+              floor: binToFloor(takenAt, walk.floors),
+              issueId: finding === null ? null : finding.id,
+              createdAt: at,
+            },
+            include: photoInclude,
+          });
+          // What it bound to, because that is the part a correction below
+          // may change and the part the audit is worth reading for. The
+          // storage key is never named: it never reaches the wire (ADR-0032).
+          await audit(tx, {
+            projectId: walk.projectId,
+            action: 'photograph added',
+            detail: `${row.filename} — ${row.floor === null ? 'no floor' : `Floor ${row.floor}`}, ${named === null ? 'no issue named' : `issue ${named} named`}`,
+            at,
+          });
+          return row;
         });
         return reply.code(201).send(photoOnTheWire(stored));
       } catch (error) {
@@ -357,16 +371,34 @@ export function photoRoutes(
     async (request, reply) => {
       const found = await prisma.photo.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: {
+          id: true,
+          filename: true,
+          floor: true,
+          siteVisit: { select: { projectId: true } },
+        },
       });
       if (found === null) {
         return noSuchPhoto(reply);
       }
 
-      const corrected = await prisma.photo.update({
-        where: { id: found.id },
-        data: { floor: request.body.floor },
-        include: photoInclude,
+      // Both bindings, because a correction is the one thing that can move a
+      // photograph between floors and there is no provenance column to say
+      // which of the two answers the stamp came from (ADR-0032).
+      const at = timeSource.now();
+      const corrected = await prisma.$transaction(async (tx) => {
+        const row = await tx.photo.update({
+          where: { id: found.id },
+          data: { floor: request.body.floor },
+          include: photoInclude,
+        });
+        await audit(tx, {
+          projectId: found.siteVisit.projectId,
+          action: 'photograph floor corrected',
+          detail: `${found.filename} — ${found.floor === null ? 'no floor' : `Floor ${found.floor}`} is now ${row.floor === null ? 'no floor' : `Floor ${row.floor}`}`,
+          at,
+        });
+        return row;
       });
       return photoOnTheWire(corrected);
     },
@@ -385,7 +417,12 @@ export function photoRoutes(
     async (request, reply) => {
       const found = await prisma.photo.findUnique({
         where: { id: request.params.id },
-        select: { id: true, siteVisit: { select: { projectId: true } } },
+        select: {
+          id: true,
+          filename: true,
+          issue: { select: { number: true } },
+          siteVisit: { select: { projectId: true } },
+        },
       });
       if (found === null) {
         return noSuchPhoto(reply);
@@ -414,10 +451,20 @@ export function photoRoutes(
         issueId = finding.id;
       }
 
-      const corrected = await prisma.photo.update({
-        where: { id: found.id },
-        data: { issueId },
-        include: photoInclude,
+      const at = timeSource.now();
+      const corrected = await prisma.$transaction(async (tx) => {
+        const row = await tx.photo.update({
+          where: { id: found.id },
+          data: { issueId },
+          include: photoInclude,
+        });
+        await audit(tx, {
+          projectId: found.siteVisit.projectId,
+          action: 'photograph issue corrected',
+          detail: `${found.filename} — ${found.issue === null ? 'no issue' : `Issue ${found.issue.number}`} is now ${issueNumber === null ? 'no issue' : `Issue ${issueNumber}`}`,
+          at,
+        });
+        return row;
       });
       return photoOnTheWire(corrected);
     },

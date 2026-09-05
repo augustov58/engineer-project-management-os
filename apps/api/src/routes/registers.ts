@@ -22,6 +22,7 @@ import {
   refuse,
 } from '../refusals.js';
 import { openItemBodySchema } from './open-items.js';
+import { audit } from '../audit.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -389,6 +390,9 @@ function findEntry(prisma: PrismaClient, id: string) {
     select: {
       id: true,
       registerId: true,
+      // The engineer's number and how the audit names the entry: it is what
+      // anybody has written down (ADR-0036), as an issue's identifier is.
+      number: true,
       response: true,
       submissionId: true,
       turnaroundDays: true,
@@ -487,7 +491,7 @@ export function registerRoutes(
     async (request, reply) => {
       const register = await prisma.register.findUnique({
         where: { id: request.params.id },
-        select: { id: true, kind: true },
+        select: { id: true, kind: true, projectId: true },
       });
       if (register === null) {
         return noSuchRegister(reply);
@@ -508,15 +512,27 @@ export function registerRoutes(
 
       const now = timeSource.now();
       try {
-        const logged = await prisma.registerEntry.create({
-          data: {
-            ...entry,
-            question: question ?? null,
-            registerId: register.id,
-            createdAt: now,
-            handoffs: { create: handoffData(ballInCourt, timeSource) },
-          },
-          include: entryInclude,
+        const logged = await prisma.$transaction(async (tx) => {
+          const row = await tx.registerEntry.create({
+            data: {
+              ...entry,
+              question: question ?? null,
+              registerId: register.id,
+              createdAt: now,
+              handoffs: { create: handoffData(ballInCourt, timeSource) },
+            },
+            include: entryInclude,
+          });
+          // The first handoff is part of the same call (ADR-0036), so it is
+          // part of the same line: whose court the entry starts in is what
+          // the clock is about to read.
+          await audit(tx, {
+            projectId: register.projectId,
+            action: `${register.kind === 'RFI' ? 'RFI' : 'submittal'} logged`,
+            detail: `${row.number}, with ${ballInCourt.party}${ballInCourt.inOurCourt ? ' — ours' : ''}`,
+            at: now,
+          });
+          return row;
         });
         return reply.code(201).send(entryOnTheWire(logged, timeSource));
       } catch (error) {
@@ -563,11 +579,19 @@ export function registerRoutes(
         return noSuchRegisterEntry(reply);
       }
 
-      await prisma.ballInCourtEvent.create({
-        data: {
-          registerEntryId: entry.id,
-          ...handoffData(request.body, timeSource),
-        },
+      const handoff = handoffData(request.body, timeSource);
+      await prisma.$transaction(async (tx) => {
+        await tx.ballInCourtEvent.create({
+          data: { registerEntryId: entry.id, ...handoff },
+        });
+        // Both facts, because neither derives from the other (ADR-0036): the
+        // clock reads the boolean and the screen shows the name.
+        await audit(tx, {
+          projectId: entry.register.projectId,
+          action: 'ball handed on',
+          detail: `${entry.number} — to ${handoff.party}${handoff.inOurCourt ? ', which is ours' : ''}, held since ${handoff.heldSince.toISOString()}`,
+          at: handoff.createdAt,
+        });
       });
       return reply.code(201).send(await readEntry(prisma, entry.id, timeSource));
     },
@@ -601,9 +625,18 @@ export function registerRoutes(
           .send({ message: 'that entry already has a response' });
       }
 
-      await prisma.registerEntry.update({
-        where: { id: entry.id },
-        data: { response: request.body.response },
+      const at = timeSource.now();
+      await prisma.$transaction(async (tx) => {
+        await tx.registerEntry.update({
+          where: { id: entry.id },
+          data: { response: request.body.response },
+        });
+        await audit(tx, {
+          projectId: entry.register.projectId,
+          action: 'RFI answered',
+          detail: `${entry.number} — ${request.body.response}`,
+          at,
+        });
       });
       return readEntry(prisma, entry.id, timeSource);
     },
@@ -640,7 +673,7 @@ export function registerRoutes(
 
       const submission = await prisma.submission.findUnique({
         where: { id: request.body.submissionId },
-        select: { id: true, projectId: true },
+        select: { id: true, projectId: true, revision: true },
       });
       if (submission === null) {
         return noSuchSubmission(reply);
@@ -651,9 +684,18 @@ export function registerRoutes(
           .send({ message: 'that submission belongs to another project' });
       }
 
-      await prisma.registerEntry.update({
-        where: { id: entry.id },
-        data: { submissionId: submission.id },
+      const at = timeSource.now();
+      await prisma.$transaction(async (tx) => {
+        await tx.registerEntry.update({
+          where: { id: entry.id },
+          data: { submissionId: submission.id },
+        });
+        await audit(tx, {
+          projectId: entry.register.projectId,
+          action: 'entry linked to the issuance that answered it',
+          detail: `${entry.number} — revision ${submission.revision}`,
+          at,
+        });
       });
       return readEntry(prisma, entry.id, timeSource);
     },
@@ -686,9 +728,22 @@ export function registerRoutes(
           .send({ message: 'that entry already has a turnaround target' });
       }
 
-      await prisma.registerEntry.update({
-        where: { id: entry.id },
-        data: { turnaroundDays: request.body.turnaroundDays },
+      const at = timeSource.now();
+      await prisma.$transaction(async (tx) => {
+        await tx.registerEntry.update({
+          where: { id: entry.id },
+          data: { turnaroundDays: request.body.turnaroundDays },
+        });
+        // A duration in whole days and never a date (ADR-0037), which is why
+        // this line says days and names no deadline.
+        await audit(tx, {
+          projectId: entry.register.projectId,
+          action: 'turnaround target set',
+          detail: `${entry.number} — ${request.body.turnaroundDays} ${
+            request.body.turnaroundDays === 1 ? 'day' : 'days'
+          }`,
+          at,
+        });
       });
       return readEntry(prisma, entry.id, timeSource);
     },
@@ -741,18 +796,27 @@ export function registerRoutes(
       }
 
       const handoff = handoffData(request.body.ballInCourt, timeSource);
-      await prisma.$transaction([
-        prisma.registerEntry.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.registerEntry.update({
           where: { id: entry.id },
           data: {
             disposition: request.body.disposition,
             disposedAt: handoff.heldSince,
           },
-        }),
-        prisma.ballInCourtEvent.create({
+        });
+        await tx.ballInCourtEvent.create({
           data: { registerEntryId: entry.id, ...handoff },
-        }),
-      ]);
+        });
+        // One line for one thing that happened: the review and the handoff
+        // that stops the clock are one call and one transaction (ADR-0037),
+        // so splitting them into two lines would read as two events.
+        await audit(tx, {
+          projectId: entry.register.projectId,
+          action: 'disposition recorded',
+          detail: `${entry.number} — ${request.body.disposition}, back to ${handoff.party}, dated ${handoff.heldSince.toISOString()}`,
+          at: handoff.createdAt,
+        });
+      });
       return readEntry(prisma, entry.id, timeSource);
     },
   );
@@ -797,17 +861,30 @@ export function registerRoutes(
         return reply.code(409).send({ message: 'a submittal has no question' });
       }
 
+      const now = timeSource.now();
       try {
-        const logged = await prisma.registerEntry.create({
-          data: {
-            ...entry,
-            question: null,
-            registerId: previous.registerId,
-            previousRoundId: previous.id,
-            createdAt: timeSource.now(),
-            handoffs: { create: handoffData(ballInCourt, timeSource) },
-          },
-          include: entryInclude,
+        const logged = await prisma.$transaction(async (tx) => {
+          const row = await tx.registerEntry.create({
+            data: {
+              ...entry,
+              question: null,
+              registerId: previous.registerId,
+              previousRoundId: previous.id,
+              createdAt: now,
+              handoffs: { create: handoffData(ballInCourt, timeSource) },
+            },
+            include: entryInclude,
+          });
+          // Nothing is written to the round it follows (ADR-0037), so this is
+          // the only line that says the previous round has a successor — and
+          // it says so on the successor's, as a reissue's does.
+          await audit(tx, {
+            projectId: previous.register.projectId,
+            action: 'next round logged',
+            detail: `${row.number}, following ${previous.number}, with ${ballInCourt.party}${ballInCourt.inOurCourt ? ' — ours' : ''}`,
+            at: now,
+          });
+          return row;
         });
         return reply.code(201).send(entryOnTheWire(logged, timeSource));
       } catch (error) {
@@ -859,14 +936,24 @@ export function registerRoutes(
       }
 
       const { waitingSince, ...rest } = request.body;
-      const item = await prisma.openItem.create({
-        data: {
-          ...rest,
-          subjectType: 'PROJECT',
-          subjectId: entry.register.projectId,
-          waitingSince: instant(waitingSince, timeSource),
-          registerEntries: { create: { registerEntryId: entry.id } },
-        },
+      const at = timeSource.now();
+      const item = await prisma.$transaction(async (tx) => {
+        const created = await tx.openItem.create({
+          data: {
+            ...rest,
+            subjectType: 'PROJECT',
+            subjectId: entry.register.projectId,
+            waitingSince: instant(waitingSince, timeSource),
+            registerEntries: { create: { registerEntryId: entry.id } },
+          },
+        });
+        await audit(tx, {
+          projectId: entry.register.projectId,
+          action: 'open item raised on a register entry',
+          detail: `${entry.number} — ${created.unresolved}`,
+          at,
+        });
+        return created;
       });
       return reply.code(201).send(item);
     },
@@ -891,9 +978,22 @@ export function registerRoutes(
         return refuse(reply, badItem);
       }
 
+      const at = timeSource.now();
       try {
-        await prisma.registerEntryOpenItem.create({
-          data: { registerEntryId: entry.id, openItemId },
+        await prisma.$transaction(async (tx) => {
+          await tx.registerEntryOpenItem.create({
+            data: { registerEntryId: entry.id, openItemId },
+          });
+          const item = await tx.openItem.findUniqueOrThrow({
+            where: { id: openItemId },
+            select: { unresolved: true },
+          });
+          await audit(tx, {
+            projectId: entry.register.projectId,
+            action: 'open item attached to a register entry',
+            detail: `${entry.number} — ${item.unresolved}`,
+            at,
+          });
         });
       } catch (error) {
         // Unqualified, and safe to be: the composite key is the only

@@ -25,6 +25,7 @@ import {
   refuse,
 } from '../refusals.js';
 import { openItemBodySchema } from './open-items.js';
+import { audit } from '../audit.js';
 
 /**
  * What went out, to whom, when, and at what phase, as one record (issue #5).
@@ -254,6 +255,7 @@ function writeIssuance(
   timeSource: TimeSource,
   { openItemIds, issuedAt, ...row }: NewSubmission,
 ) {
+  const at = timeSource.now();
   return prisma.$transaction(async (tx) => {
     const named = await tx.openItem.findMany({
       where: { id: { in: openItemIds } },
@@ -267,7 +269,7 @@ function writeIssuance(
       data: {
         ...row,
         issuedAt: instant(issuedAt, timeSource),
-        createdAt: timeSource.now(),
+        createdAt: at,
         // The permanent fact that the set went out on unconfirmed inputs.
         // Nothing recomputes it afterwards, and a reissue stamps its own
         // rather than copying the one it supersedes.
@@ -286,6 +288,31 @@ function writeIssuance(
         })),
       });
     }
+
+    // One line for both writers, told apart by the column that tells them
+    // apart. *Superseded* is never written to the row it replaces
+    // (ADR-0028), so this is the only place a reader is told the predecessor
+    // stopped being current — and it says so on the successor's own line,
+    // not on the ancestor's.
+    const replaced =
+      created.supersedesId === null
+        ? null
+        : await tx.submission.findUniqueOrThrow({
+            where: { id: created.supersedesId },
+            select: { revision: true },
+          });
+    await audit(tx, {
+      projectId: created.projectId,
+      action: replaced === null ? 'submission recorded' : 'submission reissued',
+      detail: `${
+        replaced === null
+          ? `revision ${created.revision}`
+          : `revision ${created.revision}, replacing ${replaced.revision}`
+      } to ${created.recipient}, resting on ${openItemIds.length} open ${
+        openItemIds.length === 1 ? 'item' : 'items'
+      }${created.issuedProvisional ? ', issued provisional' : ''}`,
+      at,
+    });
     return created;
   });
 }
@@ -636,8 +663,18 @@ export function submissionRoutes(
       }
 
       const { unresolved, ...rest } = request.body;
-      const item = await prisma.openItem.create({
-        data: itemOnSubmission(rest, submission, unresolved, timeSource),
+      const at = timeSource.now();
+      const item = await prisma.$transaction(async (tx) => {
+        const created = await tx.openItem.create({
+          data: itemOnSubmission(rest, submission, unresolved, timeSource),
+        });
+        await audit(tx, {
+          projectId: submission.projectId,
+          action: 'open item raised on a submission',
+          detail: created.unresolved,
+          at,
+        });
+        return created;
       });
       return reply.code(201).send(item);
     },
@@ -669,9 +706,25 @@ export function submissionRoutes(
         return refuse(reply, badItem);
       }
 
+      const at = timeSource.now();
       try {
-        await prisma.submissionOpenItem.create({
-          data: { submissionId: submission.id, openItemId },
+        await prisma.$transaction(async (tx) => {
+          await tx.submissionOpenItem.create({
+            data: { submissionId: submission.id, openItemId },
+          });
+          const item = await tx.openItem.findUniqueOrThrow({
+            where: { id: openItemId },
+            select: { unresolved: true },
+          });
+          // Attached afterwards, which is the whole of the null in
+          // `unresolved_at_issuance` (ADR-0027) — and what makes the set
+          // *currently* provisional without touching what went out.
+          await audit(tx, {
+            projectId: submission.projectId,
+            action: 'open item attached to a submission',
+            detail: `${item.unresolved} — attached after the issuance`,
+            at,
+          });
         });
       } catch (error) {
         if (isUniqueViolation(error)) {
@@ -701,7 +754,7 @@ export function submissionRoutes(
       const { id, openItemId } = request.params;
       const submission = await prisma.submission.findUnique({
         where: { id },
-        select: { id: true },
+        select: { id: true, projectId: true, revision: true },
       });
       if (submission === null) {
         return noSuchSubmission(reply);
@@ -744,7 +797,24 @@ export function submissionRoutes(
         });
       }
 
-      await prisma.submissionOpenItem.delete({ where: key });
+      // The one route in this product that deletes a row. The join goes and
+      // the line stays, which is the whole point of an append-only record: a
+      // claim about what an issuance rested on can be taken off the set, and
+      // never off the log.
+      const at = timeSource.now();
+      const item = await prisma.openItem.findUniqueOrThrow({
+        where: { id: openItemId },
+        select: { unresolved: true },
+      });
+      await prisma.$transaction(async (tx) => {
+        await tx.submissionOpenItem.delete({ where: key });
+        await audit(tx, {
+          projectId: submission.projectId,
+          action: 'open item detached from a submission',
+          detail: `revision ${submission.revision} — ${item.unresolved}`,
+          at,
+        });
+      });
       return reply.code(204).send();
     },
   );

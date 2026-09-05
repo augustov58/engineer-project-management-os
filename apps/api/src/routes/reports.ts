@@ -7,6 +7,7 @@ import { noSuchSiteVisit, noSuchSiteVisitReport } from '../refusals.js';
 import { progressStreams } from '../stream.js';
 import { reportOnTheWire, reportsMade } from '../wire.js';
 import { RENDER_REPORT, type RenderReportJob } from '../worker.js';
+import { audit } from '../audit.js';
 
 /** The reports asked for on a walk, in the order they were asked for. */
 function reportsOn(prisma: PrismaClient, siteVisitId: string) {
@@ -44,14 +45,27 @@ export function reportRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, projectId: true, startedAt: true },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
       }
 
-      const report = await prisma.siteVisitReport.create({
-        data: { siteVisitId: walk.id, createdAt: timeSource.now() },
+      const at = timeSource.now();
+      const report = await prisma.$transaction(async (tx) => {
+        const row = await tx.siteVisitReport.create({
+          data: { siteVisitId: walk.id, createdAt: at },
+        });
+        // Asked for, not produced: the document arrives on the queue, and
+        // whether it did is the four stamps on the row (ADR-0035). A second
+        // call is a second line, because it is a second report.
+        await audit(tx, {
+          projectId: walk.projectId,
+          action: 'site visit report asked for',
+          detail: `the walk of ${walk.startedAt.toISOString()}`,
+          at,
+        });
+        return row;
       });
 
       // After the row and outside any transaction. If this throws, the report

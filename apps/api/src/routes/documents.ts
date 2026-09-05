@@ -19,6 +19,7 @@ import {
   refuse,
   type Refusal,
 } from '../refusals.js';
+import { audit } from '../audit.js';
 
 /**
  * The document types the boundary admits, byte-exact and closed.
@@ -242,6 +243,22 @@ async function versionRefusal(
   return null;
 }
 
+/**
+ * How a version is named in the audit: its document's title and its own
+ * revision, which together are the pair anybody has written down (ADR-0039).
+ * Read inside the caller's transaction, since it is what the line is about.
+ */
+async function namesVersion(
+  tx: Prisma.TransactionClient,
+  documentVersionId: string,
+): Promise<string> {
+  const version = await tx.documentVersion.findUniqueOrThrow({
+    where: { id: documentVersionId },
+    select: { revision: true, document: { select: { title: true } } },
+  });
+  return `${version.document.title}, revision ${version.revision}`;
+}
+
 export function documentRoutes(
   v1: FastifyInstance,
   { prisma, objectStore, timeSource }: RouteDependencies,
@@ -274,24 +291,37 @@ export function documentRoutes(
       const stored = await storeBytes(objectStore, version);
       const recordedAt = timeSource.now();
 
-      const document = await prisma.document.create({
-        data: {
-          projectId: project.id,
-          title,
-          referencedFile,
-          createdAt: recordedAt,
-          versions: {
-            create: {
-              revision: version.revision,
-              filename: version.filename,
-              contentType: version.contentType,
-              byteSize: stored.byteSize,
-              storageKey: stored.storageKey,
-              createdAt: recordedAt,
+      const document = await prisma.$transaction(async (tx) => {
+        const created = await tx.document.create({
+          data: {
+            projectId: project.id,
+            title,
+            referencedFile,
+            createdAt: recordedAt,
+            versions: {
+              create: {
+                revision: version.revision,
+                filename: version.filename,
+                contentType: version.contentType,
+                byteSize: stored.byteSize,
+                storageKey: stored.storageKey,
+                createdAt: recordedAt,
+              },
             },
           },
-        },
-        include: documentInclude,
+          include: documentInclude,
+        });
+        // The classification is on the line because it is the answer that
+        // decides whether extraction may ever be pointed at this document
+        // (ADR-0039), and the marking route below can only ever move it one
+        // way afterwards.
+        await audit(tx, {
+          projectId: project.id,
+          action: 'document recorded',
+          detail: `${created.title}, revision ${version.revision}${referencedFile ? ', a referenced file' : ''}`,
+          at: recordedAt,
+        });
+        return created;
       });
       return reply.code(201).send(documentOnTheWire(document));
     },
@@ -314,7 +344,7 @@ export function documentRoutes(
     async (request, reply) => {
       const document = await prisma.document.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, projectId: true, title: true },
       });
       if (document === null) {
         return noSuchDocument(reply);
@@ -323,17 +353,29 @@ export function documentRoutes(
       const version = request.body;
       const stored = await storeBytes(objectStore, version);
 
+      const at = timeSource.now();
       try {
-        await prisma.documentVersion.create({
-          data: {
-            documentId: document.id,
-            revision: version.revision,
-            filename: version.filename,
-            contentType: version.contentType,
-            byteSize: stored.byteSize,
-            storageKey: stored.storageKey,
-            createdAt: timeSource.now(),
-          },
+        await prisma.$transaction(async (tx) => {
+          await tx.documentVersion.create({
+            data: {
+              documentId: document.id,
+              revision: version.revision,
+              filename: version.filename,
+              contentType: version.contentType,
+              byteSize: stored.byteSize,
+              storageKey: stored.storageKey,
+              createdAt: at,
+            },
+          });
+          // Nothing is written to the revision it follows, so this line is
+          // the only place the order the revisions arrived in is recorded as
+          // events rather than inferred from their stamps (ADR-0039).
+          await audit(tx, {
+            projectId: document.projectId,
+            action: 'document version added',
+            detail: `${document.title}, revision ${version.revision}`,
+            at,
+          });
         });
       } catch (error) {
         // Narrowed to the revision. The insert also writes a fresh storage
@@ -439,7 +481,12 @@ export function documentRoutes(
     async (request, reply) => {
       const document = await prisma.document.findUnique({
         where: { id: request.params.id },
-        select: { id: true, referencedFile: true },
+        select: {
+          id: true,
+          projectId: true,
+          title: true,
+          referencedFile: true,
+        },
       });
       if (document === null) {
         return noSuchDocument(reply);
@@ -450,10 +497,23 @@ export function documentRoutes(
           .send({ message: 'that document is already a referenced file' });
       }
 
-      const marked = await prisma.document.update({
-        where: { id: document.id },
-        data: { referencedFile: true },
-        include: documentInclude,
+      const at = timeSource.now();
+      const marked = await prisma.$transaction(async (tx) => {
+        const updated = await tx.document.update({
+          where: { id: document.id },
+          data: { referencedFile: true },
+          include: documentInclude,
+        });
+        // The one-way move, and the only column on a document anything
+        // writes after it is recorded (ADR-0039). A line here is what makes
+        // "when did this leave extraction's reach" answerable.
+        await audit(tx, {
+          projectId: document.projectId,
+          action: 'document marked a referenced file',
+          detail: document.title,
+          at,
+        });
+        return updated;
       });
       return documentOnTheWire(marked);
     },
@@ -519,7 +579,7 @@ export function documentRoutes(
       const { id, documentVersionId } = request.params;
       const submission = await prisma.submission.findUnique({
         where: { id },
-        select: { id: true, projectId: true },
+        select: { id: true, projectId: true, revision: true },
       });
       if (submission === null) {
         return noSuchSubmission(reply);
@@ -534,9 +594,18 @@ export function documentRoutes(
         return refuse(reply, bad);
       }
 
+      const at = timeSource.now();
       try {
-        await prisma.submissionDocumentVersion.create({
-          data: { submissionId: submission.id, documentVersionId },
+        await prisma.$transaction(async (tx) => {
+          await tx.submissionDocumentVersion.create({
+            data: { submissionId: submission.id, documentVersionId },
+          });
+          await audit(tx, {
+            projectId: submission.projectId,
+            action: 'document linked to a submission',
+            detail: `revision ${submission.revision} — ${await namesVersion(tx, documentVersionId)}`,
+            at,
+          });
         });
       } catch (error) {
         // Unqualified, and safe to be: the composite key is the only
@@ -581,7 +650,11 @@ export function documentRoutes(
       const { id, documentVersionId } = request.params;
       const entry = await prisma.registerEntry.findUnique({
         where: { id },
-        select: { id: true, register: { select: { projectId: true } } },
+        select: {
+          id: true,
+          number: true,
+          register: { select: { projectId: true } },
+        },
       });
       if (entry === null) {
         return noSuchRegisterEntry(reply);
@@ -596,9 +669,18 @@ export function documentRoutes(
         return refuse(reply, bad);
       }
 
+      const at = timeSource.now();
       try {
-        await prisma.registerEntryDocumentVersion.create({
-          data: { registerEntryId: entry.id, documentVersionId },
+        await prisma.$transaction(async (tx) => {
+          await tx.registerEntryDocumentVersion.create({
+            data: { registerEntryId: entry.id, documentVersionId },
+          });
+          await audit(tx, {
+            projectId: entry.register.projectId,
+            action: 'document linked to a register entry',
+            detail: `${entry.number} — ${await namesVersion(tx, documentVersionId)}`,
+            at,
+          });
         });
       } catch (error) {
         // Unqualified, and safe to be: the composite key is the only
