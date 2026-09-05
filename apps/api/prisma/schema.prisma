@@ -1622,8 +1622,17 @@ model AgentRun {
 /// here chose, and `sender` carries no length bound at all — so the arrival's
 /// line says how many files came and nothing else.
 ///
-/// This table is the audit log the glossary defines. The **activity event** it
-/// also defines is still a separate question, and story 107's.
+/// This table is the audit log the glossary defines, **and the activity event
+/// it also defines is a read over these same rows** — `GET /projects/:id/
+/// activity`, newest first and bounded, against this record's own read, which
+/// is every line oldest first. Two answers, one record. The PRD sketch's
+/// `activity_events` table is refused: a second stream is a second place the
+/// same fact lives, with sixty-two writers of its own, and a drift between
+/// them would put the version nobody checks in front of the engineer
+/// (ADR-0048). That ADR also records why this table gets **no `seq`**, where
+/// `project_memory_versions` has one — nothing derives a value from the
+/// audit's order, so two lines in one millisecond ordering by a random uuid is
+/// cosmetic rather than a wrong answer.
 model AuditEntry {
   id String @id @default(uuid())
 
