@@ -39,12 +39,14 @@ export function issueIdentifier(number: number): string {
  * product reads them.
  *
  * Both are the UTC face of the value, matching `withDate`, the schedule on
- * screen and `visitedOn`. ADR-0030 left the timezone question open on purpose
- * and recorded the consequence: a wall-clock time typed into a form is stored
- * as though it were UTC and round-trips exactly, while anything the injected
+ * screen and `visitedOn`. A wall-clock time typed into a form is stored as
+ * though it were UTC and round-trips exactly, while anything the injected
  * TimeSource stamped is offset by the engineer's own. Reading these two frames
- * one way here is what keeps the printed page saying what the screen says; it
- * is not a claim that the question is settled.
+ * one way here is what keeps the printed page saying what the screen says.
+ *
+ * ADR-0030 left that question open and **ADR-0050 closed it** (issue #82) by
+ * recording this behaviour as the answer: the UTC face is what every surface
+ * renders, here included. No longer a reading chosen pending a decision.
  */
 function day(instant: Date): string {
   return instant.toISOString().slice(0, 10);
