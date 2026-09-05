@@ -366,9 +366,11 @@ export function ingestRoutes(
         // **Nothing a stranger wrote reaches this line.** The sender, the
         // subject and the body are all the untrusted party's, kept verbatim on
         // the row where they belong; copying one here would let whoever has
-        // the address choose what the audit of this job says, and `sender`
-        // carries no length bound at all. The count of files is this
-        // product's own fact and is what a reader needs.
+        // the address choose what the audit of this job says. All three are
+        // bounded now (issue #81 bounded the third), and it makes no
+        // difference: a bound answers how large the record grows, never who
+        // chose its words. The count of files is this product's own fact and
+        // is what a reader needs.
         await audit(tx, {
           projectId: project.id,
           action: 'message arrived at the ingest address',

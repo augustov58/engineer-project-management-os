@@ -1619,8 +1619,9 @@ model AgentRun {
 ///
 /// **Nothing an untrusted party wrote reaches a line.** The mail path's
 /// sender, subject and body are the one place this product stores text nobody
-/// here chose, and `sender` carries no length bound at all — so the arrival's
-/// line says how many files came and nothing else.
+/// here chose — so the arrival's line says how many files came and nothing
+/// else. All three are bounded at the boundary and that is not why: a bound
+/// answers how large the record grows, never who chose its words.
 ///
 /// This table is the audit log the glossary defines, **and the activity event
 /// it also defines is a read over these same rows** — `GET /projects/:id/

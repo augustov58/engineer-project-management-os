@@ -709,8 +709,9 @@ describe('inbound content', () => {
     );
     expect(tooLongSender.status).toBe(400);
 
-    // One character under the bound still arrives: the refusal is the length
-    // and not the shape of a long address.
+    // Exactly at the bound still arrives — 988 x's plus `@example.com` is
+    // 1,000 — so the refusal is length past the bound and not the shape of a
+    // long address.
     const atTheBound = await forward(
       app,
       envelope(project.ingestAddress!, {
