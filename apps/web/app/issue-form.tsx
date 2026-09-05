@@ -4,23 +4,11 @@ import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { selectClassName } from './native-select';
 import type { AddState } from './actions';
+// The five moved to `api.ts` when the filter on `/issues` became a second
+// reader of them (issue #64). One copy on this side of the wire: the API
+// refusing a sixth is what licenses the copy, and it licenses one.
+import { ISSUE_CATEGORIES } from './api';
 import type { Issue } from './api';
-
-/**
- * The closed set of exactly five, in the words the glossary writes them.
- *
- * A second copy of the API's list, the way every response interface in
- * `api.ts` is a second copy of the harness's — the two apps share no package.
- * They cannot drift silently: the API refuses a category it does not know, and
- * a sixth typed here would come straight back as a refusal on this form.
- */
-const CATEGORIES = [
-  'Accessibility',
-  'Physical / Safety',
-  'Functional',
-  'Safety / Code',
-  'Design / Coordination',
-];
 
 /**
  * Pick one thing and do one thing: the shape both controls under an
@@ -109,7 +97,7 @@ export function RaiseIssueForm({
       name="category"
       label="Category of this finding"
       placeholder="Category…"
-      options={CATEGORIES.map((category) => ({
+      options={ISSUE_CATEGORIES.map((category) => ({
         value: category,
         text: category,
       }))}
