@@ -102,16 +102,48 @@ async function refusal(
   return body.message ?? `the API returned ${response.status}`;
 }
 
-function send(path: string, body?: unknown): Promise<Response> {
-  return apiFetch(path, {
-    method: 'POST',
-    ...(body === undefined
-      ? {}
-      : {
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        }),
-  });
+/**
+ * The API never answered at all — the connection failed, was torn down, or the
+ * process on the other end went away.
+ *
+ * Answered as a `Response` rather than rethrown, because every caller below
+ * already knows what to do with one: `refusal` turns it into the message the
+ * form shows, and `sendOrThrow` throws it with words in it. A rejection here
+ * escaped all of that. It left `useActionState` with a rejected action, which
+ * React reports to the nearest error boundary as *Minified React error #441*
+ * and a digest — no message on the screen and nothing in the page to act on,
+ * for the one class of failure the engineer most needs told about.
+ *
+ * 503 and not 500: nothing was written, and this says so. The largest bodies
+ * in the product go through here — a document version is capped at 64 MiB of
+ * base64 — so an out-of-memory kill on the far side is a real way to arrive
+ * at this, and it looks exactly like every other transport failure.
+ */
+function unreachable(cause: unknown): Response {
+  const why = cause instanceof Error ? cause.message : String(cause);
+  return new Response(
+    JSON.stringify({ message: `the API could not be reached — ${why}` }),
+    { status: 503, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+async function send(path: string, body?: unknown): Promise<Response> {
+  try {
+    return await apiFetch(path, {
+      method: 'POST',
+      ...(body === undefined
+        ? {}
+        : {
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          }),
+    });
+  } catch (cause) {
+    // Every HTTP answer the API gives is already handled; only never getting
+    // one was not. `await` inside the try is load-bearing — returning the
+    // promise would settle it outside this block and catch nothing.
+    return unreachable(cause);
+  }
 }
 
 /**
