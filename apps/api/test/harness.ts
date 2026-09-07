@@ -1261,6 +1261,24 @@ export type DocumentPatch = Partial<Omit<DocumentBody, 'version'>> & {
 export const A_PAGE =
   'JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCnRyYWlsZXI8PC9Sb290IDEgMCBSPj4KJSVFT0YK';
 
+/**
+ * A base64 body past the size at which the old quartet pattern recursed.
+ *
+ * Four and a half million characters, which is a file of about 3.4 MiB — an
+ * ordinary photograph off a phone, a short recording, a small drawing.
+ * `^(?:[A-Za-z0-9+/]{4})*(?:…)?$` passes at four million and throws
+ * `RangeError: Maximum call stack size exceeded` here, and with no
+ * `setErrorHandler` in this product that reached the caller as a 500 carrying
+ * V8's own sentence (issue #98).
+ *
+ * A whole number of quartets, so it is *valid* base64 and reaches the pattern
+ * rather than being turned away by the cheap length check in front of it —
+ * which is the point: every other fixture here is a few hundred characters,
+ * and that is why a rule that was correct and tested was never exercised at
+ * the size it exists for. Append one character to get the 4n+1 refusal.
+ */
+export const PAST_THE_STACK = 'A'.repeat(4_500_000);
+
 export function documentVersionBody(
   patch: Partial<DocumentVersionBody> = {},
 ): Record<string, unknown> {

@@ -6,6 +6,7 @@ import {
   createObservation,
   createProject,
   createSiteVisit,
+  PAST_THE_STACK,
   photoBody,
   startFloor,
   startTestApi,
@@ -241,52 +242,49 @@ test('a photograph that is not whole base64 is refused, not truncated', async ()
 });
 
 /**
- * Four and a half million characters of base64 — about a 3.4 MiB file, which
- * is an ordinary photograph off a phone and squarely inside this route's
- * twelve-mebibyte cap.
+ * The reported failure (issue #98): a 3.4 MiB photograph — an ordinary one off
+ * a phone, and a quarter of what this route says it takes — answered **500
+ * with V8's own sentence**, because the quartet pattern recursed and nothing
+ * here sets an error handler.
  *
- * `^(?:[A-Za-z0-9+/]{4})*(?:…)?$`, the pattern the four large-body routes
- * carried until now, recurses once per quartet in V8 and throws `RangeError:
- * Maximum call stack size exceeded` somewhere above four million characters.
- * This API sets no error handler, so Fastify answered **500 with V8's own
- * sentence**, which is what the engineer read beside the filename (issue #98).
- * The declared cap was four times what the boundary could actually survive.
- *
- * Sent as 4n+1 rather than as a valid string, so the assertion is not merely
- * "did not crash": ADR-0039's refusal has to survive the pattern being
- * loosened to a form that does not recurse. Every character is in the base64
- * alphabet, so the length rule is the only thing that can refuse this.
+ * `PAST_THE_STACK` is a whole number of quartets on purpose. `isBase64` checks
+ * the length first and short-circuits, so a 4n+1 body of this size would never
+ * reach the regular expression and would prove nothing about it; only a valid
+ * one runs the pattern at the size that used to throw. This is therefore the
+ * test that covers the defect, and it covers `http.ts`'s shared rule for all
+ * four routes that spread it.
  */
-test('a photograph past the regex stack limit is refused, not a 500', async () => {
+test('a photograph past the regex stack limit is stored whole', async () => {
   const app = await api();
   const { walk } = await walked(app, 'P-98');
+
+  const photo = await addPhoto(app, walk.id, { bytes: PAST_THE_STACK });
+  expect(photo.byteSize).toBe(
+    Buffer.from(PAST_THE_STACK, 'base64').byteLength,
+  );
+  expect((await visit(app, walk.id)).photos).toHaveLength(1);
+});
+
+/**
+ * And the refusal survives at that size too.
+ *
+ * Not a second proof about the pattern — the length check turns this away
+ * before the regex runs, which is exactly why the test above is the one that
+ * exercises it. What this pins is that splitting the rule in two did not drop
+ * half of it: ADR-0039's 4n+1 refusal still fires on a body large enough that
+ * somebody might be tempted to skip the check to make it fast.
+ */
+test('a photograph past the regex stack limit is still refused at 4n+1', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'P-99');
 
   const response = await post(
     app,
     `/v1/site-visits/${walk.id}/photos`,
-    photoBody({ bytes: `${'A'.repeat(4_500_000)}x` }),
+    photoBody({ bytes: `${PAST_THE_STACK}x` }),
   );
   expect(response.status).toBe(400);
   expect((await visit(app, walk.id)).photos).toEqual([]);
-});
-
-/**
- * The other half of #98, and the one the report was actually about: a
- * photograph of that size is *taken*, not just refused politely.
- *
- * The refusal above proves the pattern no longer recurses; this proves the
- * route still reaches the object store and the row at a size no test had ever
- * sent. Both are needed — a boundary that refuses everything large would pass
- * the first test on its own.
- */
-test('a photograph past the regex stack limit is stored whole', async () => {
-  const app = await api();
-  const { walk } = await walked(app, 'P-99');
-
-  const bytes = 'A'.repeat(4_500_000);
-  const photo = await addPhoto(app, walk.id, { bytes });
-  expect(photo.byteSize).toBe(Buffer.from(bytes, 'base64').byteLength);
-  expect((await visit(app, walk.id)).photos).toHaveLength(1);
 });
 
 // ── Binning to a floor by the timestamp (story 63) ───────────────────────

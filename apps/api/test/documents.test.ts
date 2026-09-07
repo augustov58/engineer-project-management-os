@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'vitest';
 import {
   A_PAGE,
+  PAST_THE_STACK,
   addDocument,
   addDocumentVersion,
   createPhase,
@@ -212,6 +213,26 @@ test('a body that is not whole base64 is refused, not truncated', async () => {
   const whole = await addDocument(app, project.id);
   expect(whole.versions[0]?.byteSize).toBe(
     Buffer.from(A_PAGE, 'base64').byteLength,
+  );
+});
+
+/**
+ * The size at which the quartet pattern used to throw (issue #98).
+ *
+ * This route declared forty-eight mebibytes and survived about three, so
+ * the 86-sheet set `DOCUMENT_BASE64_MAX` was sized around could never have
+ * been accepted. `A_PAGE` is ninety-odd characters, which is why nothing
+ * here reached the size the rule exists for.
+ */
+test('a version past the regex stack limit is stored whole', async () => {
+  const app = await api();
+  const project = await createProject(app, 'T-1', 'Office fit-out');
+
+  const stored = await addDocument(app, project.id, {
+    version: { bytes: PAST_THE_STACK },
+  });
+  expect(stored.versions[0]?.byteSize).toBe(
+    Buffer.from(PAST_THE_STACK, 'base64').byteLength,
   );
 });
 
