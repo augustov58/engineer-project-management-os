@@ -2,7 +2,13 @@
 
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { FLOOR, NOT_BLANK, type RouteDependencies, violates } from '../http.js';
+import {
+  BASE64,
+  FLOOR,
+  NOT_BLANK,
+  type RouteDependencies,
+  violates,
+} from '../http.js';
 import { noSuchPhoto, noSuchSiteVisit } from '../refusals.js';
 import {
   issueInclude,
@@ -72,23 +78,16 @@ const photoBodySchema = {
     filename: { type: 'string', pattern: NOT_BLANK, maxLength: 255 },
     takenAt: { type: 'string', format: 'date-time' },
     contentType: { type: 'string', enum: [...PHOTO_CONTENT_TYPES] },
-    // Four characters of base64 is one byte or more, so a body that passes
-    // here can never decode to the nothing the CHECK constraint refuses.
-    // Strict base64: whole quartets, with the only short tail being the one
-    // padding makes legal. The looser `[A-Za-z0-9+/]+={0,2}` this carried
-    // until now admits a length of 4n+1, which is not base64 at all, and
-    // which `Buffer.from` **silently truncates** rather than refusing — so a
-    // short photograph would store and the route would answer 201, with
-    // nothing downstream able to read it back against the original. ADR-0039
-    // wrote this pattern for a document version and recorded that the fix
-    // here belonged to a change about this record; this is that change.
-    bytes: {
-      type: 'string',
-      pattern:
-        '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$',
-      minLength: 4,
-      maxLength: PHOTO_BASE64_MAX,
-    },
+    // Strict base64: the alphabet, the padding position, and whole quartets.
+    // A length of 4n+1 is not base64 at all and `Buffer.from` **silently
+    // truncates** it rather than refusing, so a short photograph would store
+    // and the route would answer 201, with nothing downstream able to read it
+    // back against the original. ADR-0039 wrote that rule for a document
+    // version and recorded that the fix here belonged to a change about this
+    // record; issue #54 was that change. It is one `isBase64` rather than the
+    // pattern it was, because the pattern recursed on any real photograph
+    // (issue #98).
+    bytes: { ...BASE64, maxLength: PHOTO_BASE64_MAX },
   },
 } as const;
 

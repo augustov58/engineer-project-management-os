@@ -2,6 +2,7 @@ import type { Queue } from 'bullmq';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { edgeGate } from './edge-gate.js';
+import { isBase64 } from './http.js';
 import type { ObjectStore } from './object-store.js';
 import {
   type InboundMailProvider,
@@ -86,7 +87,18 @@ export function buildServer({
     // strips an unknown field instead of failing the request. A body carrying
     // `owner` would then look accepted while the field vanished — so
     // `additionalProperties: false` is made to mean what it says.
-    ajv: { customOptions: { removeAdditional: false } },
+    // `base64` is the second half of what a file's `bytes` must satisfy: the
+    // alphabet is a pattern, and the whole-quartets rule is arithmetic here
+    // because the pattern that expressed it recursed into a 500 on any file
+    // over about 3 MiB (issue #98, `isBase64`). A format and not four
+    // hand-written checks, so a bad body is still refused by the schema, in
+    // the one place the ajv setting lives (ADR-0033).
+    ajv: {
+      customOptions: {
+        removeAdditional: false,
+        formats: { base64: isBase64 },
+      },
+    },
   });
 
   // Before the routes and on the root instance, so it is in front of every

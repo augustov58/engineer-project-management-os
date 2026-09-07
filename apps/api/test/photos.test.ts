@@ -240,6 +240,55 @@ test('a photograph that is not whole base64 is refused, not truncated', async ()
   expect(photo.byteSize).toBe(Buffer.from(whole, 'base64').byteLength);
 });
 
+/**
+ * Four and a half million characters of base64 — about a 3.4 MiB file, which
+ * is an ordinary photograph off a phone and squarely inside this route's
+ * twelve-mebibyte cap.
+ *
+ * `^(?:[A-Za-z0-9+/]{4})*(?:…)?$`, the pattern the four large-body routes
+ * carried until now, recurses once per quartet in V8 and throws `RangeError:
+ * Maximum call stack size exceeded` somewhere above four million characters.
+ * This API sets no error handler, so Fastify answered **500 with V8's own
+ * sentence**, which is what the engineer read beside the filename (issue #98).
+ * The declared cap was four times what the boundary could actually survive.
+ *
+ * Sent as 4n+1 rather than as a valid string, so the assertion is not merely
+ * "did not crash": ADR-0039's refusal has to survive the pattern being
+ * loosened to a form that does not recurse. Every character is in the base64
+ * alphabet, so the length rule is the only thing that can refuse this.
+ */
+test('a photograph past the regex stack limit is refused, not a 500', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'P-98');
+
+  const response = await post(
+    app,
+    `/v1/site-visits/${walk.id}/photos`,
+    photoBody({ bytes: `${'A'.repeat(4_500_000)}x` }),
+  );
+  expect(response.status).toBe(400);
+  expect((await visit(app, walk.id)).photos).toEqual([]);
+});
+
+/**
+ * The other half of #98, and the one the report was actually about: a
+ * photograph of that size is *taken*, not just refused politely.
+ *
+ * The refusal above proves the pattern no longer recurses; this proves the
+ * route still reaches the object store and the row at a size no test had ever
+ * sent. Both are needed — a boundary that refuses everything large would pass
+ * the first test on its own.
+ */
+test('a photograph past the regex stack limit is stored whole', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'P-99');
+
+  const bytes = 'A'.repeat(4_500_000);
+  const photo = await addPhoto(app, walk.id, { bytes });
+  expect(photo.byteSize).toBe(Buffer.from(bytes, 'base64').byteLength);
+  expect((await visit(app, walk.id)).photos).toHaveLength(1);
+});
+
 // ── Binning to a floor by the timestamp (story 63) ───────────────────────
 
 test.each([

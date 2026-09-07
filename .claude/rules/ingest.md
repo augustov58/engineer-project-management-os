@@ -44,15 +44,25 @@ apply to every path stay in `AGENTS.md`.
   never put one into it. A second marking is refused, as a response and a disposition are.
   This is the only column on a document anything writes after it is recorded; nothing else
   edits one and nothing deletes one.
-- The base64 body pattern for a document version is **whole quartets** —
-  `^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$` — and not the
-  `^[A-Za-z0-9+/]+={0,2}$` a photograph and a recording use. That looser one admits a length
-  of 4n+1, which `Buffer.from` **silently truncates** rather than refusing, so a short file
-  would store and the route would answer 201 (ADR-0039). `routes/photos.ts` and
-  `routes/voice.ts` carried the loose pattern and the same latent truncation until
-  2026-09-02, when the change about those records ADR-0039 said it would take was made
-  (issue #54): all three now spell the strict pattern, and each of the three has a test
-  sending a whole quartet plus one character and expecting a 400.
+- A file's `bytes` must be **whole quartets** (ADR-0039). A length of 4n+1 is not base64 at
+  all, and `Buffer.from` **silently truncates** it rather than refusing, so a short file
+  would store and the route would answer 201. `routes/photos.ts` and `routes/voice.ts`
+  carried a looser rule and that latent truncation until 2026-09-02 (issue #54); a document
+  version, a photograph, a recording and an arrival now share one, and each of the first
+  three has a test sending a whole quartet plus one character and expecting a 400.
+- **The rule is `isBase64` in `http.ts` and no longer a pattern** — the alphabet and the
+  padding position as `^[A-Za-z0-9+/]+={0,2}$`, and the quartet length as arithmetic.
+  `^(?:[A-Za-z0-9+/]{4})*(?:…)?$`, which held both until 2026-09-06, is a starred *group*
+  and recurses once per quartet in V8: above about four million characters — a 3 MiB file,
+  an ordinary phone photograph — it threw `RangeError: Maximum call stack size exceeded`,
+  and with no `setErrorHandler` in this product that reached the caller as a 500 carrying
+  V8's own sentence (issue #98). Every declared cap was several times what the boundary
+  survived; a document version's was fourteen times. Registered once as the ajv format
+  `base64` in `server.ts`, where the ajv setting belongs (ADR-0033), and read directly by
+  `routes/ingest.ts`, whose files are checked one at a time rather than by a schema. **Do
+  not fold the length back into the pattern**, and do not drop it to make the pattern whole
+  again: the two halves accept and refuse exactly what the old one did, save for the empty
+  string, which `minLength: 4` already refuses.
 - `documents` is the **identity** — the title and the referenced-file answer, no bytes and no
   state — and `document_versions` holds the file. Deliberately not ADR-0028's one-table
   chain: two links of a supersede chain share nothing, two versions of a drawing set share
