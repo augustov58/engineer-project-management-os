@@ -6,6 +6,7 @@ import {
   createObservation,
   createProject,
   createSiteVisit,
+  PAST_THE_STACK,
   photoBody,
   startFloor,
   startTestApi,
@@ -238,6 +239,52 @@ test('a photograph that is not whole base64 is refused, not truncated', async ()
   // The whole string still passes, and stores every byte of it.
   const photo = await addPhoto(app, walk.id, { bytes: whole });
   expect(photo.byteSize).toBe(Buffer.from(whole, 'base64').byteLength);
+});
+
+/**
+ * The reported failure (issue #98): a 3.4 MiB photograph — an ordinary one off
+ * a phone, and a quarter of what this route says it takes — answered **500
+ * with V8's own sentence**, because the quartet pattern recursed and nothing
+ * here sets an error handler.
+ *
+ * `PAST_THE_STACK` is a whole number of quartets on purpose. `isBase64` checks
+ * the length first and short-circuits, so a 4n+1 body of this size would never
+ * reach the regular expression and would prove nothing about it; only a valid
+ * one runs the pattern at the size that used to throw. This is therefore the
+ * test that covers the defect, and it covers `http.ts`'s shared rule for all
+ * four routes that spread it.
+ */
+test('a photograph past the regex stack limit is stored whole', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'P-98');
+
+  const photo = await addPhoto(app, walk.id, { bytes: PAST_THE_STACK });
+  expect(photo.byteSize).toBe(
+    Buffer.from(PAST_THE_STACK, 'base64').byteLength,
+  );
+  expect((await visit(app, walk.id)).photos).toHaveLength(1);
+});
+
+/**
+ * And the refusal survives at that size too.
+ *
+ * Not a second proof about the pattern — the length check turns this away
+ * before the regex runs, which is exactly why the test above is the one that
+ * exercises it. What this pins is that splitting the rule in two did not drop
+ * half of it: ADR-0039's 4n+1 refusal still fires on a body large enough that
+ * somebody might be tempted to skip the check to make it fast.
+ */
+test('a photograph past the regex stack limit is still refused at 4n+1', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'P-99');
+
+  const response = await post(
+    app,
+    `/v1/site-visits/${walk.id}/photos`,
+    photoBody({ bytes: `${PAST_THE_STACK}x` }),
+  );
+  expect(response.status).toBe(400);
+  expect((await visit(app, walk.id)).photos).toEqual([]);
 });
 
 // ── Binning to a floor by the timestamp (story 63) ───────────────────────

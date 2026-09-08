@@ -10,21 +10,10 @@ import type {
   Prisma,
   PrismaClient,
 } from '../../generated/prisma/client.js';
-import { NOT_BLANK, type RouteDependencies } from '../http.js';
+import { BASE64, isBase64, NOT_BLANK, type RouteDependencies } from '../http.js';
 import type { InboundFile, InboundMessage } from '../inbound-mail.js';
 import { noSuchProject, refuse, type Refusal } from '../refusals.js';
 import { audit } from '../audit.js';
-
-/**
- * Whole quartets, as a document version's bytes are and unlike a photograph's
- * or a recording's (ADR-0039). The looser pattern admits a length of 4n+1,
- * which `Buffer.from` silently truncates rather than refusing — so a short
- * file would store and the route would answer 201.
- */
-const BASE64 =
-  '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$';
-
-const base64 = new RegExp(BASE64);
 
 /**
  * Twenty-four mebibytes of file across a whole message, named for the string
@@ -63,12 +52,14 @@ const fileBodySchema = {
     // that opens is closed at the read, where the bytes route never echoes
     // this value into a header (ADR-0042).
     contentType: { type: 'string', pattern: NOT_BLANK, maxLength: 255 },
-    bytes: {
-      type: 'string',
-      pattern: BASE64,
-      minLength: 4,
-      maxLength: INGEST_BASE64_MAX,
-    },
+    // Whole quartets, as every other file on the way in is (ADR-0039): a
+    // length of 4n+1 is one `Buffer.from` silently truncates rather than
+    // refusing, so a short file would store and the route would answer 201.
+    // `isBase64` and no longer a pattern since issue #98 — and this is the one
+    // route a stranger reaches, with megabytes of base64 they chose, so it is
+    // also the one where a regular expression that recursed was reachable by
+    // anyone holding the address.
+    bytes: { ...BASE64, maxLength: INGEST_BASE64_MAX },
   },
 } as const;
 
@@ -162,7 +153,7 @@ function checkedFiles(files: InboundFile[]): FileBody[] {
     if (
       file.bytes.length < 4 ||
       file.bytes.length > INGEST_BASE64_MAX ||
-      !base64.test(file.bytes)
+      !isBase64(file.bytes)
     ) {
       throw new Error('a file did not arrive as whole base64');
     }

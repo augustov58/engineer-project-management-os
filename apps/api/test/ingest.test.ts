@@ -12,6 +12,7 @@ import {
   TEST_EDGE_SECRET,
   createProject,
   fakeTimeSource,
+  PAST_THE_STACK,
   startTestApi,
 } from './harness.js';
 import { unconfiguredInboundMailProvider } from '../src/inbound-mail.js';
@@ -615,6 +616,44 @@ describe('manual entry', () => {
       { method: 'POST', headers: json, body: JSON.stringify({ files: [] }) },
     );
     expect(response.status).toBe(404);
+  });
+
+  /**
+   * The size at which the quartet pattern used to throw (issue #98).
+   *
+   * This record's route matters most of the four: it is the one reachable
+   * without the edge gate, so whoever holds an address chose the megabytes of
+   * base64 the expression walked. The local `A_PAGE` above is ninety-odd
+   * characters, so nothing here had ever reached that size.
+   */
+  test('takes a file past the regex stack limit', async () => {
+    const app = await api();
+    const project = await createProject(app, 'T-98', 'Office fit-out');
+
+    const response = await app.fetch(
+      `/v1/projects/${project.id}/ingested-documents`,
+      {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({
+          files: [
+            {
+              filename: 'scanned set.pdf',
+              contentType: 'application/pdf',
+              bytes: PAST_THE_STACK,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(response.status).toBe(201);
+    const arrival = (await response.json()) as {
+      files: { byteSize: number }[];
+    };
+    expect(arrival.files[0]?.byteSize).toBe(
+      Buffer.from(PAST_THE_STACK, 'base64').byteLength,
+    );
   });
 });
 

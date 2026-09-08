@@ -53,6 +53,54 @@ export function violates(error: unknown, column: string): boolean {
  */
 export const NOT_BLANK = '\\S';
 
+/** The alphabet and the padding position, which is all a pattern can hold. */
+const BASE64_ALPHABET = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * Base64 carrying a file: the alphabet, the padding, **and whole quartets**.
+ *
+ * A predicate and not a pattern, which is forced rather than chosen. The four
+ * large-body routes spelled the quartet rule as
+ * `^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$`, and a
+ * starred *group* recurses once per iteration in V8: above roughly four
+ * million characters — a 3 MiB file, an ordinary phone photograph — it threw
+ * `RangeError: Maximum call stack size exceeded`. Nothing sets an error
+ * handler here, so that reached the engineer as a 500 carrying V8's own
+ * sentence, and every declared cap was several times what the boundary could
+ * survive (issue #98). A starred *character class* does not recurse, and is
+ * measured flat to 64 MiB.
+ *
+ * The guarantee is unchanged, and that is the point of splitting it in two
+ * rather than loosening it: `[A-Za-z0-9+/]+={0,2}` alone admits a length of
+ * 4n+1, which is not base64 at all and which `Buffer.from` **silently
+ * truncates** rather than refusing — a short file stored under a 201, with
+ * nothing downstream able to read it back against the original (ADR-0039).
+ * The length check is what keeps that refusal, and it is arithmetic rather
+ * than backtracking. The two together accept and refuse exactly what the old
+ * pattern did, save for the empty string, which every schema using this
+ * already refuses with `minLength: 4`.
+ *
+ * Registered as the ajv format `base64` in `server.ts` — the boundary, where
+ * the ajv setting belongs (ADR-0033) — so a body still fails validation the
+ * way it always did, and read directly by `routes/ingest.ts`, whose files are
+ * checked one at a time rather than by a schema.
+ */
+export function isBase64(value: string): boolean {
+  return value.length % 4 === 0 && BASE64_ALPHABET.test(value);
+}
+
+/**
+ * The bytes of a file on the way in, less the cap, which is each record's own.
+ *
+ * Four characters of base64 is one byte or more, so a body that passes this
+ * can never decode to the nothing the CHECK constraints refuse.
+ */
+export const BASE64 = {
+  type: 'string',
+  format: 'base64',
+  minLength: 4,
+} as const;
+
 /**
  * A supplied instant, or the injected time source. Parsing a string the
  * engineer typed is not reading the wall clock, so ADR-0022 is satisfied by

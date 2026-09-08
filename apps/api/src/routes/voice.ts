@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { type PrismaClient } from '../../generated/prisma/client.js';
-import { type RouteDependencies, violates } from '../http.js';
+import { BASE64, type RouteDependencies, violates } from '../http.js';
 import { noSuchSiteVisit, noSuchVoiceCapture } from '../refusals.js';
 import { progressStreams } from '../stream.js';
 import { TRANSCRIBE, type TranscribeJob } from '../worker.js';
@@ -70,23 +70,16 @@ const voiceCaptureBodySchema = {
     captureKey: { type: 'string', pattern: '^[A-Za-z0-9_-]{8,64}$' },
     recordedAt: { type: 'string', format: 'date-time' },
     contentType: { type: 'string', enum: [...AUDIO_CONTENT_TYPES] },
-    // Four characters of base64 is one byte or more, so a body that passes
-    // here can never decode to the nothing the CHECK constraint refuses.
-    // Strict base64: whole quartets, with the only short tail being the one
-    // padding makes legal. The looser `[A-Za-z0-9+/]+={0,2}` this carried
-    // until now admits a length of 4n+1, which is not base64 at all, and
-    // which `Buffer.from` **silently truncates** rather than refusing — so a
-    // clipped recording would store and the route would answer 201, and the
-    // audio the walk rests on would be short with nothing to say so. ADR-0039
-    // wrote this pattern for a document version and recorded that the fix
-    // here belonged to a change about this record; this is that change.
-    bytes: {
-      type: 'string',
-      pattern:
-        '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$',
-      minLength: 4,
-      maxLength: AUDIO_BASE64_MAX,
-    },
+    // Strict base64: the alphabet, the padding position, and whole quartets.
+    // A length of 4n+1 is not base64 at all and `Buffer.from` **silently
+    // truncates** it rather than refusing — so a clipped recording would
+    // store and the route would answer 201, and the audio the walk rests on
+    // would be short with nothing to say so. ADR-0039 wrote that rule for a
+    // document version and recorded that the fix here belonged to a change
+    // about this record; issue #54 was that change. It is `isBase64` and no
+    // longer a pattern because the pattern recursed into a 500 (issue #98),
+    // which on this record is the failure that loses the recording.
+    bytes: { ...BASE64, maxLength: AUDIO_BASE64_MAX },
   },
 } as const;
 

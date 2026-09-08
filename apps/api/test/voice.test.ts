@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'vitest';
 import {
   A_SOUND,
+  PAST_THE_STACK,
   addVoiceCapture,
   createIssue,
   createProject,
@@ -214,6 +215,25 @@ test('a recording that is not whole base64 is refused, not truncated', async () 
   // The whole string still passes, and keeps every byte of it.
   const capture = await addVoiceCapture(app, walk.id, { bytes: whole });
   expect(capture.byteSize).toBe(Buffer.from(whole, 'base64').byteLength);
+});
+
+/**
+ * The size at which the quartet pattern used to throw (issue #98).
+ *
+ * A 500 on this record is the failure that loses the recording: the phone
+ * holds the audio until the API answers, and an internal error is not an
+ * answer it can act on. `A_SOUND` is thirty-two characters.
+ */
+test('a recording past the regex stack limit is stored whole', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'V-98');
+
+  const capture = await addVoiceCapture(app, walk.id, {
+    bytes: PAST_THE_STACK,
+  });
+  expect(capture.byteSize).toBe(
+    Buffer.from(PAST_THE_STACK, 'base64').byteLength,
+  );
 });
 
 // ── Losing signal in a building, and reconciling (story 112) ──────────────

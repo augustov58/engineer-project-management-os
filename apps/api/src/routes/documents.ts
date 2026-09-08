@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import {
+  BASE64,
   isUniqueViolation,
   NOT_BLANK,
   type RouteDependencies,
@@ -84,21 +85,16 @@ const versionBodySchema = {
     // filename rather than a sentence.
     filename: { type: 'string', pattern: NOT_BLANK, maxLength: 255 },
     contentType: { type: 'string', enum: [...DOCUMENT_CONTENT_TYPES] },
-    // Strict base64: whole quartets, with the only short tail being the one
-    // padding makes legal. `[A-Za-z0-9+/]+={0,2}` is the looser pattern the
-    // photograph and the recording use, and it admits a length of 4n+1 —
-    // which is not base64 at all, and which `Buffer.from` **silently
-    // truncates** rather than refusing. That would store a short file and
-    // answer 201, so the corruption would reach the record with nothing to
-    // read it back against. `minLength` keeps the empty string out, which is
-    // the nothing the CHECK constraint refuses.
-    bytes: {
-      type: 'string',
-      pattern:
-        '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$',
-      minLength: 4,
-      maxLength: DOCUMENT_BASE64_MAX,
-    },
+    // Strict base64: the alphabet, the padding position, and whole quartets,
+    // which is where ADR-0039 wrote that rule. A length of 4n+1 is not base64
+    // at all, and `Buffer.from` **silently truncates** it rather than
+    // refusing. That would store a short file and answer 201, so the
+    // corruption would reach the record with nothing to read it back against.
+    // `BASE64`'s `minLength` keeps the empty string out, which is the nothing
+    // the CHECK constraint refuses; it is a format rather than the pattern it
+    // was because that pattern recursed above about 3 MiB (issue #98) — a
+    // fourteenth of what this route says it takes.
+    bytes: { ...BASE64, maxLength: DOCUMENT_BASE64_MAX },
   },
 } as const;
 
