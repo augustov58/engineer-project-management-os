@@ -121,7 +121,12 @@ export default async function Home() {
           <CardTitle>Add a project</CardTitle>
         </CardHeader>
         <CardContent>
-          <NewProjectForm />
+          {/*
+            The zones this runtime knows, read on the server: the API refuses
+            a name that is not one of them, so the control cannot offer one
+            (ADR-0054).
+          */}
+          <NewProjectForm zones={Intl.supportedValuesOf('timeZone')} />
         </CardContent>
       </Card>
 

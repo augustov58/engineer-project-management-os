@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { ISSUE_CATEGORIES, listOpenIssues } from '../api';
 import { selectClassName } from '../native-select';
-import { day } from '../open-item';
+import { day } from '../wall-clock';
 
 /** The point of this screen is what is still open right now. */
 export const dynamic = 'force-dynamic';
@@ -124,7 +124,7 @@ export default async function OpenIssues({
                 return (
                   <TableRow key={issue.id}>
                     <TableCell className="text-muted-foreground align-top tabular-nums">
-                      {day(issue.createdAt)}
+                      {day(issue.createdAt, issue.project.timezone)}
                     </TableCell>
                     <TableCell className="align-top">
                       <Link

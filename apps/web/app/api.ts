@@ -2,11 +2,36 @@ import { edgeHeaders } from './edge-secret';
 
 const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://127.0.0.1:3001';
 
+/**
+ * A job as another record names it: enough to label a row, and the zone its
+ * times are read in (ADR-0054).
+ *
+ * The zone is on the stub and not only on the whole project, because the
+ * screens that need it most are the ones that never fetch a project — a walk
+ * is read with this, and the pending items, exposure, clock and issues views
+ * each render rows from several jobs at once. A list across every project is
+ * a list across every frame.
+ */
+export interface ProjectStub {
+  id: string;
+  projectNumber: string;
+  name: string;
+  timezone: string;
+}
+
 export interface Project {
   id: string;
   projectNumber: string;
   name: string;
   createdAt: string;
+  /**
+   * The zone of the building this job is at, as an IANA name (ADR-0054).
+   *
+   * Required with no default: every typed day and clock time on this job is
+   * composed in it and every one is read back in it. Nothing else in this
+   * product stores a zone — every other `DateTime` is a real instant.
+   */
+  timezone: string;
   archivedAt: string | null;
   /** The phase a new submission defaults to. Null until one is chosen. */
   currentPhaseId: string | null;
@@ -100,7 +125,7 @@ export interface OpenItem {
 
 /** The pending items view carries the job each item is on. */
 export interface PendingItem extends OpenItem {
-  project: { id: string; projectNumber: string; name: string } | null;
+  project: ProjectStub | null;
 }
 
 /** `resolved: true` for the answered ones, which stay on the project. */
@@ -198,7 +223,7 @@ export interface RestsOn extends OpenItem {
 /** One submission, with the things it hangs off resolved. */
 export interface SubmissionDetail extends Submission {
   phase: Phase;
-  project: { id: string; projectNumber: string; name: string };
+  project: ProjectStub;
   /** What the issuance rests on — resolved ones included, deliberately. */
   openItems: RestsOn[];
   /**
@@ -212,7 +237,7 @@ export interface SubmissionDetail extends Submission {
 /** A currently provisional submission, as the exposure view lists it. */
 export interface ExposureRow extends Submission {
   phase: Phase;
-  project: { id: string; projectNumber: string; name: string };
+  project: ProjectStub;
 }
 
 async function read<T>(path: string): Promise<T> {
@@ -475,7 +500,7 @@ export function isRendering(report: SiteVisitReport): boolean {
 
 /** One visit, with the job it was against and what it produced. */
 export interface SiteVisitDetail extends SiteVisit {
-  project: { id: string; projectNumber: string; name: string };
+  project: ProjectStub;
   /** In the order the floors were walked. */
   floors: SiteVisitFloor[];
   /** In the order they were made. */
@@ -552,7 +577,7 @@ export function listIssues(projectId: string): Promise<Issue[]> {
 
 /** The across-every-project view carries the job each finding is on. */
 export interface OpenIssue extends Issue {
-  project: { id: string; projectNumber: string; name: string };
+  project: ProjectStub;
 }
 
 /**
@@ -702,7 +727,7 @@ export const REVISE_AND_RESUBMIT: Disposition = 'Revise and Resubmit';
 
 /** An entry on the clock, carrying the job it is on. Exposure's shape. */
 export interface ClockRow extends RegisterEntry {
-  project: { id: string; projectNumber: string; name: string };
+  project: ProjectStub;
 }
 
 export type RegisterKind = 'SUBMITTAL' | 'RFI';

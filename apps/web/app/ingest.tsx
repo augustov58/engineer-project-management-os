@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { requestExtractionFromFile } from './actions';
 import type { IngestedDocument } from './api';
 import { ExtractButton } from './extract-button';
+import { clock, day } from './wall-clock';
 
 /** Bytes as a person reads them, matching the documents list. */
 function size(bytes: number): string {
@@ -85,8 +86,11 @@ function Envelope({ arrival }: { arrival: IngestedDocument }) {
  */
 export function IngestedDocumentList({
   arrivals,
+  timeZone,
 }: {
   arrivals: IngestedDocument[];
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   if (arrivals.length === 0) {
     return (
@@ -115,7 +119,13 @@ export function IngestedDocumentList({
           </div>
 
           <p className="text-muted-foreground text-xs">
-            Arrived {new Date(arrival.arrivedAt).toLocaleString()}
+            {/*
+              The building's zone, like every other time in the product
+              (ADR-0054). This was the one render that shifted into whichever
+              zone the browser happened to be in.
+            */}
+            Arrived {day(arrival.arrivedAt, timeZone)}{' '}
+            {clock(arrival.arrivedAt, timeZone)}
           </p>
 
           {arrival.files.length > 0 && (

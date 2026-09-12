@@ -26,7 +26,7 @@ import {
   listIssuesWithoutPhotos,
 } from '../../api';
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
-import { clock, day } from '../../open-item';
+import { clock, day } from '../../wall-clock';
 import { PhotoBindings, PhotoForm } from '../../photo-form';
 import { ReportProgress, ReportState } from '../../report-form';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
@@ -51,6 +51,12 @@ export default async function SiteVisitRecord({
   }
 
   const projectId = visit.project.id;
+
+  // Every time on this screen is the building's wall clock (ADR-0054). The
+  // walk carries its job's zone rather than the screen fetching the project
+  // for it: a stub that could label the row and not read its times would be
+  // half a job.
+  const zone = visit.project.timezone;
 
   const visitedOn = visit.visitedOn;
 
@@ -108,8 +114,8 @@ export default async function SiteVisitRecord({
 
         <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-4 text-sm">
           <span>
-            {clock(visit.startedAt)}
-            {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt)}`}
+            {clock(visit.startedAt, zone)}
+            {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt, zone)}`}
           </span>
           {visit.endedAt === null && (
             <form action={end}>
@@ -147,10 +153,10 @@ export default async function SiteVisitRecord({
                   Floor {floor.floor}
                 </Badge>
                 <span className="text-muted-foreground text-sm tabular-nums">
-                  {clock(floor.startedAt)}
+                  {clock(floor.startedAt, zone)}
                   {floor.completedAt === null
                     ? ''
-                    : ` – ${clock(floor.completedAt)}`}
+                    : ` – ${clock(floor.completedAt, zone)}`}
                 </span>
                 {floor.completedAt === null && (
                   <form
@@ -220,7 +226,7 @@ export default async function SiteVisitRecord({
                       {observation.location}
                     </span>
                     <span className="tabular-nums">
-                      {clock(observation.observedAt)}
+                      {clock(observation.observedAt, zone)}
                     </span>
                   </div>
                   <p className="text-sm whitespace-pre-wrap">
@@ -276,7 +282,7 @@ export default async function SiteVisitRecord({
                         {finding.category}
                         {finding.closedAt === null
                           ? ''
-                          : ` · closed ${day(finding.closedAt)}`}
+                          : ` · closed ${day(finding.closedAt, zone)}`}
                       </span>
                     </Link>
                   )}
@@ -327,7 +333,7 @@ export default async function SiteVisitRecord({
               <li key={capture.id} className="space-y-3 px-4 py-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-muted-foreground text-sm tabular-nums">
-                    {clock(capture.recordedAt)}
+                    {clock(capture.recordedAt, zone)}
                   </span>
                   <CaptureState capture={capture} />
                   {/*
@@ -475,7 +481,7 @@ export default async function SiteVisitRecord({
                     {photo.filename}
                   </p>
                   <p className="text-muted-foreground text-sm tabular-nums">
-                    {clock(photo.takenAt)}
+                    {clock(photo.takenAt, zone)}
                     {photo.floor === null && photo.issueNumber === null
                       ? ' · unbound'
                       : ''}
@@ -510,7 +516,7 @@ export default async function SiteVisitRecord({
           <CardTitle>Add the walk&rsquo;s photographs</CardTitle>
         </CardHeader>
         <CardContent>
-          <PhotoForm add={addPhoto.bind(null, id, projectId)} />
+          <PhotoForm add={addPhoto.bind(null, id, projectId)} timeZone={zone} />
         </CardContent>
       </Card>
 
@@ -537,7 +543,7 @@ export default async function SiteVisitRecord({
               >
                 <ReportState report={report} />
                 <span className="text-muted-foreground text-sm">
-                  {clock(report.createdAt)}
+                  {clock(report.createdAt, zone)}
                 </span>
                 {report.state === 'rendered' && (
                   <a
@@ -569,7 +575,7 @@ export default async function SiteVisitRecord({
       </section>
 
       <p className="text-muted-foreground text-sm">
-        Visit recorded {day(visit.createdAt)}.
+        Visit recorded {day(visit.createdAt, zone)}.
       </p>
     </div>
   );

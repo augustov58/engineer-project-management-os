@@ -25,7 +25,8 @@ import { LinkDocumentForm } from '../../document-form';
 import { LinkedDocumentList } from '../../documents';
 import { selectClassName } from '../../native-select';
 import { NewOpenItemForm } from '../../new-open-item-form';
-import { day, OpenItemEntry } from '../../open-item';
+import { OpenItemEntry } from '../../open-item';
+import { day } from '../../wall-clock';
 import { SubmissionForm } from '../../submission-form';
 
 export const dynamic = 'force-dynamic';
@@ -89,7 +90,7 @@ export default async function SubmissionRecord({
             {submission.revision}
           </h1>
           <span className="text-muted-foreground text-sm">
-            issued {day(submission.issuedAt)}
+            issued {day(submission.issuedAt, submission.project.timezone)}
           </span>
           {superseded && <Badge variant="outline">Superseded</Badge>}
         </div>
@@ -151,7 +152,7 @@ export default async function SubmissionRecord({
           >
             {replacement.revision}
           </Link>
-          , issued {day(replacement.issuedAt)}. This record stays exactly as it
+          , issued {day(replacement.issuedAt, submission.project.timezone)}. This record stays exactly as it
           went out; exposure counts the replacement rather than this.
         </p>
       )}
@@ -214,7 +215,7 @@ export default async function SubmissionRecord({
                 <span className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <span className="font-medium">{entry.revision}</span>
                   <span className="text-muted-foreground text-sm">
-                    issued {day(entry.issuedAt)} &middot; {entry.recipient} (
+                    issued {day(entry.issuedAt, submission.project.timezone)} &middot; {entry.recipient} (
                     {entry.recipientRole})
                   </span>
                   {entry.issuedProvisional && (
@@ -270,7 +271,7 @@ export default async function SubmissionRecord({
               const wasIssuedOn = item.unresolvedAtIssuance !== null;
               const raised = raisedFromFlag.has(item.id);
               return (
-                <OpenItemEntry
+                <OpenItemEntry timeZone={submission.project.timezone}
                   key={item.id}
                   item={item}
                   projectId={projectId}
@@ -338,7 +339,7 @@ export default async function SubmissionRecord({
         ) : (
           <ul className="space-y-3">
             {assumptionRecords.map((record) => (
-              <AssumptionRecordEntry
+              <AssumptionRecordEntry timeZone={submission.project.timezone}
                 key={record.id}
                 record={record}
                 submissionId={id}

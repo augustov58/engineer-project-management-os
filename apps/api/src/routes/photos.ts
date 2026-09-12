@@ -489,7 +489,7 @@ export function photoRoutes(
       const { id } = request.params;
       const walk = await prisma.siteVisit.findUnique({
         where: { id },
-        select: { id: true },
+        select: { id: true, project: { select: { timezone: true } } },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
@@ -503,7 +503,9 @@ export function photoRoutes(
         orderBy: { number: 'asc' },
         include: issueInclude,
       });
-      return found.map(withSightings);
+      return found.map((issue) =>
+        withSightings(issue, walk.project.timezone),
+      );
     },
   );
 }

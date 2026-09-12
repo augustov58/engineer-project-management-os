@@ -673,6 +673,10 @@ test('the identifier sequence is bookkeeping and never reaches the wire', async 
     'name',
     'processingLocation',
     'projectNumber',
+    // The zone of the building, and the frame every time on the job is read
+    // in (ADR-0054). It reaches the wire where `issuesAllocated` does not:
+    // a screen cannot render one of this job's times without it.
+    'timezone',
   ];
   expect(Object.keys(project).sort()).toEqual(keys);
 
@@ -725,8 +729,20 @@ test('every open finding across every project, oldest first, with its job', asyn
   const listed = await openIssues(app);
   expect(listed.map((issue) => issue.id)).toEqual([older.id, newer.id]);
   expect(listed.map((issue) => issue.project)).toEqual([
-    { id: first.project.id, projectNumber: 'I-25', name: 'Riverside clinic' },
-    { id: second.project.id, projectNumber: 'I-26', name: 'Depot fit-out' },
+    // The job's zone comes with the job, because a list across every project
+    // is a list across every frame and each row is read in its own (ADR-0054).
+    {
+      id: first.project.id,
+      projectNumber: 'I-25',
+      name: 'Riverside clinic',
+      timezone: 'America/New_York',
+    },
+    {
+      id: second.project.id,
+      projectNumber: 'I-26',
+      name: 'Depot fit-out',
+      timezone: 'America/New_York',
+    },
   ]);
 
   // Everything a finding is read through comes with it: an issue owns no

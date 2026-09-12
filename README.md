@@ -271,13 +271,14 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
 - **`photos.taken_at` is required and never falls back to the clock** (ADR-0032), unlike
   `observations.observed_at`. That fallback would bin a timestamp-less photograph to
   whichever floor was being walked at the moment of the request, which is the guess under
-  another name. Nothing reads EXIF. The screen sends the file's *local wall clock written as
-  UTC*, the same frame `composeInstant` puts a typed time in — sending the true instant
-  instead would offset every photograph of the afternoon out of every window. The frame is
-  wrong the same way it was before; it is now consistently wrong across a whole walk, which
-  is what keeps binning working. ADR-0030's timezone deferral was **closed 2026-09-05 by
-  ADR-0050** (issue #82), which records that behaviour as the answer and makes the coupling
-  between the two helpers permanent: they change together never, absent a superseding ADR.
+  another name. Nothing reads EXIF. The screen sends the file's instant **as the file carries
+  it**, and a floor window is an instant too, so both sides of the comparison are in one
+  frame. That is **ADR-0054** (issue #104), which supersedes ADR-0050 on the trigger 0050
+  itself named. 0050 had recorded the fake-UTC frame as the answer and held that a walk
+  stayed inside it; a floor window started by the *blank-time* path is stamped by the
+  injected `TimeSource` and never was, so every photograph on such a floor bound to nothing,
+  silently (issue #97). A project now carries its building's zone, every stored `DateTime`
+  is a real instant, and every screen and the report read one back in that zone.
 - **The bytes go to a port and come back through the API** (ADR-0032). `ObjectStore` is the
   shape ADR-0022 gave `TimeSource`: a filesystem adapter for dev and tests, the
   S3-compatible one when there is somewhere to deploy to. Not a presigned URL — that is a

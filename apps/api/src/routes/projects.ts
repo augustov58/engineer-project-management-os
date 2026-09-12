@@ -19,13 +19,28 @@ import { audit } from '../audit.js';
  */
 const projectBodySchema = {
   type: 'object',
-  required: ['projectNumber', 'name'],
+  required: ['projectNumber', 'name', 'timezone'],
   additionalProperties: false,
   properties: {
     projectNumber: { type: 'string', pattern: '^\\S+$', maxLength: 32 },
     name: { type: 'string', minLength: 1, maxLength: 200 },
+    timezone: { type: 'string', minLength: 1, maxLength: 64 },
   },
 } as const;
+
+/**
+ * The IANA zone names this runtime actually knows, which is what "an IANA
+ * name" means operationally (ADR-0054).
+ *
+ * Membership of ICU's own list rather than a pattern: a pattern that admits
+ * `Area/City` admits `America/Nowhere` too, and a zone the runtime cannot
+ * resolve would render every time on the job as `Invalid Date` — after the
+ * project was written, which is the wrong end to find out. The list is
+ * canonical names only, so the aliases (`US/Eastern`) and the fixed offsets
+ * (`+05:00`) are both refused: a building is in a place, and a place is what
+ * carries a zone's daylight-saving history with it.
+ */
+const KNOWN_ZONES = new Set(Intl.supportedValuesOf('timeZone'));
 
 /**
  * Where this job's client-originated documents are read, and what the firm
@@ -107,10 +122,15 @@ export function projectRoutes(
   v1: FastifyInstance,
   { prisma, timeSource, ingestDomain }: RouteDependencies,
 ): void {
-  v1.post<{ Body: { projectNumber: string; name: string } }>(
+  v1.post<{ Body: { projectNumber: string; name: string; timezone: string } }>(
     '/projects',
     { schema: { body: projectBodySchema } },
     async (request, reply) => {
+      if (!KNOWN_ZONES.has(request.body.timezone)) {
+        return reply.code(400).send({
+          message: `${request.body.timezone} is not an IANA timezone name`,
+        });
+      }
       try {
         const now = timeSource.now();
         // The job and the first line of its own audit in one transaction. The

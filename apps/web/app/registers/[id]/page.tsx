@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { createRegisterEntry } from '../../actions';
 import { getProject, getRegister, REGISTER_NAMES } from '../../api';
 import { NewRegisterEntryForm } from '../../register-forms';
-import { day } from '../../open-item';
+import { day } from '../../wall-clock';
 import { BallInCourtBadge, ClockBadge } from '../../ball-in-court';
 
 /** The point of this screen is what is in whose court right now. */
@@ -79,7 +79,7 @@ export default async function RegisterLog({
                     <span className="font-medium">{entry.subject}</span>
                     <span className="text-muted-foreground text-sm">
                       {entry.fromParty} &rarr; {entry.toParty} &middot; logged{' '}
-                      {day(entry.createdAt)}
+                      {day(entry.createdAt, project.timezone)}
                     </span>
                     <BallInCourtBadge ballInCourt={entry.ballInCourt} />
                     <ClockBadge entry={entry} />

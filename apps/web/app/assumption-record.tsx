@@ -4,7 +4,7 @@ import { raiseFlag } from './actions';
 import type { AssumptionRecord } from './api';
 import { CounterfactualForm } from './assumption-record-form';
 import { NewOpenItemForm } from './new-open-item-form';
-import { day } from './open-item';
+import { day } from './wall-clock';
 
 /**
  * One line of a captured block, rendered as it was captured.
@@ -43,17 +43,20 @@ export function AssumptionRecordEntry({
   record,
   submissionId,
   projectId,
+  timeZone,
 }: {
   record: AssumptionRecord;
   submissionId: string;
   projectId: string;
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   return (
     <li className="space-y-4 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-3">
         <Badge variant="secondary">{record.codeEdition}</Badge>
         <span className="text-muted-foreground text-sm">
-          calculated {day(record.calculatedAt)}
+          calculated {day(record.calculatedAt, timeZone)}
         </span>
       </div>
 
@@ -109,7 +112,7 @@ export function AssumptionRecordEntry({
                 Raised as an open item —{' '}
                 {entry.openItem.resolvedAt === null
                   ? `waiting on ${entry.openItem.waitingOn ?? 'nobody'}, listed below`
-                  : `resolved ${day(entry.openItem.resolvedAt)}`}
+                  : `resolved ${day(entry.openItem.resolvedAt, timeZone)}`}
               </p>
             )}
           </Line>

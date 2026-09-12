@@ -120,7 +120,7 @@ export default async function ExtractionPage({
 
           <section className="space-y-3">
             <h2 className="text-lg font-medium">The proposed entry</h2>
-            <ExtractionConfirmForm projectId={id} extraction={extraction} />
+            <ExtractionConfirmForm projectId={id} extraction={extraction} timeZone={project.timezone} />
           </section>
         </div>
       )}

@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { apiFetch, apiPath } from './api';
+import { apiFetch, apiPath, getProject } from './api';
+import { instantFrom } from './wall-clock';
 
 /**
  * The API is the only validator. Its message is shown as-is rather than
@@ -18,6 +19,9 @@ export async function createProject(
     body: JSON.stringify({
       projectNumber: formData.get('projectNumber'),
       name: formData.get('name'),
+      // Required with no default, and refused by the API if it names no place
+      // (ADR-0054). The form offers the zones this runtime knows.
+      timezone: formData.get('timezone'),
     }),
   });
 
@@ -41,6 +45,26 @@ export async function archiveProject(id: string): Promise<void> {
 
   revalidatePath('/');
   revalidatePath(`/projects/${id}`);
+}
+
+/**
+ * The zone a job's typed days and clock times are composed in (ADR-0054).
+ *
+ * Read off the record rather than carried in the form: the zone is the
+ * project's, every action here already holds the project's id, and a hidden
+ * field would be both a second place the same fact lives and the one place a
+ * browser could change which frame a walk was recorded in.
+ *
+ * A job that is not there throws rather than composing in some fallback zone.
+ * The write below it was going to be refused anyway — nothing deletes a
+ * project — and a silent second frame is the defect this ADR exists to end.
+ */
+async function zoneOf(projectId: string): Promise<string> {
+  const project = await getProject(projectId);
+  if (project === undefined) {
+    throw new Error(`no project ${projectId} to read a timezone from`);
+  }
+  return project.timezone;
 }
 
 /** Empty optional fields are omitted rather than sent blank. */
@@ -67,8 +91,10 @@ export interface AddState {
 }
 
 /** The open item fields, read the same way wherever one is raised. */
-function openItemPayload(formData: FormData): Record<string, unknown> {
-  const sinceDate = omitIfBlank(formData, 'waitingSince');
+function openItemPayload(
+  formData: FormData,
+  timeZone: string,
+): Record<string, unknown> {
   return {
     unresolved: formData.get('unresolved'),
     blocks: formData.get('blocks'),
@@ -79,9 +105,9 @@ function openItemPayload(formData: FormData): Record<string, unknown> {
       formData.get('nobody') === null
         ? String(formData.get('waitingOn') ?? '').trim()
         : null,
-    // A date input gives a day; the record keeps an instant.
-    waitingSince:
-      sinceDate === undefined ? undefined : `${sinceDate}T00:00:00.000Z`,
+    // A date input gives a day; the record keeps the instant it began on
+    // this job (ADR-0054).
+    waitingSince: composeDay(formData, 'waitingSince', timeZone),
     invalidationTrigger: omitIfBlank(formData, 'invalidationTrigger'),
     counterfactual: formData.get('counterfactual'),
     owner: omitIfBlank(formData, 'owner'),
@@ -192,7 +218,7 @@ export async function createOpenItem(
   formData: FormData,
 ): Promise<AddState> {
   const error = await refusal(
-    await send(`/projects/${projectId}/open-items`, openItemPayload(formData)),
+    await send(`/projects/${projectId}/open-items`, openItemPayload(formData, await zoneOf(projectId))),
     201,
   );
   if (error !== undefined) {
@@ -215,7 +241,7 @@ export async function createOpenItemOnSubmission(
   formData: FormData,
 ): Promise<AddState> {
   const error = await refusal(
-    await send(`/submissions/${submissionId}/open-items`, openItemPayload(formData)),
+    await send(`/submissions/${submissionId}/open-items`, openItemPayload(formData, await zoneOf(projectId))),
     201,
   );
   if (error !== undefined) {
@@ -233,13 +259,13 @@ export async function resolveOpenItem(
 ): Promise<void> {
   // An item answered in April must not read as answered today just because
   // that is when it was typed in.
-  const on = omitIfBlank(formData, 'resolvedAt');
+  const on = composeDay(formData, 'resolvedAt', await zoneOf(projectId));
 
   await sendOrThrow(
     `/open-items/${id}/resolve`,
     {
       note: formData.get('note'),
-      ...(on === undefined ? {} : { resolvedAt: `${on}T00:00:00.000Z` }),
+      ...(on === undefined ? {} : { resolvedAt: on }),
     },
     { tolerateConflict: true },
   );
@@ -332,12 +358,15 @@ export async function setCurrentPhase(
 // ── Submissions ───────────────────────────────────────────────────────────
 
 /** The submission fields, read the same way wherever a set is issued. */
-function submissionPayload(formData: FormData): Record<string, unknown> {
-  const issued = omitIfBlank(formData, 'issuedAt');
+function submissionPayload(
+  formData: FormData,
+  timeZone: string,
+): Record<string, unknown> {
   return {
     phaseId: formData.get('phaseId'),
-    // A date input gives a day; the record keeps an instant.
-    issuedAt: issued === undefined ? undefined : `${issued}T00:00:00.000Z`,
+    // A date input gives a day; the record keeps the instant it began on
+    // this job (ADR-0054).
+    issuedAt: composeDay(formData, 'issuedAt', timeZone),
     recipient: formData.get('recipient'),
     recipientRole: formData.get('recipientRole'),
     revision: formData.get('revision'),
@@ -359,7 +388,7 @@ export async function createSubmission(
   formData: FormData,
 ): Promise<AddState> {
   const error = await refusal(
-    await send(`/projects/${projectId}/submissions`, submissionPayload(formData)),
+    await send(`/projects/${projectId}/submissions`, submissionPayload(formData, await zoneOf(projectId))),
     201,
   );
   if (error !== undefined) {
@@ -383,7 +412,7 @@ export async function reissueSubmission(
 ): Promise<AddState> {
   const response = await send(
     `/submissions/${submissionId}/reissue`,
-    submissionPayload(formData),
+    submissionPayload(formData, await zoneOf(projectId)),
   );
   const error = await refusal(response, 201);
   if (error !== undefined) {
@@ -471,14 +500,15 @@ export async function captureAssumptionRecord(
   previous: AddState,
   formData: FormData,
 ): Promise<AddState> {
-  const on = omitIfBlank(formData, 'calculatedAt');
+  const on = composeDay(formData, 'calculatedAt', await zoneOf(projectId));
   const error = await refusal(
     await send(`/submissions/${submissionId}/assumption-records`, {
       assumptions: pasted(formData, 'assumptions'),
       flags: pasted(formData, 'flags'),
       codeEdition: formData.get('codeEdition'),
-      // A date input gives a day; the record keeps an instant.
-      calculatedAt: on === undefined ? undefined : `${on}T00:00:00.000Z`,
+      // A date input gives a day; the record keeps the instant it began on
+      // this job (ADR-0054).
+      calculatedAt: on,
     }),
     201,
   );
@@ -531,7 +561,7 @@ export async function raiseFlag(
   previous: AddState,
   formData: FormData,
 ): Promise<AddState> {
-  const { unresolved, ...payload } = openItemPayload(formData);
+  const { unresolved, ...payload } = openItemPayload(formData, await zoneOf(projectId));
   const error = await refusal(
     await send(
       `/assumption-records/${recordId}/flags/${line}/open-item`,
@@ -554,7 +584,7 @@ export async function raiseFlag(
 
 /**
  * A date input gives a day and a time input gives a clock time; the record
- * keeps an instant, composed from both.
+ * keeps an instant, composed from both **in the project's zone** (ADR-0054).
  *
  * Undefined unless **both** are present, so the API's own fallback — the
  * injected clock — applies to the whole stamp or to none of it. Composing a
@@ -563,23 +593,45 @@ export async function raiseFlag(
  * therefore either supplies a day or requires one, so "the time was ignored"
  * is not a state this can reach.
  *
- * The clock time is written as though it were UTC, which is the convention
- * every other date in this product already follows (`T00:00:00.000Z`). It is
- * self-consistent for anything typed and wrong against anything the injected
- * clock stamped — see the note in the README; it is a product-wide decision
- * and not this slice's to take.
+ * It used to write the clock time as though it were UTC. That was
+ * self-consistent for anything typed and one offset out from anything the
+ * injected clock stamped — which is how a floor window started by the
+ * blank-time path came to bin no photograph at all (issue #97). ADR-0050 made
+ * that frame the answer and required its successor to change this and
+ * `asTypedInstant` in one commit; ADR-0054 supersedes it, this composes, and
+ * the other one is gone.
  */
 function composeInstant(
   formData: FormData,
   dayField: string,
   timeField: string,
+  timeZone: string,
 ): string | undefined {
   const day = omitIfBlank(formData, dayField);
   const time = omitIfBlank(formData, timeField);
   if (day === undefined || time === undefined) {
     return undefined;
   }
-  return `${day}T${time}:00.000Z`;
+  return instantFrom(day, time, timeZone);
+}
+
+/**
+ * A date input alone gives a day; the record keeps the instant that day began
+ * in the project's zone.
+ *
+ * Midnight there and not midnight UTC, which is the same correction
+ * `composeInstant` carries and the reason it is one helper rather than seven
+ * copies of a template. A zone that skips midnight — and some do — lands on
+ * the right day rather than an hour into the previous one; `instantFrom` says
+ * how.
+ */
+function composeDay(
+  formData: FormData,
+  field: string,
+  timeZone: string,
+): string | undefined {
+  const day = omitIfBlank(formData, field);
+  return day === undefined ? undefined : instantFrom(day, '00:00', timeZone);
 }
 
 /**
@@ -591,13 +643,14 @@ export async function createSiteVisit(
   previous: AddState,
   formData: FormData,
 ): Promise<AddState> {
+  const zone = await zoneOf(projectId);
   const error = await refusal(
     await send(`/projects/${projectId}/site-visits`, {
       // Both required by the form, so this is always the pair that was typed.
-      startedAt: composeInstant(formData, 'visitedOn', 'startedAt'),
+      startedAt: composeInstant(formData, 'visitedOn', 'startedAt', zone),
       // Left off while the walk is still under way, which is the whole reason
       // `ended_at` is nullable.
-      endedAt: composeInstant(formData, 'visitedOn', 'endedAt'),
+      endedAt: composeInstant(formData, 'visitedOn', 'endedAt', zone),
     }),
     201,
   );
@@ -635,6 +688,7 @@ export async function startFloor(
   previous: AddState,
   formData: FormData,
 ): Promise<AddState> {
+  const zone = await zoneOf(projectId);
   const error = await refusal(
     await send(`/site-visits/${siteVisitId}/floors`, {
       floor: formData.get('floor'),
@@ -645,6 +699,7 @@ export async function startFloor(
         withDay(formData, visitedOn),
         'day',
         'startedAt',
+        zone,
       ),
     }),
     201,
@@ -664,6 +719,7 @@ export async function completeFloor(
   projectId: string,
   formData: FormData,
 ): Promise<void> {
+  const zone = await zoneOf(projectId);
   await sendOrThrow(
     `/site-visit-floors/${floorId}/complete`,
     {
@@ -671,6 +727,7 @@ export async function completeFloor(
         withDay(formData, visitedOn),
         'day',
         'completedAt',
+        zone,
       ),
     },
     // Already completed is the second half of a double tap. "Before it was
@@ -697,6 +754,7 @@ export async function recordObservation(
 ): Promise<AddState> {
   const axis = String(formData.get('axis') ?? 'side');
   const value = omitIfBlank(formData, 'axisValue');
+  const zone = await zoneOf(projectId);
 
   const error = await refusal(
     await send(`/site-visits/${siteVisitId}/observations`, {
@@ -707,6 +765,7 @@ export async function recordObservation(
         withDay(formData, visitedOn),
         'day',
         'observedAt',
+        zone,
       ),
       floor: formData.get('floor'),
       qualifier: formData.get('qualifier'),
@@ -918,13 +977,13 @@ export async function closeIssue(
 ): Promise<void> {
   // A finding closed in August must not read as closed today just because
   // that is when it was typed in.
-  const on = omitIfBlank(formData, 'closedAt');
+  const on = composeDay(formData, 'closedAt', await zoneOf(projectId));
 
   await sendOrThrow(
     `/issues/${issueId}/close`,
     {
       note: formData.get('note'),
-      ...(on === undefined ? {} : { closedAt: `${on}T00:00:00.000Z` }),
+      ...(on === undefined ? {} : { closedAt: on }),
     },
     // Already closed is the second half of a double click; the re-render shows
     // what is actually true. Nothing else this route refuses is tolerated.
@@ -956,7 +1015,7 @@ export async function createOpenItemOnIssue(
   formData: FormData,
 ): Promise<AddState> {
   const error = await refusal(
-    await send(`/issues/${issueId}/open-items`, openItemPayload(formData)),
+    await send(`/issues/${issueId}/open-items`, openItemPayload(formData, await zoneOf(projectId))),
     201,
   );
   if (error !== undefined) {
@@ -1080,6 +1139,7 @@ export async function commitVoiceCapture(
 ): Promise<AddState> {
   const axis = String(formData.get('axis') ?? 'side');
   const value = omitIfBlank(formData, 'axisValue');
+  const zone = await zoneOf(projectId);
 
   const error = await refusal(
     await send(`/voice-captures/${voiceCaptureId}/observation`, {
@@ -1088,6 +1148,7 @@ export async function commitVoiceCapture(
         withDay(formData, visitedOn),
         'day',
         'observedAt',
+        zone,
       ),
       floor: formData.get('floor'),
       qualifier: formData.get('qualifier'),
@@ -1163,13 +1224,16 @@ function turnaroundPayload(formData: FormData): Record<string, unknown> {
  * name: a job that calls us by the firm's name still accrues, and the clock
  * sums exactly this field.
  */
-function handoffPayload(formData: FormData): Record<string, unknown> {
-  const since = omitIfBlank(formData, 'heldSince');
+function handoffPayload(
+  formData: FormData,
+  timeZone: string,
+): Record<string, unknown> {
   return {
     party: formData.get('party'),
     inOurCourt: formData.get('inOurCourt') !== null,
-    // A date input gives a day; the record keeps an instant.
-    heldSince: since === undefined ? undefined : `${since}T00:00:00.000Z`,
+    // A date input gives a day; the record keeps the instant it began on
+    // this job (ADR-0054).
+    heldSince: composeDay(formData, 'heldSince', timeZone),
   };
 }
 
@@ -1192,7 +1256,7 @@ export async function createRegisterEntry(
       toParty: formData.get('toParty'),
       ...(question === undefined ? {} : { question }),
       ...turnaroundPayload(formData),
-      ballInCourt: handoffPayload(formData),
+      ballInCourt: handoffPayload(formData, await zoneOf(projectId)),
     }),
     201,
   );
@@ -1215,7 +1279,7 @@ export async function recordHandoff(
   formData: FormData,
 ): Promise<AddState> {
   const error = await refusal(
-    await send(`/register-entries/${entryId}/handoffs`, handoffPayload(formData)),
+    await send(`/register-entries/${entryId}/handoffs`, handoffPayload(formData, await zoneOf(projectId))),
     201,
   );
   if (error !== undefined) {
@@ -1279,7 +1343,7 @@ export async function createOpenItemOnRegisterEntry(
   formData: FormData,
 ): Promise<AddState> {
   const error = await refusal(
-    await send(`/register-entries/${entryId}/open-items`, openItemPayload(formData)),
+    await send(`/register-entries/${entryId}/open-items`, openItemPayload(formData, await zoneOf(projectId))),
     201,
   );
   if (error !== undefined) {
@@ -1360,7 +1424,7 @@ export async function recordDisposition(
   const error = await refusal(
     await send(`/register-entries/${entryId}/disposition`, {
       disposition: formData.get('disposition'),
-      ballInCourt: handoffPayload(formData),
+      ballInCourt: handoffPayload(formData, await zoneOf(projectId)),
     }),
     200,
   );
@@ -1394,7 +1458,7 @@ export async function createNextRound(
       fromParty: formData.get('fromParty'),
       toParty: formData.get('toParty'),
       ...turnaroundPayload(formData),
-      ballInCourt: handoffPayload(formData),
+      ballInCourt: handoffPayload(formData, await zoneOf(projectId)),
     }),
     201,
   );
@@ -1832,7 +1896,7 @@ export async function confirmExtraction(
     ...(question === undefined ? {} : { question }),
     ...(response === undefined ? {} : { response }),
     ...turnaroundPayload(formData),
-    ballInCourt: handoffPayload(formData),
+    ballInCourt: handoffPayload(formData, await zoneOf(projectId)),
     ...(arrivalPath && title !== undefined && revision !== undefined
       ? { title, revision }
       : {}),
@@ -1895,12 +1959,14 @@ export async function setProcessingLocation(
         ...(location === 'CLOUD'
           ? {
               signoffReference: reference,
-              // A date input gives a day; the record keeps an instant, the
-              // frame every typed date in this product is composed in.
-              signoffAt:
-                date === null
-                  ? undefined
-                  : `${date as string}T00:00:00.000Z`,
+              // A date input gives a day; the record keeps the instant it
+              // began on this job — the frame every typed date in this
+              // product is composed in (ADR-0054).
+              signoffAt: composeDay(
+                formData,
+                'signoffAt',
+                await zoneOf(projectId),
+              ),
             }
           : {}),
       }),

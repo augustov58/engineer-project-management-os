@@ -42,6 +42,20 @@ model Project {
   name      String
   createdAt DateTime @map("created_at")
 
+  /// The zone of the building this job is at, as an IANA name (ADR-0054).
+  ///
+  /// Required with no default: a default would classify by omission, which is
+  /// what ADR-0039 refused for a referenced file, and the omitted answer here
+  /// would date a walk in a zone nobody chose. A site visit cannot override
+  /// it — a walk happens where the building is, and a report reader wants the
+  /// building's time.
+  ///
+  /// It is what every typed day and clock time is composed in and what every
+  /// screen and the report render in. Nothing else in this product stores a
+  /// zone or an offset: every `DateTime` column is a real instant, and this is
+  /// the one column that says how to read one back.
+  timezone String
+
   /// When the job finished. Null is the live state; archiving stamps it once
   /// and never restamps, so the record survives and drops out of the list
   /// without being deleted. There is no unarchive.

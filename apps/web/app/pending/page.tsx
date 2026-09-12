@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/table';
 import { selectClassName } from '../native-select';
 import { listPendingItems } from '../api';
-import { day } from '../open-item';
+import { day } from '../wall-clock';
 
 /** The point of this screen is what is unresolved right now. */
 export const dynamic = 'force-dynamic';
@@ -96,7 +96,13 @@ export default async function PendingItems({
               {items.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell className="text-muted-foreground align-top tabular-nums">
-                    {day(item.waitingSince)}
+                    {/*
+                      Each row in its own job's zone (ADR-0054). An item whose
+                      subject resolves to no project has no building and so no
+                      zone; the job cell already says so with an em-dash, and
+                      the frame is named here rather than guessed at.
+                    */}
+                    {day(item.waitingSince, item.project?.timezone ?? 'UTC')}
                   </TableCell>
                   <TableCell className="align-top">
                     {item.project === null ? (

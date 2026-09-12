@@ -64,7 +64,7 @@ export default async function MemoryHistoryPage({
         </p>
       </div>
 
-      <MemoryHistory
+      <MemoryHistory timeZone={project.timezone}
         versions={versions}
         proposals={proposals}
         budget={memory.budget}

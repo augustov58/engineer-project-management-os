@@ -3,16 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { reopenOpenItem, resolveOpenItem } from './actions';
 import type { OpenItem } from './api';
-
-/** Just the day: the record keeps an instant, the screen does not need one. */
-export function day(instant: string): string {
-  return instant.slice(0, 10);
-}
-
-/** The clock time of an instant, which is how a schedule is read. */
-export function clock(instant: string): string {
-  return instant.slice(11, 16);
-}
+import { clock, day } from './wall-clock';
 
 function Field({ label, value }: { label: string; value: string | null }) {
   return value === null ? null : (
@@ -33,6 +24,7 @@ export function OpenItemEntry({
   detach,
   restedOnAtIssuance = false,
   raisedFromFlag = false,
+  timeZone,
 }: {
   item: OpenItem;
   projectId: string;
@@ -56,6 +48,8 @@ export function OpenItemEntry({
    * the flag being raised and then forgotten.
    */
   raisedFromFlag?: boolean;
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   const resolved = item.resolvedAt !== null;
 
@@ -82,13 +76,13 @@ export function OpenItemEntry({
         {resolved && (
           <Field label="Next move" value={item.waitingOn ?? 'Nobody'} />
         )}
-        <Field label="Open since" value={day(item.waitingSince)} />
+        <Field label="Open since" value={day(item.waitingSince, timeZone)} />
         <Field label="Invalidated by" value={item.invalidationTrigger} />
         <Field label="Owner" value={item.owner} />
         {item.resolvedAt !== null && (
           <Field
             label="Resolved"
-            value={`${day(item.resolvedAt)} — ${item.resolutionNote}`}
+            value={`${day(item.resolvedAt, timeZone)} — ${item.resolutionNote}`}
           />
         )}
       </dl>

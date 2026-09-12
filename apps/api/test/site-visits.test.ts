@@ -96,6 +96,27 @@ test('the visit’s date is the day it started, derived and stored nowhere', asy
   expect(await visits(app, project.id)).toEqual([created]);
 });
 
+test('the date a walk is filed under is the building’s day, not Greenwich’s', async () => {
+  const app = await api();
+  const project = await createProject(app, 'V-2B', 'Evening walk', 'America/New_York');
+
+  // 23:30 on the 23rd where the building is. Its UTC face is already the 24th,
+  // and the walk is not: a visit typed up in the evening is a visit made that
+  // afternoon, and the date is derived in the project's zone (ADR-0054).
+  const created = await createSiteVisit(app, project.id, {
+    startedAt: '2026-07-24T03:30:00.000Z',
+  });
+  expect(created.visitedOn).toBe('2026-07-23');
+
+  // The same instant on a job in another zone is another day, which is the
+  // whole of why the zone is a column rather than a constant.
+  const lisbon = await createProject(app, 'V-2C', 'Harbour tower', 'Europe/Lisbon');
+  const abroad = await createSiteVisit(app, lisbon.id, {
+    startedAt: '2026-07-24T03:30:00.000Z',
+  });
+  expect(abroad.visitedOn).toBe('2026-07-24');
+});
+
 test('the start is the engineer’s, or the injected time source', async () => {
   const time = fakeTimeSource(new Date('2026-03-02T09:00:00.000Z'));
   const app = await api({ timeSource: time });
@@ -652,6 +673,7 @@ test('a visit read on its own names the job it was against', async () => {
 
   expect((await visit(app, walk.id)).project).toEqual({
     id: project.id,
+    timezone: 'America/New_York',
     projectNumber: 'N-4',
     name: 'Riverside clinic',
   });

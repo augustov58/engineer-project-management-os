@@ -13,7 +13,8 @@ import {
 import { getIssue, getProject, listOpenItems } from '../../../../api';
 import { selectClassName } from '../../../../native-select';
 import { NewOpenItemForm } from '../../../../new-open-item-form';
-import { clock, day, OpenItemEntry } from '../../../../open-item';
+import { OpenItemEntry } from '../../../../open-item';
+import { clock, day } from '../../../../wall-clock';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,7 +86,7 @@ export default async function IssueRecord({
           {closedAt === null ? (
             <Badge variant="destructive">Open</Badge>
           ) : (
-            <Badge variant="secondary">Closed {day(closedAt)}</Badge>
+            <Badge variant="secondary">Closed {day(closedAt, project.timezone)}</Badge>
           )}
         </div>
 
@@ -95,7 +96,7 @@ export default async function IssueRecord({
             what makes "issue 1" an answer rather than an ambiguity.
           */}
           Identifier {found.number} on {project.projectNumber}, raised{' '}
-          {day(found.createdAt)}. It is the same reference in every report from
+          {day(found.createdAt, project.timezone)}. It is the same reference in every report from
           now on.
         </p>
       </div>
@@ -130,7 +131,7 @@ export default async function IssueRecord({
                 */}
                 <span className="text-foreground">{sighting.location}</span>
                 <span className="tabular-nums">
-                  {clock(sighting.observedAt)}
+                  {clock(sighting.observedAt, project.timezone)}
                 </span>
               </div>
               <p className="text-sm whitespace-pre-wrap">{sighting.observed}</p>
@@ -177,7 +178,7 @@ export default async function IssueRecord({
                     one — without the date the two read as contradicting.
                   */}
                   <p className="text-muted-foreground max-w-32 truncate text-xs tabular-nums">
-                    {day(photo.takenAt)}
+                    {day(photo.takenAt, project.timezone)}
                     {photo.floor === null ? '' : ` · Floor ${photo.floor}`}
                   </p>
                 </Link>
@@ -194,7 +195,7 @@ export default async function IssueRecord({
           <div className="space-y-3 rounded-lg border p-4">
             <p className="text-sm">
               <span className="text-muted-foreground">
-                Closed {day(closedAt)} &mdash;{' '}
+                Closed {day(closedAt, project.timezone)} &mdash;{' '}
               </span>
               {found.closureNote}
             </p>
@@ -249,7 +250,7 @@ export default async function IssueRecord({
         ) : (
           <ul className="space-y-3">
             {found.openItems.map((item) => (
-              <OpenItemEntry key={item.id} item={item} projectId={id} />
+              <OpenItemEntry timeZone={project.timezone} key={item.id} item={item} projectId={id} />
             ))}
           </ul>
         )}

@@ -39,7 +39,8 @@ import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
 import { SiteVisitForm } from '../../site-visit-form';
 import { SubmissionForm } from '../../submission-form';
-import { clock, day, OpenItemEntry } from '../../open-item';
+import { OpenItemEntry } from '../../open-item';
+import { clock, day } from '../../wall-clock';
 import { PhaseList } from '../../phases';
 import { ProcessingLocation } from '../../processing-location';
 
@@ -128,12 +129,12 @@ export default async function ProjectRecord({
             {project.name}
           </h1>
           {project.archivedAt !== null && (
-            <Badge variant="outline">Archived {day(project.archivedAt)}</Badge>
+            <Badge variant="outline">Archived {day(project.archivedAt, project.timezone)}</Badge>
           )}
         </div>
 
         <div className="text-muted-foreground mt-2 flex items-center gap-4 text-sm">
-          <span>Created {day(project.createdAt)}</span>
+          <span>Created {day(project.createdAt, project.timezone)}</span>
           {/*
             The activity feed, here and not under Memory: story 106 widened the
             audit from memory's mutations to all sixty-two, so it stopped being
@@ -172,7 +173,7 @@ export default async function ProjectRecord({
         ) : (
           <ul className="space-y-3">
             {unresolved.map((item) => (
-              <OpenItemEntry key={item.id} item={item} projectId={id} />
+              <OpenItemEntry timeZone={project.timezone} key={item.id} item={item} projectId={id} />
             ))}
           </ul>
         )}
@@ -227,7 +228,7 @@ export default async function ProjectRecord({
                   </Badge>
                   <span className="font-medium">{issued.revision}</span>
                   <span className="text-muted-foreground text-sm">
-                    {day(issued.issuedAt)} &middot; {issued.recipient} (
+                    {day(issued.issuedAt, project.timezone)} &middot; {issued.recipient} (
                     {issued.recipientRole})
                   </span>
                   {/*
@@ -304,8 +305,8 @@ export default async function ProjectRecord({
                     {visit.visitedOn}
                   </span>
                   <span className="text-muted-foreground text-sm tabular-nums">
-                    {clock(visit.startedAt)}
-                    {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt)}`}
+                    {clock(visit.startedAt, project.timezone)}
+                    {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt, project.timezone)}`}
                   </span>
                   {visit.endedAt === null && (
                     <Badge variant="secondary">Under way</Badge>
@@ -366,7 +367,7 @@ export default async function ProjectRecord({
                     <Badge variant="destructive">Open</Badge>
                   ) : (
                     <Badge variant="secondary">
-                      Closed {day(issue.closedAt)}
+                      Closed {day(issue.closedAt, project.timezone)}
                     </Badge>
                   )}
                 </Link>
@@ -441,7 +442,7 @@ export default async function ProjectRecord({
           </span>
         </div>
 
-        <DocumentList documents={documents} projectId={id} />
+        <DocumentList timeZone={project.timezone} documents={documents} projectId={id} />
       </section>
 
       <Card>
@@ -476,7 +477,7 @@ export default async function ProjectRecord({
         </div>
 
         <IngestAddress address={project.ingestAddress} />
-        <IngestedDocumentList arrivals={arrivals} />
+        <IngestedDocumentList arrivals={arrivals} timeZone={project.timezone} />
       </section>
 
       <Card>
@@ -516,7 +517,7 @@ export default async function ProjectRecord({
         */}
         <ProcessingLocation project={project} />
 
-        <ExtractionList projectId={id} initial={{ extractions }} />
+        <ExtractionList timeZone={project.timezone} projectId={id} initial={{ extractions }} />
       </section>
 
       {/*
@@ -554,7 +555,7 @@ export default async function ProjectRecord({
           <div className="rounded-lg border px-4 py-3">
             <p className="text-sm whitespace-pre-wrap">{memory.content}</p>
             <p className="text-muted-foreground mt-2 text-sm">
-              Last written {day(memory.versionedAt)}
+              Last written {day(memory.versionedAt, project.timezone)}
             </p>
           </div>
         )}
@@ -617,7 +618,7 @@ export default async function ProjectRecord({
           </h2>
           <ul className="space-y-3">
             {resolved.map((item) => (
-              <OpenItemEntry key={item.id} item={item} projectId={id} />
+              <OpenItemEntry timeZone={project.timezone} key={item.id} item={item} projectId={id} />
             ))}
           </ul>
         </section>

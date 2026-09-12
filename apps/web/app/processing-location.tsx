@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { setProcessingLocation } from './actions';
 import type { Project } from './api';
-import { day } from './open-item';
+import { day } from './wall-clock';
 
 /**
  * The reference and the date, which only ever travel together and only ever
@@ -93,7 +93,7 @@ export function ProcessingLocation({ project }: { project: Project }) {
           {project.cloudSignoffAt !== null && (
             <span className="text-muted-foreground">
               {' '}
-              &mdash; {day(project.cloudSignoffAt)}
+              &mdash; {day(project.cloudSignoffAt, project.timezone)}
             </span>
           )}
         </p>

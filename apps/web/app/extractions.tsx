@@ -12,7 +12,7 @@ import type { AddState } from './actions';
 import type { Extraction, ExtractionActivity, ExtractionDetail } from './api';
 import { useLiveList } from './live-list';
 import { selectClassName } from './native-select';
-import { day } from './open-item';
+import { day } from './wall-clock';
 
 /** What "renders differently" means for the extraction list. */
 function summarise(activity: ExtractionActivity): string {
@@ -41,9 +41,12 @@ const STATE_LABEL: Record<Extraction['state'], string> = {
 export function ExtractionList({
   projectId,
   initial,
+  timeZone,
 }: {
   projectId: string;
   initial: ExtractionActivity;
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   const live = useLiveList(
     `/projects/${projectId}/extractions/stream`,
@@ -110,7 +113,7 @@ export function ExtractionList({
               </Link>
             )}
           <span className="text-muted-foreground ml-auto text-xs">
-            asked {day(extraction.createdAt)}
+            asked {day(extraction.createdAt, timeZone)}
           </span>
         </li>
       ))}
@@ -132,9 +135,12 @@ export function ExtractionList({
 export function ExtractionConfirmForm({
   projectId,
   extraction,
+  timeZone,
 }: {
   projectId: string;
   extraction: ExtractionDetail;
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   const arrivalPath = extraction.ingestedDocumentFileId !== null;
   const [state, action, pending] = useActionState(
@@ -301,7 +307,9 @@ export function ExtractionConfirmForm({
               name="heldSince"
               type="date"
               defaultValue={
-                extraction.proposedHeldSince?.slice(0, 10) ?? undefined
+                extraction.proposedHeldSince === null
+                  ? undefined
+                  : day(extraction.proposedHeldSince, timeZone)
               }
             />
             <p className="text-muted-foreground text-xs">

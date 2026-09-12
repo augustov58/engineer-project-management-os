@@ -362,7 +362,12 @@ const clockInclude = {
     select: {
       kind: true,
       projectId: true,
-      project: { select: { id: true, projectNumber: true, name: true } },
+      project: { select: {
+        id: true,
+        projectNumber: true,
+        name: true,
+        timezone: true,
+      } },
     },
   },
 } satisfies Prisma.RegisterEntryInclude;

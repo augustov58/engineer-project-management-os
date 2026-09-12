@@ -21,7 +21,7 @@ afterEach(async () => {
 async function listProjects(app: TestApi, archived = false) {
   const response = await app.fetch(`/v1/projects?archived=${archived}`);
   expect(response.status).toBe(200);
-  return (await response.json()) as { projectNumber: string }[];
+  return (await response.json()) as { projectNumber: string; timezone: string }[];
 }
 
 test('a project created through the API is read back out of PostgreSQL', async () => {
@@ -35,6 +35,18 @@ test('a project created through the API is read back out of PostgreSQL', async (
     archivedAt: null,
   });
   expect(await listProjects(app)).toEqual([created]);
+});
+
+test('a project carries the zone of the building it is at', async () => {
+  const app = await api();
+
+  // Not the author's zone and not the server's: a job is where the building
+  // is, and the frame every time on it is composed and read in (ADR-0054).
+  const created = await createProject(app, 'T-2', 'Harbour tower', 'Europe/Lisbon');
+  expect(created.timezone).toBe('Europe/Lisbon');
+
+  const [read] = await listProjects(app);
+  expect(read).toMatchObject({ timezone: 'Europe/Lisbon' });
 });
 
 test('every live project appears in the list, in the order they were added', async () => {
@@ -60,7 +72,11 @@ test('a project number already in use is rejected and nothing is stored', async 
   const response = await app.fetch('/v1/projects', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ projectNumber: 'T-1', name: 'A different job' }),
+    body: JSON.stringify({
+      projectNumber: 'T-1',
+      name: 'A different job',
+      timezone: 'America/New_York',
+    }),
   });
 
   expect(response.status).toBe(409);
@@ -146,15 +162,50 @@ test('the time source defaults to the real clock', async () => {
   expect(stamped).toBeLessThanOrEqual(Date.now());
 });
 
+// Every row carries a zone it is not about, so each is still refused for the
+// reason it names rather than for the one ADR-0054 added below it.
+const ZONE = { timezone: 'America/New_York' };
+
 test.each([
-  ['no name', { projectNumber: 'T-1' }],
-  ['no project number', { name: 'Riser replacement' }],
-  ['an empty name', { projectNumber: 'T-1', name: '' }],
-  ['a blank project number', { projectNumber: '   ', name: 'Riser' }],
-  ['a project number with a space', { projectNumber: 'T 1', name: 'Riser' }],
-  ['an unknown field', { projectNumber: 'T-1', name: 'Riser', owner: 'me' }],
-  ['an over-long project number', { projectNumber: 'T'.repeat(33), name: 'R' }],
-  ['an over-long name', { projectNumber: 'T-1', name: 'R'.repeat(201) }],
+  ['no name', { projectNumber: 'T-1', ...ZONE }],
+  ['no project number', { name: 'Riser replacement', ...ZONE }],
+  ['an empty name', { projectNumber: 'T-1', name: '', ...ZONE }],
+  ['a blank project number', { projectNumber: '   ', name: 'Riser', ...ZONE }],
+  [
+    'a project number with a space',
+    { projectNumber: 'T 1', name: 'Riser', ...ZONE },
+  ],
+  [
+    'an unknown field',
+    { projectNumber: 'T-1', name: 'Riser', owner: 'me', ...ZONE },
+  ],
+  [
+    'an over-long project number',
+    { projectNumber: 'T'.repeat(33), name: 'R', ...ZONE },
+  ],
+  ['an over-long name', { projectNumber: 'T-1', name: 'R'.repeat(201), ...ZONE }],
+  // The zone itself (ADR-0054). Required with **no default**: a default would
+  // classify by omission, and the omitted answer dates a walk in a zone nobody
+  // chose. An alias and a fixed offset are refused with an unknown name,
+  // because a building is in a place and a place carries its own daylight
+  // saving history.
+  ['no timezone', { projectNumber: 'T-1', name: 'Riser' }],
+  [
+    'a blank timezone',
+    { projectNumber: 'T-1', name: 'Riser', timezone: '' },
+  ],
+  [
+    'a timezone that names no place',
+    { projectNumber: 'T-1', name: 'Riser', timezone: 'America/Nowhere' },
+  ],
+  [
+    'a timezone that is an alias',
+    { projectNumber: 'T-1', name: 'Riser', timezone: 'US/Eastern' },
+  ],
+  [
+    'a timezone that is a fixed offset',
+    { projectNumber: 'T-1', name: 'Riser', timezone: '+05:00' },
+  ],
 ])('a project with %s is rejected and nothing is stored', async (_, body) => {
   const app = await api();
 

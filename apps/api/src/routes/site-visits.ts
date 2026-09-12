@@ -190,7 +190,7 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const project = await prisma.project.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, timezone: true },
       });
       if (project === null) {
         return noSuchProject(reply);
@@ -224,7 +224,7 @@ export function siteVisitRoutes(
         });
         return walk;
       });
-      return reply.code(201).send(withDate(created));
+      return reply.code(201).send(withDate(created, project.timezone));
     },
   );
 
@@ -234,7 +234,7 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const project = await prisma.project.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, timezone: true },
       });
       if (project === null) {
         return noSuchProject(reply);
@@ -244,7 +244,7 @@ export function siteVisitRoutes(
         where: { projectId: project.id },
         orderBy: [{ startedAt: 'asc' }, { createdAt: 'asc' }],
       });
-      return listed.map(withDate);
+      return listed.map((visit) => withDate(visit, project.timezone));
     },
   );
 
@@ -263,7 +263,12 @@ export function siteVisitRoutes(
         where: { id: request.params.id },
         include: {
           project: {
-            select: { id: true, projectNumber: true, name: true },
+            select: {
+              id: true,
+              projectNumber: true,
+              name: true,
+              timezone: true,
+            },
           },
           floors: { orderBy: { startedAt: 'asc' } },
           observations: {
@@ -287,7 +292,7 @@ export function siteVisitRoutes(
 
       const { observations, photos, voiceCaptures, reports, ...visit } = found;
       return {
-        ...withDate(visit),
+        ...withDate(visit, visit.project.timezone),
         observations: observations.map(withLocation),
         photos: photos.map(photoOnTheWire),
         voiceCaptures: voiceCaptures.map(voiceCaptureOnTheWire),
@@ -308,7 +313,13 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true, projectId: true, startedAt: true, endedAt: true },
+        select: {
+          id: true,
+          projectId: true,
+          startedAt: true,
+          endedAt: true,
+          project: { select: { timezone: true } },
+        },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
@@ -338,7 +349,7 @@ export function siteVisitRoutes(
         });
         return stamped;
       });
-      return withDate(updated);
+      return withDate(updated, walk.project.timezone);
     },
   );
 

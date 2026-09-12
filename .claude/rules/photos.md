@@ -41,11 +41,14 @@ apply to every path stay in `AGENTS.md`.
 - `photos.taken_at` is **required** and never falls back to the `TimeSource`, unlike
   `observations.observed_at` — that fallback would bin a timestamp-less photograph to
   whichever floor was being walked at the moment of the request (ADR-0032). Nothing reads
-  EXIF. The screen sends the file's *local wall clock* written as UTC, the same frame
-  `composeInstant` puts a typed time in, because mixing the two frames would bin every
-  photograph of the afternoon to nothing. ADR-0030's timezone deferral is **closed** — by
-  ADR-0050, which records today's behaviour as the answer (issue #82) — so `asTypedInstant`
-  and `composeInstant` now change together *never* rather than eventually.
+  EXIF. The screen sends the file's instant **as the file carries it** — since ADR-0054
+  (issue #104), which supersedes ADR-0050 on the trigger 0050 itself named. `asTypedInstant`
+  used to shift it into the typed frame so it would bin against typed windows; that is what
+  made a floor window started by the *blank-time* path — stamped, so never in the typed
+  frame — bin every photograph on that floor to nothing, silently (issue #97). Both helpers
+  changed in one commit, as ADR-0050 required: `composeInstant` composes in the project's
+  zone and `asTypedInstant` is deleted. `binToFloor` did not change and is now correct,
+  because both sides of the comparison are instants.
 - Photo evidence lands on the **floor** and the **finding**, never on the observation
   (ADR-0032), whatever the glossary's Observation entry used to promise. There is no
   `photo_observations` join; a photograph and the observations made on its floor are read

@@ -114,6 +114,7 @@ describe('the forward-to-ingest address', () => {
       'name',
       'processingLocation',
       'projectNumber',
+      'timezone',
     ]);
     expect(body['ingestToken']).toBeUndefined();
   });
