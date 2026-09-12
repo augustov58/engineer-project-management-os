@@ -406,9 +406,18 @@ function typedInZone(day: string, time: string, timeZone: string): string {
 
 test('a photograph typed off the wall bins to a floor the clock stamped', async () => {
   // The injected clock reads 20:00 UTC, which is 16:00 where the building is:
-  // a nonzero offset the typed side does not share (ADR-0052's fourth point,
-  // against issue #97). Every other binning test above types both sides and so
-  // cannot see whether the two frames agree.
+  // a nonzero offset the typed side does not share (issue #97). Every other
+  // binning test above types both sides of the window and so cannot tell the
+  // two frames apart at all.
+  //
+  // **What this is and is not.** ADR-0054 changed no API code — `binToFloor`
+  // and this route are untouched — so no test here can be red before the fix
+  // and green after it for the frame *property*; the composition it would have
+  // to cross into lives in `apps/web` and nothing in this process can reach it.
+  // What this does pin is the consequence, in the place the consequence lands:
+  // a photograph timed in the building's zone bins to a floor the clock
+  // stamped, and the value the screen sent before ADR-0054 does not. The
+  // property itself is `apps/web/test/wall-clock.test.ts`.
   const time = fakeTimeSource(new Date('2026-07-23T20:00:00.000Z'));
   const app = await api({ timeSource: time });
   const project = await createProject(

@@ -35,24 +35,6 @@ export function issueIdentifier(number: number): string {
   return `Issue ${number}`;
 }
 
-/**
- * The day and the clock time of an instant are read **in the project's zone**,
- * as every other surface in this product reads them (ADR-0054).
- *
- * They are bound to that zone inside `render` rather than taken as arguments,
- * because a report is one document about one building: every time on the page
- * is in the same frame, and the header says which frame once. There is no
- * second reading for a reader in another zone — a walk happened where the
- * building is.
- *
- * ADR-0030 left the question open, ADR-0050 closed it as the UTC face, and
- * **ADR-0054 supersedes 0050** on the trigger 0050 itself named: the UTC face
- * was the engineer's typed wall clock for anything typed and was the
- * engineer's offset out for anything the injected TimeSource stamped, so the
- * printed page could only agree with the screen while both were wrong the same
- * way (issue #97).
- */
-
 /** The em dash the grammar and the schedule both use for a missing end. */
 const NONE = '—';
 
@@ -295,6 +277,23 @@ export async function composeReport(
   }
 
   const { project } = visit;
+  /**
+   * The day and the clock time of an instant are read **in the project's zone**,
+   * as every other surface in this product reads them (ADR-0054).
+   *
+   * They are bound to that zone inside `render` rather than taken as arguments,
+   * because a report is one document about one building: every time on the page
+   * is in the same frame, and the header says which frame once. There is no
+   * second reading for a reader in another zone — a walk happened where the
+   * building is.
+   *
+   * ADR-0030 left the question open, ADR-0050 closed it as the UTC face, and
+   * **ADR-0054 supersedes 0050** on the trigger 0050 itself named: the UTC face
+   * was the engineer's typed wall clock for anything typed and was the
+   * engineer's offset out for anything the injected TimeSource stamped, so the
+   * printed page could only agree with the screen while both were wrong the same
+   * way (issue #97).
+   */
   const day = (instant: Date) => dayIn(instant, project.timezone);
   const clock = (instant: Date) => clockIn(instant, project.timezone);
 

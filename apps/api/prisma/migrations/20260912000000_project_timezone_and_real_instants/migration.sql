@@ -40,10 +40,12 @@ ALTER TABLE "projects" ALTER COLUMN "timezone" SET NOT NULL;
 -- `asTypedInstant` corrupted into the fake frame so that it would bin against
 -- typed windows, so every one of them is wrong by exactly the same offset.
 --
--- **Which columns.** Only the typed-capable ones — the fourteen `instant()`
--- fills and the five a client supplies outright. The other thirty-eight are
--- purely server-stamped (`created_at`, the worker's four-stamp state columns,
--- the audit) and are already real instants; touching one would move it.
+-- **Which columns.** Only the typed-capable ones — the eleven distinct columns
+-- an `instant()` call fills (fourteen call sites, but `waiting_since` is filled
+-- from four routes) and the five a client supplies outright. That is 16 of the
+-- schema's 55; the other 39 are purely server-stamped (`created_at`, the
+-- worker's four-stamp state columns, the audit) and are already real instants,
+-- so touching one would move it.
 --
 -- **Why a constant and not a join to `projects.timezone`.** Every project is
 -- set to America/New_York three statements above, so a correlated lookup would

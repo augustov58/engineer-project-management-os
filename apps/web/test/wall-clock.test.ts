@@ -82,6 +82,33 @@ test('the hour that never happens composes to a real instant', () => {
   expect(new Date(composed).toISOString()).toBe(composed);
 });
 
+test('a typed time falls inside a window the server stamped', () => {
+  // Issue #97 in one assertion, on the side of the boundary the composition
+  // lives on. The window is two instants a *server clock* produced — the
+  // blank-time floor path, which never went through any typed frame and is
+  // what ADR-0050 failed to reason about. The photograph's time is what the
+  // engineer read off the wall in the building's zone.
+  //
+  // This is the nearest an in-process suite gets to the frame boundary that
+  // shipped #97: one side is a literal stamp and the other goes through the
+  // production composition, so the assertion tells the two frames apart. The
+  // real boundary is web→API and can only be crossed end to end, which
+  // ADR-0052's fifth point refuses — named in ADR-0054 rather than pretended
+  // away here.
+  const started = Date.parse('2026-07-23T20:00:00.000Z'); // 16:00 in New York
+  const completed = Date.parse('2026-07-23T20:45:00.000Z'); // 16:45 there
+
+  const composed = Date.parse(instantFrom('2026-07-23', '16:05', NEW_YORK));
+  // `binToFloor`'s predicate, both ends inclusive (ADR-0032).
+  expect(started <= composed && composed <= completed).toBe(true);
+
+  // And the frame that shipped #97: the same wall clock labelled `Z` is four
+  // hours adrift of a window nobody typed, so every photograph on that floor
+  // bound to nothing. This is the half that fails against the old composition.
+  const asShipped = Date.parse('2026-07-23T16:05:00.000Z');
+  expect(started <= asShipped && asShipped <= completed).toBe(false);
+});
+
 test('a day and a clock time are read back in the project’s zone', () => {
   const stamped = '2026-07-23T20:05:00.000Z';
   expect(day(stamped, NEW_YORK)).toBe('2026-07-23');
