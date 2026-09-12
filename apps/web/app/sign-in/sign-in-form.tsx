@@ -3,30 +3,37 @@
 import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { unlock } from './actions';
+import { signIn } from './actions';
 
-export function UnlockForm({ next }: { next: string }) {
+export function SignInForm({ next }: { next: string }) {
   const [error, action, pending] = useActionState<string | undefined, FormData>(
-    unlock,
+    signIn,
     undefined,
   );
 
   return (
     <div className="space-y-3">
-      <form action={action} className="flex flex-wrap gap-2">
+      <form action={action} className="space-y-2">
         <input type="hidden" name="next" value={next} />
         <Input
-          name="secret"
-          type="password"
+          name="email"
+          type="email"
           required
           autoFocus
+          autoComplete="username"
+          placeholder="you@example.com"
+          aria-label="Email"
+        />
+        <Input
+          name="password"
+          type="password"
+          required
           autoComplete="current-password"
-          placeholder="The shared secret"
-          aria-label="The shared secret"
-          className="min-w-64 flex-1"
+          placeholder="Password"
+          aria-label="Password"
         />
         <Button type="submit" disabled={pending}>
-          Unlock
+          Sign in
         </Button>
       </form>
       {error !== undefined && (

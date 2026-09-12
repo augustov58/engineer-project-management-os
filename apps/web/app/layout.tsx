@@ -2,6 +2,8 @@ import { Geist } from 'next/font/google';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { currentUser } from './api';
+import { signOut } from './sign-in/actions';
 import './globals.css';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
@@ -10,7 +12,15 @@ export const metadata = {
   title: 'Engineer Project Management OS',
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  /**
+   * Who is signed in, or nobody — which is what the sign-in screen renders,
+   * since this header is above it too (issue #105). The read answers rather
+   * than redirecting for exactly that reason: a redirect here would send the
+   * sign-in screen to the sign-in screen.
+   */
+  const user = await currentUser();
+
   return (
     <html lang="en" className={cn('font-sans', geist.variable)}>
       <body className="bg-background text-foreground min-h-svh antialiased">
@@ -46,7 +56,26 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               >
                 Clock
               </Link>
+              <Link
+                href="/users"
+                className="hover:text-foreground transition-colors"
+              >
+                People
+              </Link>
             </div>
+            {user !== undefined && (
+              <form action={signOut} className="ml-auto flex items-center gap-3">
+                <span className="text-muted-foreground text-sm">
+                  {user.name}
+                </span>
+                <button
+                  type="submit"
+                  className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+                >
+                  Sign out
+                </button>
+              </form>
+            )}
           </nav>
         </header>
         <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>

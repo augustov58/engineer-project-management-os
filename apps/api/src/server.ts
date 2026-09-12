@@ -1,7 +1,7 @@
 import type { Queue } from 'bullmq';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { edgeGate } from './edge-gate.js';
+import { gate } from './gate.js';
 import { isBase64 } from './http.js';
 import type { ObjectStore } from './object-store.js';
 import {
@@ -24,8 +24,10 @@ import { photoRoutes } from './routes/photos.js';
 import { projectRoutes } from './routes/projects.js';
 import { registerRoutes } from './routes/registers.js';
 import { reportRoutes } from './routes/reports.js';
+import { sessionRoutes } from './routes/sessions.js';
 import { siteVisitRoutes } from './routes/site-visits.js';
 import { submissionRoutes } from './routes/submissions.js';
+import { userRoutes } from './routes/users.js';
 import { voiceRoutes } from './routes/voice.js';
 
 export interface ServerDependencies {
@@ -33,13 +35,6 @@ export interface ServerDependencies {
   queue: Queue;
   /** Where a file's bytes go. No default: there is no sensible one. */
   objectStore: ObjectStore;
-  /**
-   * The one secret in front of every route (ADR-0020). No default, for
-   * `objectStore`'s reason and one more: a default is a way to run ungated by
-   * accident, and this is the whole security boundary of a deployment that
-   * has no identity at all.
-   */
-  edgeSecret: string;
   /** Defaults to the real clock; tests pass a fake and advance it by hand. */
   timeSource?: TimeSource;
   /**
@@ -75,7 +70,6 @@ export function buildServer({
   prisma,
   queue,
   objectStore,
-  edgeSecret,
   timeSource = systemTimeSource,
   inboundMail = unconfiguredInboundMailProvider,
   ingestDomain,
@@ -102,8 +96,9 @@ export function buildServer({
   });
 
   // Before the routes and on the root instance, so it is in front of every
-  // one of them and of anything ever mounted outside the prefix (ADR-0020).
-  edgeGate(app, edgeSecret);
+  // one of them and of anything ever mounted outside the prefix (ADR-0055,
+  // keeping the arrangement ADR-0020 gave the secret it replaces).
+  gate(app, { prisma, timeSource });
 
   const dependencies = {
     prisma,
@@ -115,12 +110,14 @@ export function buildServer({
   };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The eighteen below are plain functions
+  // spelled into every path (ADR-0023). The twenty below are plain functions
   // and not plugins on purpose: a plugin would open an encapsulation context of
   // its own, and there is nothing here that wants one.
   app.register(
     async (v1) => {
       healthRoutes(v1, dependencies);
+      sessionRoutes(v1, dependencies);
+      userRoutes(v1, dependencies);
       exportRoutes(v1, dependencies);
       projectRoutes(v1, dependencies);
       openItemRoutes(v1, dependencies);

@@ -1,4 +1,5 @@
-import { edgeHeaders } from './edge-secret';
+import { redirect } from 'next/navigation';
+import { SESSION_COOKIE, SESSION_HEADER, SIGN_IN_PATH } from './session';
 
 const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://127.0.0.1:3001';
 
@@ -70,19 +71,70 @@ export function apiPath(path: string): string {
 }
 
 /**
- * Every call this server makes to the API, carrying the edge secret (ADR-0020).
+ * What a caller wants done when the API says the session is not one.
  *
- * One function rather than the secret spelled at each call site: it is on
- * twenty-five of them, and when one was missed the whole processing-location
- * screen answered 401 with nothing in the suite to catch it — `apps/web` has
- * no tests, so construction is the only guarantee available. A call that does
- * not come through here does not reach the API at all.
+ * `sign-in` is right for every screen: the engineer's session was revoked or
+ * has expired while they were reading, and the honest next thing is the
+ * sign-in screen rather than a stack trace. `answer` is for the two readers
+ * that must be able to hear *nobody* — the sign-in call itself, which is made
+ * with no session on purpose, and the header's read of who is signed in,
+ * which renders on the sign-in screen too and would otherwise redirect to the
+ * page it is already on, forever.
  */
-export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${apiUrl}${apiPath(path)}`, {
-    ...init,
-    headers: edgeHeaders(init.headers),
+export type Refusal = 'sign-in' | 'answer';
+
+export interface ApiInit extends RequestInit {
+  refusal?: Refusal;
+}
+
+/**
+ * Every call this server makes to the API, carrying the session (ADR-0055).
+ *
+ * One function rather than the credential spelled at each call site: it was on
+ * twenty-five of them when it was a secret, and when one was missed the whole
+ * processing-location screen answered 401 with nothing in the suite to catch
+ * it. A call that does not come through here does not reach the API at all,
+ * and `apps/web/test/session.test.ts` asserts that by reading the source.
+ *
+ * The cookie is read here rather than passed in, so that no screen has to
+ * remember to thread a credential down to a reader.
+ */
+export async function apiFetch(
+  path: string,
+  init: ApiInit = {},
+): Promise<Response> {
+  const { refusal = 'sign-in', ...request } = init;
+  // Imported here rather than at the top of the file, and that is forced
+  // rather than chosen: this module is read by client components too — they
+  // take the closed vocabularies a record is displayed in from it — and a
+  // top-level `next/headers` puts a server-only module into the browser's
+  // graph, which Turbopack refuses to build. The call itself is server-only
+  // either way: `cookies()` throws outside a request, so a client component
+  // that reached for this door fails loudly rather than calling the API
+  // without a session.
+  const { cookies } = await import('next/headers');
+  const session = (await cookies()).get(SESSION_COOKIE)?.value;
+
+  const headers = new Headers(request.headers);
+  if (session !== undefined) {
+    // Merged rather than replacing, so a JSON write keeps its content type,
+    // and set last so nothing can clear it by passing a header of this name.
+    headers.set(SESSION_HEADER, session);
+  }
+
+  const response = await fetch(`${apiUrl}${apiPath(path)}`, {
+    ...request,
+    headers,
   });
+
+  // Only when a session was actually presented: a 401 with none is the
+  // sign-in route answering a wrong password, and redirecting there would
+  // swallow the sentence the form is about to show.
+  if (response.status === 401 && session !== undefined && refusal === 'sign-in') {
+    redirect(SIGN_IN_PATH);
+  }
+
+  return response;
 }
 
 /** `archived: true` for the finished jobs, which is how they stay reachable. */
@@ -1107,4 +1159,72 @@ export async function getExtraction(
     throw new Error(`GET ${apiPath(path)} returned ${response.status}`);
   }
   return response.json() as Promise<ExtractionDetail>;
+}
+
+/** A person at the firm, as every read of one returns them (issue #105). */
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/**
+ * Who this request is signed in as, or undefined when it is signed in as
+ * nobody — which is what the header renders on the sign-in screen itself.
+ */
+export async function currentUser(): Promise<User | undefined> {
+  const response = await apiFetch('/sessions/current', {
+    cache: 'no-store',
+    refusal: 'answer',
+  });
+  if (response.status === 401) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath('/sessions/current')} returned ${response.status}`);
+  }
+  return response.json() as Promise<User>;
+}
+
+/**
+ * Sign in. Answers the session id, or undefined for every way of not being an
+ * account here — the API says one sentence for all of them and so does this.
+ */
+export async function createSession(
+  email: string,
+  password: string,
+): Promise<string | undefined> {
+  const response = await apiFetch('/sessions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+    // Made with no session on purpose; a 401 here is the answer, not a
+    // reason to send anybody anywhere.
+    refusal: 'answer',
+  });
+  if (response.status === 401) {
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`POST ${apiPath('/sessions')} returned ${response.status}`);
+  }
+  return ((await response.json()) as { id: string }).id;
+}
+
+/** Sign out: revoke this session and no other. */
+export async function revokeSession(): Promise<void> {
+  const response = await apiFetch('/sessions/current', { method: 'DELETE' });
+  if (!response.ok) {
+    throw new Error(
+      `DELETE ${apiPath('/sessions/current')} returned ${response.status}`,
+    );
+  }
+}
+
+export async function listUsers(): Promise<User[]> {
+  const response = await apiFetch('/users', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`GET ${apiPath('/users')} returned ${response.status}`);
+  }
+  return response.json() as Promise<User[]>;
 }

@@ -303,3 +303,20 @@ export function reportOnTheWire(report: SiteVisitReport) {
   const { storageKey: _key, ...onTheWire } = report;
   return { ...onTheWire, state: renderingState(report) };
 }
+
+/**
+ * A person, as every record that names one returns them (issue #105).
+ *
+ * A leaf shape because two records return it already — the session read and
+ * the user list — and because it is the projection that keeps `password_hash`
+ * off the wire by construction rather than by each route remembering to leave
+ * it out. `disabled_at` is not here either: nothing renders it yet, and a
+ * field on the wire that no screen reads is a field somebody will read.
+ */
+export function userOnTheWire(user: {
+  id: string;
+  name: string;
+  email: string;
+}): { id: string; name: string; email: string } {
+  return { id: user.id, name: user.name, email: user.email };
+}

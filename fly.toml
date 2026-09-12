@@ -7,10 +7,10 @@ primary_region = "iad"
 [build]
 
 [env]
-  # `apps/api`'s guard against the development `EDGE_SECRET` only fires when
-  # this is set — Next sets it itself, `apps/api` does not (ADR-0020 records
-  # the asymmetry). Setting it here is what makes both halves refuse the
-  # secret that is committed to this repository.
+  # Production, which is what makes the session cookie `secure` — over plain
+  # HTTP a secure cookie is never sent back, and a deployment is behind TLS
+  # (ADR-0003). There is no committed secret for either half to refuse any
+  # more: the gate is a session belonging to a person (ADR-0055).
   NODE_ENV = "production"
 
   # The object store is a directory on the volume mounted below. The
@@ -92,11 +92,12 @@ primary_region = "iad"
     timeout = "5s"
     grace_period = "40s"
     method = "GET"
-    # `/unlock` and not `/v1/health`: ADR-0020 gates the health route with
-    # everything else, deliberately, so a platform check would have to carry
-    # the secret. `/unlock` is the one path the gate lets by, so checking it
-    # needs no credential and still proves the Next server is serving.
-    path = "/unlock"
+    # `/sign-in` and not `/v1/health`: the gate covers the health route with
+    # everything else, deliberately, so a platform check would have to carry a
+    # session. `/sign-in` is the one path the gate lets by, so checking it
+    # needs no credential and still proves the Next server is serving. It
+    # replaces `/unlock`, which this checked until issue #105.
+    path = "/sign-in"
 
 [[vm]]
   size = "shared-cpu-1x"

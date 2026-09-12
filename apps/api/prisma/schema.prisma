@@ -1610,6 +1610,12 @@ model AgentRun {
   /// proposal's side — one run, at most one proposal.
   proposal MemoryProposal?
 
+  /// The session the run's tools call the API under (issue #105, ADR-0055).
+  /// A list from this side because a `sessions` row is revoked and never
+  /// deleted, so a run that was asked for twice would have two; in practice
+  /// one is minted when the run is created and revoked when it ends.
+  sessions Session[]
+
   @@index([projectId, createdAt])
   @@map("agent_runs")
 }
@@ -1651,8 +1657,14 @@ model AgentRun {
 model AuditEntry {
   id String @id @default(uuid())
 
-  projectId String  @map("project_id")
-  project   Project @relation(fields: [projectId], references: [id])
+  /// Whose job, where the mutation was on one. **Null where it was not**
+  /// (issue #105): creating a user and signing in are the firm's mutations
+  /// and not a job's, and inventing a project for them would put a line on a
+  /// screen it is not about. Both readers of this table filter on this
+  /// column, so a firm-level line is absent from a project's audit and from
+  /// its activity feed rather than mislabelled in either.
+  projectId String?  @map("project_id")
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
   /// What happened — "memory written", "proposal accepted". Text rather than
   /// an enum: it is a sentence for a reader, and the set is closed by what
@@ -1871,6 +1883,105 @@ model RegisterEntryExtraction {
   /// When it was asked for. Entry order.
   createdAt DateTime @map("created_at")
 
+  /// The session this run's agent calls the API under (issue #105, ADR-0055).
+  /// A list for the reason `AgentRun.sessions` is one.
+  sessions Session[]
+
   @@index([projectId, createdAt])
   @@map("register_entry_extractions")
+}
+
+/// A person at the firm (issue #105, ADR-0055, [[glossary]]: **User**).
+///
+/// ADR-0012 said a personal tool and no identity at all; the author's answer
+/// on 2026-09-08 became *other engineers at the firm*, so ADR-0055 supersedes
+/// it and this is the table `test/schema.test.ts` asserted the absence of for
+/// twenty-one slices. That guard fired, which is what it was for; it is
+/// replaced by the assertion that this table and `sessions` exist and that
+/// `roles`, `permissions` and `tenants` still do not.
+///
+/// **No role and no permission column, deliberately.** One firm per
+/// deployment, everyone sees everything, and what a person did is recorded
+/// rather than prevented. The named trigger that would reverse it is the first
+/// time one engineer must be *prevented* from doing something.
+///
+/// The password hash is argon2id and the only credential this product stores
+/// beside a project's ingest token. Nothing reads it but the sign-in route.
+model User {
+  id String @id @default(uuid())
+
+  /// Whose name goes on the record. Free text: it is a person's name.
+  name String
+
+  /// How they are known, and what they sign in with. Unique, and the one
+  /// thing a second account cannot repeat.
+  email String @unique
+
+  /// argon2id, in the `$argon2id$…` encoded form the verifier reads its own
+  /// parameters back out of, so a later parameter change leaves existing
+  /// hashes verifiable.
+  passwordHash String @map("password_hash")
+
+  /// When the account was made, from the injected TimeSource (ADR-0022).
+  createdAt DateTime @map("created_at")
+
+  /// Set when the account is turned off. A disabled user cannot sign in and
+  /// their live sessions stop validating; the rows they wrote stay theirs,
+  /// which is why this is a stamp and never a delete.
+  disabledAt DateTime? @map("disabled_at")
+
+  sessions Session[]
+
+  @@map("users")
+}
+
+/// One signed-in browser, or one agent run (issue #105, ADR-0055,
+/// [[glossary]]: **Session**).
+///
+/// This is what replaces the shared secret ADR-0020 put in front of every
+/// route. The difference the ADR names is this table: a secret had no state,
+/// so rotating it was a redeploy and there was nothing to revoke; a session is
+/// **a row, revocable on its own**.
+///
+/// The id is the credential — an opaque random value minted at the boundary,
+/// not a `uuid()` default, so that it is never mistaken for a record id that
+/// may be shown. The browser holds it in an `httpOnly` cookie and the Next
+/// server forwards it to the API as a header; no browser reaches the API, for
+/// the reason ADR-0032 refused a presigned URL.
+model Session {
+  id String @id
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// The agent run this session was minted for, where it was minted for one
+  /// (ADR-0055 part 6). A run acts **under the person who started it** and is
+  /// never an actor itself, so the row still names a user; this column is what
+  /// lets a later slice say a line was written during a run. Null for a
+  /// person's own sign-in, which is every other row.
+  agentRunId String?   @map("agent_run_id")
+  agentRun   AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: Restrict)
+
+  /// The extraction run this session was minted for, where it was minted for
+  /// one. This product has **two** run records, not one — ADR-0043 made an
+  /// extraction a record of its own rather than an `agent_runs` row — so the
+  /// link ADR-0055 names has a second spelling. At most one of the two is
+  /// ever set, held by a CHECK in the migration: both null is a person's own
+  /// sign-in, which is every other row.
+  extractionId String?                  @map("extraction_id")
+  extraction   RegisterEntryExtraction? @relation(fields: [extractionId], references: [id], onDelete: Restrict)
+
+  /// When it was issued and when it stops being one, both from the injected
+  /// TimeSource (ADR-0022). A year, as the unlock cookie was: field use is a
+  /// phone over cellular inside a building and nothing may stand between the
+  /// engineer and a walk.
+  createdAt DateTime @map("created_at")
+  expiresAt DateTime @map("expires_at")
+
+  /// Set by signing out, or when the run this was minted for ends. A revoked
+  /// row is kept: it is the record that the session existed.
+  revokedAt DateTime? @map("revoked_at")
+
+  @@index([userId, createdAt])
+  @@map("sessions")
 }

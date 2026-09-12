@@ -11,6 +11,7 @@ import { noSuchProject } from '../refusals.js';
 import { progressStreams } from '../stream.js';
 import { PROPOSE_MEMORY_EDIT, type ProposeMemoryEditJob } from '../worker.js';
 import { audit } from '../audit.js';
+import { callerOf, mintRunSession } from '../gate.js';
 
 /**
  * The size budget, in characters (story 101).
@@ -333,6 +334,17 @@ export function memoryRoutes(
           data: { projectId: project.id, createdAt: at },
           select: runSelect,
         });
+        // The run's own session, in the name of whoever asked for it: the
+        // agent's tools call this API like any other caller and there is no
+        // longer a shared secret for them to present (issue #105, ADR-0055).
+        // Written in the same transaction as the run, so a run never exists
+        // without the credential its worker will look for.
+        await mintRunSession(
+          tx,
+          { agentRunId: created.id },
+          callerOf(request).userId,
+          at,
+        );
         await audit(tx, {
           projectId: project.id,
           action: 'memory run asked for',

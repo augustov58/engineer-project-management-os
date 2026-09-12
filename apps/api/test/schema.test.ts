@@ -8,12 +8,19 @@ afterEach(async () => {
 });
 
 /**
- * ADR-0012: v1 is a single-user personal tool — no login, no roles, no
- * tenancy. This reads the migrated schema rather than a response, because no
- * route can expose the absence of a table. It is the only test allowed past
- * the HTTP boundary, and `tableNames()` is all it may use.
+ * ADR-0055: there are users and sessions, and there is no role, no permission
+ * and no tenant. This reads the migrated schema rather than a response,
+ * because no route can expose the absence of a table. It is the only test
+ * allowed past the HTTP boundary, and `tableNames()` is all it may use.
+ *
+ * The assertion this replaces was "no `users` table is introduced", citing
+ * ADR-0012, and it stood for twenty-one slices. **It is replaced and not
+ * deleted**: the guard fired, which is what it was for, and what is left
+ * behind is the half of ADR-0012's shape that ADR-0055 keeps — one firm per
+ * deployment, everybody sees everything, and what a person did is recorded
+ * rather than prevented.
  */
-test('no users, roles, permissions or tenants table is introduced', async () => {
+test('users and sessions exist, and no roles, permissions or tenants table is introduced', async () => {
   const app = await startTestApi();
   started.push(app);
 
@@ -53,7 +60,16 @@ test('no users, roles, permissions or tenants table is introduced', async () => 
   expect(tables).toContain('ingested_documents');
   expect(tables).toContain('ingested_document_files');
 
-  expect(tables).not.toContain('users');
+  // Identity is product-owned since ADR-0055: a person is a row here and a
+  // signed-in browser is a row beside it.
+  expect(tables).toContain('users');
+  expect(tables).toContain('sessions');
+
+  // And the three ADR-0055 keeps out. `roles` and `permissions` are the
+  // decision deferred with a named trigger — the first time one engineer must
+  // be *prevented* from doing something rather than *recorded* doing it — and
+  // `tenants` is ADR-0001's shape without ADR-0001's premise: a second firm is
+  // a second deployment.
   expect(tables).not.toContain('roles');
   expect(tables).not.toContain('permissions');
   expect(tables).not.toContain('tenants');

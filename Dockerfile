@@ -70,12 +70,11 @@ COPY --chown=app:app . .
 # whatever the build machine happened to have.
 RUN pnpm --filter api exec prisma generate
 
-# `next build` refuses to load its config without a secret (ADR-0020), and
-# refuses the development one under NODE_ENV=production. The real secret is a
-# Fly secret read at runtime — `edgeSecret()` reads `process.env['EDGE_SECRET']`
-# inside a function and with bracket notation, so nothing here is baked in.
-# This value exists only to get the config past its own guard.
-RUN EDGE_SECRET="$(head -c 32 /dev/urandom | base64)" pnpm --filter web build
+# No credential is needed to build the frontend, and none is baked in: the gate
+# is a session the API mints at sign-in, so `next build` has nothing to be given
+# (issue #105, ADR-0055). This line carried a generated `EDGE_SECRET` until then,
+# purely to get the config past its own guard.
+RUN pnpm --filter web build
 
 ENV NODE_ENV=production
 EXPOSE 3000

@@ -34,7 +34,16 @@ import type { Prisma } from '../generated/prisma/client.js';
 
 /** One line of the record: whose job, what happened, and the particulars. */
 export interface AuditLine {
-  projectId: string;
+  /**
+   * Whose job, where the mutation was on one, and **null where it was not**
+   * (issue #105). Creating a user and signing in are the firm's mutations and
+   * not a job's; inventing a project for them would put a line on a screen it
+   * is not about, and writing no line would put a hole in the sweep
+   * `test/audit.test.ts` runs over every mutating route. Both readers of this
+   * table filter on the column, so a firm-level line is absent from a
+   * project's audit rather than mislabelled in it.
+   */
+  projectId: string | null;
   /**
    * What happened — "submission recorded", "issue closed". Text and not an
    * enum, and phrased as a sentence for a reader: the set is closed by what

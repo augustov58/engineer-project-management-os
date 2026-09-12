@@ -18,13 +18,21 @@
 
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { EDGE_SECRET_HEADER } from './edge-gate.js';
+import { SESSION_HEADER } from './gate.js';
 import { Type } from 'typebox';
 
 /** What one run is asked to do. The id and the job, and nothing else. */
 export interface AgentRunRequest {
   runId: string;
   projectId: string;
+  /**
+   * The run-scoped session its tools call the API under (issue #105,
+   * ADR-0055). A run acts **under the person who started it** and is never an
+   * actor itself, so this names a `sessions` row whose `user_id` is that
+   * person and whose `agent_run_id` is this run; the worker revokes it when
+   * the run settles.
+   */
+  sessionId: string;
 }
 
 /**
@@ -54,6 +62,8 @@ export interface ExtractionRunRequest {
   extractionId: string;
   projectId: string;
   source: ExtractionSourcePacket;
+  /** The run-scoped session, as a memory run's is (issue #105). */
+  sessionId: string;
 }
 
 export interface AgentRunService {
@@ -103,14 +113,16 @@ type CallApi = (
   init?: { method?: string; body?: unknown },
 ) => Promise<{ status: number; body: unknown }>;
 
-export function caller(apiBaseUrl: string, edgeSecret: string): CallApi {
+export function caller(apiBaseUrl: string, sessionId: string): CallApi {
   return async (path, init) => {
     const response = await fetch(`${apiBaseUrl}/v1${path}`, {
       method: init?.method ?? 'GET',
       // The gate is in front of every route, and these tools are a caller
-      // like any other — loopback is not an exemption (ADR-0020).
+      // like any other — loopback is not an exemption (ADR-0055, keeping
+      // ADR-0020's rule). The session is the run's own, so every route it
+      // calls sees the person who started the run.
       headers: {
-        [EDGE_SECRET_HEADER]: edgeSecret,
+        [SESSION_HEADER]: sessionId,
         ...(init?.body === undefined
           ? {}
           : { 'content-type': 'application/json' }),
@@ -429,24 +441,25 @@ Read the fields out of it and propose them with extraction_propose, exactly once
  */
 export function piAgentRunService({
   apiBaseUrl,
-  edgeSecret,
   workspaceRoot,
 }: {
   /** Where the internal API is reachable from this process. */
   apiBaseUrl: string;
-  /** What the domain tools present at the gate in front of it (ADR-0020). */
-  edgeSecret: string;
   /** The directory the per-project workspaces live under. */
   workspaceRoot: string;
 }): AgentRunService {
   return {
-    async proposeMemoryEdit({ runId, projectId }) {
+    async proposeMemoryEdit({ runId, projectId, sessionId }) {
       const sdk = await import('@earendil-works/pi-coding-agent');
 
       const cwd = join(workspaceRoot, projectId);
       await mkdir(cwd, { recursive: true });
 
-      const tools = memoryRunTools(caller(apiBaseUrl, edgeSecret), runId, projectId);
+      const tools = memoryRunTools(
+        caller(apiBaseUrl, sessionId),
+        runId,
+        projectId,
+      );
       const modelRuntime = await sdk.ModelRuntime.create();
       const { session } = await sdk.createAgentSession({
         cwd,
@@ -477,13 +490,16 @@ export function piAgentRunService({
      * consent gate holds anyway because the worker calls this only with text
      * the OCR port returned, and no OCR adapter is written (ADR-0043).
      */
-    async extractRegisterEntry({ extractionId, projectId, source }) {
+    async extractRegisterEntry({ extractionId, projectId, source, sessionId }) {
       const sdk = await import('@earendil-works/pi-coding-agent');
 
       const cwd = join(workspaceRoot, projectId);
       await mkdir(cwd, { recursive: true });
 
-      const tools = extractionRunTools(caller(apiBaseUrl, edgeSecret), extractionId);
+      const tools = extractionRunTools(
+        caller(apiBaseUrl, sessionId),
+        extractionId,
+      );
       const modelRuntime = await sdk.ModelRuntime.create();
       const { session } = await sdk.createAgentSession({
         cwd,
@@ -509,7 +525,6 @@ export function piAgentRunService({
  */
 export function agentRunServiceFromEnv(options: {
   apiBaseUrl: string;
-  edgeSecret: string;
   workspaceRoot: string;
 }): AgentRunService {
   return process.env['AGENT'] === 'pi'
