@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { selectClassName } from './native-select';
 import type { AddState } from './actions';
 import { DISPOSITIONS, type RegisterKind, type Submission } from './api';
+import { day } from './wall-clock';
 
 type Submit = (previous: AddState, formData: FormData) => Promise<AddState>;
 
@@ -268,10 +269,13 @@ export function LinkSubmissionForm({
   submit,
   submissions,
   phaseName,
+  timeZone,
 }: {
   submit: Submit;
   submissions: Submission[];
   phaseName: Map<string, string>;
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   const [state, action, pending] = useActionState(submit, { added: 0 });
 
@@ -296,7 +300,7 @@ export function LinkSubmissionForm({
           {submissions.map((issued) => (
             <option key={issued.id} value={issued.id}>
               {phaseName.get(issued.phaseId) ?? 'Unknown phase'} &mdash;{' '}
-              {issued.revision}, {issued.issuedAt.slice(0, 10)}
+              {issued.revision}, {day(issued.issuedAt, timeZone)}
             </option>
           ))}
         </select>

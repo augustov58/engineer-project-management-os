@@ -224,7 +224,15 @@ export function issueRoutes(
     async (request, reply) => {
       const observation = await prisma.observation.findUnique({
         where: { id: request.params.id },
-        select: { id: true, siteVisit: { select: { projectId: true } } },
+        select: {
+          id: true,
+          siteVisit: {
+            select: {
+              projectId: true,
+              project: { select: { timezone: true } },
+            },
+          },
+        },
       });
       if (observation === null) {
         return noSuchObservation(reply);
@@ -237,7 +245,9 @@ export function issueRoutes(
           { id: observation.id, projectId: observation.siteVisit.projectId },
           request.body.category,
         );
-        return reply.code(201).send(withSightings(raised));
+        return reply
+          .code(201)
+          .send(withSightings(raised, observation.siteVisit.project.timezone));
       } catch (error) {
         // Narrowed to the sighting's own constraint. The transaction also
         // writes `issues`, whose unique index is on the project and the
@@ -266,7 +276,7 @@ export function issueRoutes(
     async (request, reply) => {
       const project = await prisma.project.findUnique({
         where: { id: request.params.id },
-        select: { id: true },
+        select: { id: true, timezone: true },
       });
       if (project === null) {
         return noSuchProject(reply);
@@ -277,7 +287,7 @@ export function issueRoutes(
         orderBy: { number: 'asc' },
         include: issueInclude,
       });
-      return listed.map(withSightings);
+      return listed.map((found) => withSightings(found, project.timezone));
     },
   );
 
@@ -328,12 +338,21 @@ export function issueRoutes(
           // The job it is on, joined rather than fetched afterwards as the
           // pending items view has to: an open item's subject is polymorphic
           // and an issue's project is a foreign key.
-          project: { select: { id: true, projectNumber: true, name: true } },
+          project: {
+            select: {
+              id: true,
+              projectNumber: true,
+              name: true,
+              timezone: true,
+            },
+          },
         },
       });
 
+      // Each row in its own job's zone, which is why the stub carries one: a
+      // list across every project is a list across every frame (ADR-0054).
       return listed.map(({ project, ...found }) => ({
-        ...withSightings(found),
+        ...withSightings(found, project.timezone),
         project,
       }));
     },
@@ -355,7 +374,7 @@ export function issueRoutes(
       const { id, number } = request.params;
       const found = await prisma.issue.findUnique({
         where: { projectId_number: { projectId: id, number } },
-        include: issueInclude,
+        include: { ...issueInclude, project: { select: { timezone: true } } },
       });
       // One message for a job that has no such issue and for a job that
       // does not exist: numbering restarts per project, so "issue 1" is
@@ -365,7 +384,8 @@ export function issueRoutes(
           .code(404)
           .send({ message: 'no issue with that number on this project' });
       }
-      return withSightings(found);
+      const { project, ...issue } = found;
+      return withSightings(issue, project.timezone);
     },
   );
 
@@ -459,7 +479,13 @@ export function issueRoutes(
     async (request, reply) => {
       const found = await prisma.issue.findUnique({
         where: { id: request.params.id },
-        select: { id: true, projectId: true, number: true, closedAt: true },
+        select: {
+          id: true,
+          projectId: true,
+          number: true,
+          closedAt: true,
+          project: { select: { timezone: true } },
+        },
       });
       if (found === null) {
         return noSuchIssue(reply);
@@ -488,7 +514,7 @@ export function issueRoutes(
         });
         return stamped;
       });
-      return withSightings(closed);
+      return withSightings(closed, found.project.timezone);
     },
   );
 
@@ -508,6 +534,7 @@ export function issueRoutes(
           number: true,
           closedAt: true,
           closureNote: true,
+          project: { select: { timezone: true } },
         },
       });
       if (found === null) {
@@ -536,7 +563,7 @@ export function issueRoutes(
         });
         return cleared;
       });
-      return withSightings(reopened);
+      return withSightings(reopened, found.project.timezone);
     },
   );
 

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { getProject, listExposure } from '../api';
-import { day } from '../open-item';
+import { day } from '../wall-clock';
 
 /** The point of this screen is what is carrying an unconfirmed input now. */
 export const dynamic = 'force-dynamic';
@@ -72,7 +72,8 @@ export default async function Exposure({
                 <Badge variant="outline">{issued.phase.name}</Badge>
                 <span className="font-medium">{issued.revision}</span>
                 <span className="text-muted-foreground text-sm">
-                  issued {day(issued.issuedAt)} &middot; {issued.recipient} (
+                  issued {day(issued.issuedAt, issued.project.timezone)}{' '}
+                  &middot; {issued.recipient} (
                   {issued.recipientRole})
                 </span>
               </Link>

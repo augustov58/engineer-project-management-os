@@ -8,6 +8,7 @@
  */
 
 import { Prisma, type SiteVisitReport } from '../generated/prisma/client.js';
+import { dayIn } from './zone.js';
 
 /**
  * A project as it goes out: the whole row **minus** `issuesAllocated`, and
@@ -54,9 +55,17 @@ export function projectOnTheWire<
  * *currently provisional* and *superseded*. A `visited_on` column would be a
  * second place for the same fact to be wrong, and the one place a visit could
  * come to be dated a different day from the one it started on.
+ *
+ * Derived **in the project's zone** since ADR-0054: a walk that ran into the
+ * evening is a visit made that afternoon, and the UTC face of its start is
+ * already tomorrow. The zone is passed in rather than read here, because a
+ * sighting carries its walk without carrying the job.
  */
-export function withDate<T extends { startedAt: Date }>(visit: T) {
-  return { ...visit, visitedOn: visit.startedAt.toISOString().slice(0, 10) };
+export function withDate<T extends { startedAt: Date }>(
+  visit: T,
+  timeZone: string,
+) {
+  return { ...visit, visitedOn: dayIn(visit.startedAt, timeZone) };
 }
 
 /**
@@ -171,13 +180,16 @@ type Finding = Prisma.IssueGetPayload<{ include: typeof issueInclude }>;
  * walks has three of them, and one column would have to pick a walk and be
  * silently wrong about the others.
  */
-export function withSightings(found: Finding) {
+export function withSightings(found: Finding, timeZone: string) {
   const { observations, openItems, photos, ...issue } = found;
   return {
     ...issue,
     observations: observations.map(({ observation }) => {
       const { siteVisit, ...sighting } = observation;
-      return { ...withLocation(sighting), siteVisit: withDate(siteVisit) };
+      return {
+        ...withLocation(sighting),
+        siteVisit: withDate(siteVisit, timeZone),
+      };
     }),
     openItems: openItems.map((row) => row.openItem),
     photos: photos.map(photoOnTheWire),

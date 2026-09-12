@@ -240,6 +240,8 @@ export interface ProjectResponse {
   projectNumber: string;
   name: string;
   createdAt: string;
+  /** The zone of the building, and the frame every time on the job is read in. */
+  timezone: string;
   archivedAt: string | null;
   /** Composed from the token and the domain; null when none is configured. */
   ingestAddress: string | null;
@@ -249,16 +251,24 @@ export interface ProjectResponse {
   cloudSignoffAt: string | null;
 }
 
-/** Fixtures are built through the API, never by writing to the database. */
+/**
+ * Fixtures are built through the API, never by writing to the database.
+ *
+ * The zone defaults **here and not in the product** (ADR-0054): the route
+ * requires one with no default, and `projects.test.ts` asserts that it does.
+ * A fixture that named a zone at all 257 call sites would say nothing extra
+ * about a job whose times no assertion reads in a second zone.
+ */
 export async function createProject(
   api: TestApi,
   projectNumber: string,
   name: string,
+  timezone = 'America/New_York',
 ): Promise<ProjectResponse> {
   const response = await api.fetch('/v1/projects', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ projectNumber, name }),
+    body: JSON.stringify({ projectNumber, name, timezone }),
   });
   if (response.status !== 201) {
     throw new Error(

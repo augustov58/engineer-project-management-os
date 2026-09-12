@@ -4,7 +4,7 @@ import { useActionState, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { selectClassName } from './native-select';
-import { asTypedInstant } from './wall-clock';
+import { clock } from './wall-clock';
 import type { AddState } from './actions';
 
 /** The four the API stores, so the picker offers only what it will accept. */
@@ -23,8 +23,11 @@ const ACCEPT = 'image/jpeg,image/png,image/heic,image/webp';
  */
 export function PhotoForm({
   add,
+  timeZone,
 }: {
   add: (file: File, takenAt: string) => Promise<string | undefined>;
+  /** The zone of the building, which is what these times are read in. */
+  timeZone: string;
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const [chosen, setChosen] = useState<File[]>([]);
@@ -42,7 +45,15 @@ export function PhotoForm({
       let error: string | undefined;
 
       for (const file of chosen) {
-        const refused = await add(file, asTypedInstant(file.lastModified));
+        // The instant the file already carries, sent as it is (ADR-0054).
+        // `asTypedInstant` used to shift it into the fake-UTC frame so it
+        // would bin against typed floor windows: the one value here that was
+        // always a real instant was being corrupted to match the ones that
+        // were not. It is deleted, and the windows are instants now too.
+        const refused = await add(
+          file,
+          new Date(file.lastModified).toISOString(),
+        );
         if (refused === undefined) {
           added += 1;
           continue;
@@ -108,7 +119,7 @@ export function PhotoForm({
             >
               <span className="font-medium break-all">{file.name}</span>
               <span className="text-muted-foreground tabular-nums">
-                {asTypedInstant(file.lastModified).slice(11, 16)}
+                {clock(new Date(file.lastModified).toISOString(), timeZone)}
               </span>
             </li>
           ))}

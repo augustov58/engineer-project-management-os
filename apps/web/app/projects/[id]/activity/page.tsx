@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { clock, day } from '../../../wall-clock';
 import { getProject, listActivity } from '../../../api';
 
 /** A read over a record nothing overwrites; read on every request. */
@@ -86,8 +87,8 @@ export default async function ProjectActivityPage({
               className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border p-3 text-sm"
             >
               <span className="text-muted-foreground tabular-nums">
-                {entry.createdAt.slice(0, 10)}{' '}
-                {entry.createdAt.slice(11, 16)}
+                {day(entry.createdAt, project.timezone)}{' '}
+                {clock(entry.createdAt, project.timezone)}
               </span>
               <span className="font-medium">{entry.action}</span>
               <span className="text-muted-foreground">{entry.detail}</span>

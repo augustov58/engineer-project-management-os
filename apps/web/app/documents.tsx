@@ -7,7 +7,7 @@ import {
 } from './actions';
 import { DocumentVersionForm } from './document-form';
 import { ExtractButton } from './extract-button';
-import { day } from './open-item';
+import { day } from './wall-clock';
 import {
   documentKind,
   type DocumentVersion,
@@ -36,7 +36,13 @@ function size(bytes: number): string {
  * device, and it would be the one request in the product going around whatever
  * ADR-0020 puts in front of the API.
  */
-function VersionRow({ version }: { version: DocumentVersion }) {
+function VersionRow({
+  version,
+  timeZone,
+}: {
+  version: DocumentVersion;
+  timeZone: string;
+}) {
   return (
     <a
       href={`/document-versions/${version.id}/bytes`}
@@ -52,7 +58,7 @@ function VersionRow({ version }: { version: DocumentVersion }) {
         {size(version.byteSize)}
       </span>
       <span className="text-muted-foreground">
-        stored {day(version.createdAt)}
+        stored {day(version.createdAt, timeZone)}
       </span>
     </a>
   );
@@ -68,9 +74,12 @@ function VersionRow({ version }: { version: DocumentVersion }) {
 export function DocumentList({
   documents,
   projectId,
+  timeZone,
 }: {
   documents: StoredDocument[];
   projectId: string;
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   if (documents.length === 0) {
     return (
@@ -134,7 +143,7 @@ export function DocumentList({
           </div>
           <div className="divide-y">
             {document.versions.map((version) => (
-              <VersionRow key={version.id} version={version} />
+              <VersionRow key={version.id} version={version} timeZone={timeZone} />
             ))}
           </div>
           {/*

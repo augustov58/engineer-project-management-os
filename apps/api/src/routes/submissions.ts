@@ -549,7 +549,12 @@ export function submissionRoutes(
         include: {
           phase: true,
           project: {
-            select: { id: true, projectNumber: true, name: true },
+            select: {
+              id: true,
+              projectNumber: true,
+              name: true,
+              timezone: true,
+            },
           },
           supersededBy: { select: { id: true } },
           openItems: {
@@ -625,7 +630,12 @@ export function submissionRoutes(
         orderBy: [{ issuedAt: 'asc' }, { createdAt: 'asc' }],
         include: {
           phase: true,
-          project: { select: { id: true, projectNumber: true, name: true } },
+          project: { select: {
+            id: true,
+            projectNumber: true,
+            name: true,
+            timezone: true,
+          } },
           ...derivedState,
         },
       });

@@ -322,13 +322,28 @@ test('the document carries the visit metadata and the per-floor schedule', async
   expect(text).toContain('R-6');
   expect(text).toContain('Riverside clinic');
   expect(text).toContain('2026-07-23');
-  expect(text).toContain('13:00');
-  expect(text).toContain('16:20');
   expect(text).toContain('Floor 3');
-  expect(text).toContain('13:05');
-  expect(text).toContain('13:50');
   expect(text).toContain('Floor PH');
-  expect(text).toContain('14:10');
+
+  // Every time on the page is the building's wall clock, four hours behind
+  // the instants stored above in July (ADR-0054). The document is what the
+  // engineer who walked the floors would have written down.
+  expect(text).toContain('09:00');
+  expect(text).toContain('12:20');
+  expect(text).toContain('09:05');
+  expect(text).toContain('09:50');
+  expect(text).toContain('10:10');
+
+  // And the UTC faces are not on the page at all, which is the half a
+  // `toContain` alone cannot say.
+  for (const utcFace of ['13:00', '16:20', '13:05', '13:50', '14:10']) {
+    expect(text).not.toContain(utcFace);
+  }
+
+  // The zone, once, in the header (ADR-0054) — so a reader who was not on the
+  // walk knows which afternoon these are.
+  expect(text).toContain('America/New_York');
+  expect(text.match(/America\/New_York/g)).toHaveLength(1);
 });
 
 test('non-issue observations are their own table, and come first', async () => {

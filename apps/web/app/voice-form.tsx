@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button';
 import { useLiveList } from './live-list';
 import { held, hold, release, type HeldRecording } from './recordings';
 import { ObservationFields } from './site-visit-form';
-import { asTypedInstant } from './wall-clock';
 import type { AddState, CaptureRefusal } from './actions';
 import { awaitsReview, isWorking, type VoiceCapture } from './api';
 
@@ -192,9 +191,11 @@ export function VoiceRecorder({
           captureKey: crypto.randomUUID(),
           siteVisitId,
           contentType,
-          // The wall clock the engineer was reading, in the frame the rest of
-          // this walk was typed in.
-          recordedAt: asTypedInstant(Date.now()),
+          // The instant the recording was made (ADR-0054). It used to be the
+          // engineer's wall clock relabelled UTC, so that it would sit in the
+          // same frame as a typed time; the typed times are instants now, so
+          // this is one too and nothing shifts it.
+          recordedAt: new Date().toISOString(),
           audio,
         };
         start(async () => {

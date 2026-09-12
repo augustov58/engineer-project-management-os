@@ -6,6 +6,7 @@ import {
   createObservation,
   createProject,
   createSiteVisit,
+  fakeTimeSource,
   PAST_THE_STACK,
   photoBody,
   startFloor,
@@ -370,6 +371,74 @@ test('another walk’s schedule is no part of this one', async () => {
     takenAt: '2026-07-23T13:20:00.000Z',
   });
   expect(photo.floor).toBeNull();
+});
+
+/**
+ * What the engineer read off the wall, turned into the instant it names.
+ *
+ * ICU's arithmetic and not this product's: the point of the test below is that
+ * the typed side and the stamped side are commensurable, and a helper that
+ * borrowed the product's own composition would be the test supplying both
+ * sides of the comparison again (ADR-0052).
+ */
+function typedInZone(day: string, time: string, timeZone: string): string {
+  const wall = Date.parse(`${day}T${time}:00.000Z`);
+  const read = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(new Date(wall));
+  const at = Object.fromEntries(read.map((part) => [part.type, part.value]));
+  const offset =
+    Date.UTC(
+      Number(at.year),
+      Number(at.month) - 1,
+      Number(at.day),
+      Number(at.hour) % 24,
+      Number(at.minute),
+    ) - wall;
+  return new Date(wall - offset).toISOString();
+}
+
+test('a photograph typed off the wall bins to a floor the clock stamped', async () => {
+  // The injected clock reads 20:00 UTC, which is 16:00 where the building is:
+  // a nonzero offset the typed side does not share (ADR-0052's fourth point,
+  // against issue #97). Every other binning test above types both sides and so
+  // cannot see whether the two frames agree.
+  const time = fakeTimeSource(new Date('2026-07-23T20:00:00.000Z'));
+  const app = await api({ timeSource: time });
+  const project = await createProject(
+    app,
+    'B-12',
+    'Real clock',
+    'America/New_York',
+  );
+  const walk = await createSiteVisit(app, project.id);
+
+  // The advertised blank-time path: no time is typed, so the server stamps the
+  // real instant. This is the window every photograph on the floor bound to
+  // nothing against.
+  await startFloor(app, walk.id, '3');
+
+  time.advance(5 * 60 * 1000);
+  const photo = await addPhoto(app, walk.id, {
+    takenAt: typedInZone('2026-07-23', '16:05', project.timezone),
+    filename: 'typed.jpg',
+  });
+  expect(photo.floor).toBe('3');
+
+  // And the frame that was stored before ADR-0054 — the same wall clock
+  // labelled `Z` — falls four hours outside that window, which is the defect
+  // itself rather than an arithmetic slip: the two are not the same instant.
+  const stale = await addPhoto(app, walk.id, {
+    takenAt: '2026-07-23T16:05:00.000Z',
+    filename: 'stale.jpg',
+  });
+  expect(stale.floor).toBeNull();
 });
 
 // ── Binding to a finding by the filename (story 64) ──────────────────────

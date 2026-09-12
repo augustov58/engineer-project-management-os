@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import type { MemoryProposal, MemoryVersion } from './api';
 import { diffLines } from './memory-diff';
-import { day } from './open-item';
+import { day } from './wall-clock';
 
 /**
  * A line diff, drawn the one way this product draws one (issue #63).
@@ -82,6 +82,7 @@ export function MemoryHistory({
   versions,
   proposals,
   budget,
+  timeZone,
 }: {
   /** Oldest first, as the API answers. */
   versions: MemoryVersion[];
@@ -89,6 +90,8 @@ export function MemoryHistory({
   proposals: MemoryProposal[];
   /** The size to read each version against. Surfaced, never enforced. */
   budget: number;
+  /** The zone of the job this record is on (ADR-0054). */
+  timeZone: string;
 }) {
   const byId = new Map(proposals.map((proposal) => [proposal.id, proposal]));
 
@@ -114,7 +117,7 @@ export function MemoryHistory({
               </Badge>
               {index === 0 && <Badge variant="secondary">Current</Badge>}
               <span className="text-muted-foreground text-sm tabular-nums">
-                {day(version.createdAt)}
+                {day(version.createdAt, timeZone)}
               </span>
               <span className="text-muted-foreground text-sm">
                 {arrival(version, byId)}

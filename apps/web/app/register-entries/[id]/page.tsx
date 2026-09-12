@@ -39,7 +39,8 @@ import {
   TurnaroundForm,
 } from '../../register-forms';
 import { selectClassName } from '../../native-select';
-import { clock, day, OpenItemEntry } from '../../open-item';
+import { OpenItemEntry } from '../../open-item';
+import { clock, day } from '../../wall-clock';
 import { BallInCourtBadge, ClockBadge, inCourtDays } from '../../ball-in-court';
 
 /** The point of this screen is whose court it is in right now. */
@@ -107,7 +108,7 @@ export default async function RegisterEntryRecord({
         </div>
         <p className="text-muted-foreground mt-1 text-sm">
           From {entry.fromParty} to {entry.toParty} &middot; logged{' '}
-          {day(entry.createdAt)}
+          {day(entry.createdAt, project.timezone)}
         </p>
       </div>
 
@@ -218,7 +219,7 @@ export default async function RegisterEntryRecord({
               <Badge variant="secondary">{entry.disposition}</Badge>
               {entry.disposedAt !== null && (
                 <span className="text-muted-foreground text-sm">
-                  {day(entry.disposedAt)}
+                  {day(entry.disposedAt, project.timezone)}
                 </span>
               )}
             </div>
@@ -288,7 +289,7 @@ export default async function RegisterEntryRecord({
               className="flex flex-wrap items-center gap-3 px-4 py-3"
             >
               <span className="text-muted-foreground font-mono text-sm">
-                {day(handoff.heldSince)} {clock(handoff.heldSince)}
+                {day(handoff.heldSince, project.timezone)} {clock(handoff.heldSince, project.timezone)}
               </span>
               <span className="font-medium">{handoff.party}</span>
               {handoff.inOurCourt && <Badge variant="destructive">Ours</Badge>}
@@ -315,6 +316,7 @@ export default async function RegisterEntryRecord({
             </p>
             {submissions.length > 0 && (
               <LinkSubmissionForm
+                timeZone={project.timezone}
                 submit={linkSubmission.bind(
                   null,
                   entry.id,
@@ -335,7 +337,7 @@ export default async function RegisterEntryRecord({
               {phaseName.get(answered.phaseId) ?? 'Unknown phase'}
             </span>
             <span className="text-muted-foreground text-sm">
-              {answered.revision} &middot; issued {day(answered.issuedAt)} to{' '}
+              {answered.revision} &middot; issued {day(answered.issuedAt, project.timezone)} to{' '}
               {answered.recipient}
             </span>
             {answered.currentlyProvisional && (
@@ -394,7 +396,7 @@ export default async function RegisterEntryRecord({
         ) : (
           <ul className="space-y-3">
             {entry.openItems.map((item) => (
-              <OpenItemEntry
+              <OpenItemEntry timeZone={project.timezone}
                 key={item.id}
                 item={item}
                 projectId={project.id}

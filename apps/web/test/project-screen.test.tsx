@@ -58,6 +58,7 @@ const project: api.Project = {
   projectNumber: '260001',
   name: 'A live job',
   createdAt: '2026-09-01T09:00:00.000Z',
+  timezone: 'America/New_York',
   archivedAt: null,
   currentPhaseId: null,
   ingestAddress: null,

@@ -194,7 +194,12 @@ export function openItemRoutes(
       // fetched once and attached.
       const projects = await prisma.project.findMany({
         where: { id: { in: items.map((item) => item.subjectId) } },
-        select: { id: true, projectNumber: true, name: true },
+        select: {
+          id: true,
+          projectNumber: true,
+          name: true,
+          timezone: true,
+        },
       });
       const byId = new Map(projects.map((p) => [p.id, p]));
 

@@ -14,6 +14,7 @@
 
 import type { ObjectStore } from './object-store.js';
 import { renderLocation } from './wire.js';
+import { clockIn, dayIn } from './zone.js';
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 
 /**
@@ -35,26 +36,22 @@ export function issueIdentifier(number: number): string {
 }
 
 /**
- * The day and the clock time of an instant, as every other surface in this
- * product reads them.
+ * The day and the clock time of an instant are read **in the project's zone**,
+ * as every other surface in this product reads them (ADR-0054).
  *
- * Both are the UTC face of the value, matching `withDate`, the schedule on
- * screen and `visitedOn`. A wall-clock time typed into a form is stored as
- * though it were UTC and round-trips exactly, while anything the injected
- * TimeSource stamped is offset by the engineer's own. Reading these two frames
- * one way here is what keeps the printed page saying what the screen says.
+ * They are bound to that zone inside `render` rather than taken as arguments,
+ * because a report is one document about one building: every time on the page
+ * is in the same frame, and the header says which frame once. There is no
+ * second reading for a reader in another zone — a walk happened where the
+ * building is.
  *
- * ADR-0030 left that question open and **ADR-0050 closed it** (issue #82) by
- * recording this behaviour as the answer: the UTC face is what every surface
- * renders, here included. No longer a reading chosen pending a decision.
+ * ADR-0030 left the question open, ADR-0050 closed it as the UTC face, and
+ * **ADR-0054 supersedes 0050** on the trigger 0050 itself named: the UTC face
+ * was the engineer's typed wall clock for anything typed and was the
+ * engineer's offset out for anything the injected TimeSource stamped, so the
+ * printed page could only agree with the screen while both were wrong the same
+ * way (issue #97).
  */
-function day(instant: Date): string {
-  return instant.toISOString().slice(0, 10);
-}
-
-function clock(instant: Date): string {
-  return instant.toISOString().slice(11, 16);
-}
 
 /** The em dash the grammar and the schedule both use for a missing end. */
 const NONE = '—';
@@ -193,7 +190,9 @@ const STYLESHEET = `
 
 /** The walk, everything it produced, and the job it was against. */
 const visitInclude = {
-  project: { select: { projectNumber: true, name: true } },
+  project: {
+    select: { projectNumber: true, name: true, timezone: true },
+  },
   floors: { orderBy: { startedAt: 'asc' } },
   observations: {
     orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
@@ -296,6 +295,9 @@ export async function composeReport(
   }
 
   const { project } = visit;
+  const day = (instant: Date) => dayIn(instant, project.timezone);
+  const clock = (instant: Date) => clockIn(instant, project.timezone);
+
   // A walk that is still under way is a real state to render a report from:
   // ADR-0030 made `ended_at` nullable precisely so a visit exists before it is
   // over, and the schedule below says the same thing about a floor.
@@ -303,6 +305,11 @@ export async function composeReport(
     visit.endedAt === null
       ? `${day(visit.startedAt)} · from ${clock(visit.startedAt)}, still under way`
       : `${day(visit.startedAt)} · ${clock(visit.startedAt)}–${clock(visit.endedAt)}`;
+
+  // The zone, once and in the header (ADR-0054). Every time below it is in
+  // this frame, so saying so beside each one would be saying it forty times;
+  // the IANA name rather than an abbreviation, because `EST` is four different
+  // zones and a report is read by people who were not on the walk.
 
   // The majority case, and the reason it comes first (story 56). An
   // observation is a non-issue exactly when nothing points at it.
@@ -321,7 +328,7 @@ export async function composeReport(
 <header>
   <p class="job">${escape(project.projectNumber)} · ${escape(project.name)}</p>
   <h1>Site visit report</h1>
-  <p class="when">${escape(when)}</p>
+  <p class="when">${escape(when)} · ${escape(project.timezone)}</p>
 </header>
 
 <section>
