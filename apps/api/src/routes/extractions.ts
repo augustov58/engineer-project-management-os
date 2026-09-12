@@ -24,6 +24,7 @@ import { EXTRACT, type ExtractJob } from '../worker.js';
 import { DOCUMENT_CONTENT_TYPES } from './documents.js';
 import { handoffBodySchema, handoffData, TURNAROUND_DAYS } from './registers.js';
 import { audit } from '../audit.js';
+import { callerOf, mintRunSession } from '../gate.js';
 
 /** This record's own 404, which nothing else sends (ADR-0033). */
 const NO_SUCH_FILE = {
@@ -301,6 +302,13 @@ export function extractionRoutes(
           },
           select: extractionSelect,
         });
+        // The run's own session, as a memory run's is (issue #105).
+        await mintRunSession(
+          tx,
+          { extractionId: created.id },
+          callerOf(request).userId,
+          at,
+        );
         // The filename is the sender's, and bounded at 255 by the boundary
         // that stored it — so unlike the sender, subject and body, it may be
         // said here. What the vendor read is on the row, never on this line.
@@ -393,6 +401,13 @@ export function extractionRoutes(
           },
           select: extractionSelect,
         });
+        // The run's own session, as a memory run's is (issue #105).
+        await mintRunSession(
+          tx,
+          { extractionId: created.id },
+          callerOf(request).userId,
+          at,
+        );
         // The version resolved now and stamped, so the line says which
         // revision was read and not merely which document (ADR-0043).
         await audit(tx, {

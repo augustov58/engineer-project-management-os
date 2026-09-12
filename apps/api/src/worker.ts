@@ -30,6 +30,7 @@ import { Worker } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { AgentRunService, ExtractionSourcePacket } from './agent.js';
+import { underRunSession } from './gate.js';
 import type { ObjectStore } from './object-store.js';
 import { PROCESSING_LOCATION_IS_LOCAL } from './refusals.js';
 import type { OcrProvider } from './ocr.js';
@@ -285,10 +286,21 @@ export function buildWorker({
     });
 
     try {
-      await agentRunService.proposeMemoryEdit({
-        runId: run.id,
-        projectId: run.projectId,
-      });
+      // Under the session the route minted beside this run, in the name of
+      // whoever asked for it: the agent's tools present it at the gate like
+      // any other caller, and it is revoked the moment this returns either way
+      // (issue #105, ADR-0055).
+      await underRunSession(
+        prisma,
+        { agentRunId: run.id },
+        timeSource,
+        (sessionId) =>
+          agentRunService.proposeMemoryEdit({
+            runId: run.id,
+            projectId: run.projectId,
+            sessionId,
+          }),
+      );
       // Compare-and-set, so a redelivered job that got past the read above
       // writes nothing.
       await prisma.agentRun.updateMany({
@@ -419,11 +431,19 @@ export function buildWorker({
             }),
         text,
       };
-      await agentRunService.extractRegisterEntry({
-        extractionId: extraction.id,
-        projectId: extraction.projectId,
-        source,
-      });
+      // Under this run's own session, as the memory run above is.
+      await underRunSession(
+        prisma,
+        { extractionId: extraction.id },
+        timeSource,
+        (sessionId) =>
+          agentRunService.extractRegisterEntry({
+            extractionId: extraction.id,
+            projectId: extraction.projectId,
+            source,
+            sessionId,
+          }),
+      );
       // Compare-and-set, so a redelivered job that got past the read above
       // writes nothing.
       await prisma.registerEntryExtraction.updateMany({

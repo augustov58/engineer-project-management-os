@@ -518,7 +518,11 @@ test('the agent is handed the run and the project, and never the database', asyn
 
   // The port's whole surface: one method, handed the run and the job. What
   // the agent reads and proposes goes through the internal API from there.
-  expect(seen).toEqual([{ runId: run.id, projectId: project.id }]);
+  // And the run's own session, which is how its tools reach the API at all
+  // now that there is no shared secret for them to present (issue #105).
+  expect(seen).toEqual([
+    { runId: run.id, projectId: project.id, sessionId: expect.any(String) },
+  ]);
 });
 
 // ── The audit ────────────────────────────────────────────────────────────

@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { Client } from 'pg';
 import { inject } from 'vitest';
 import type { AgentRunService } from '../src/agent.js';
-import { EDGE_SECRET_HEADER } from '../src/edge-gate.js';
+import { SESSION_HEADER, SESSION_LIFETIME_MS, newSessionId } from '../src/gate.js';
 import type { OcrProvider } from '../src/ocr.js';
+import { hashPassword } from '../src/passwords.js';
 import { createRuntime } from '../src/runtime.js';
 import {
   type InboundMailProvider,
@@ -18,18 +19,26 @@ import type { Transcriber } from '../src/transcription.js';
 import { buildWorker } from '../src/worker.js';
 
 /**
- * The secret every test presents (ADR-0020). A fixed string rather than a
- * generated one: what a test asserts about the gate is that the right value
- * opens it and any other does not, and a value that changed per run would
- * make the failing case harder to read for no gain.
+ * The account every test is signed in as (issue #105, ADR-0055).
+ *
+ * Fixed rather than generated, for the reason the shared secret it replaces
+ * was: what a test asserts about the gate is that a live session opens it and
+ * nothing else does, and a value that changed per run would make a failing
+ * case harder to read for no gain. The password is long enough to satisfy the
+ * one rule there is, and is a credential for a database that exists for the
+ * length of one test file.
  */
-export const TEST_EDGE_SECRET = 'test-edge-secret';
+export const TEST_USER = {
+  name: 'Ada Lovelace',
+  email: 'ada@example.test',
+  password: 'analytical-engine-1843',
+} as const;
 
 export interface TestApi {
   /** Origin of a real listening HTTP server, e.g. `http://127.0.0.1:41234`. */
   baseUrl: string;
   /**
-   * `fetch` against this API, carrying the edge secret. Tests assert on the
+   * `fetch` against this API, signed in as `TEST_USER`. Tests assert on the
    * response, nothing else.
    *
    * Every test goes through the gate rather than around it, because that is
@@ -37,6 +46,9 @@ export interface TestApi {
    * global `fetch` instead, which is the only way to be an anonymous caller.
    */
   fetch(path: string, init?: RequestInit): Promise<Response>;
+  /** The account those calls are made as, and the session they present. */
+  user: { id: string; name: string; email: string };
+  sessionId: string;
   /**
    * Every route Fastify actually registered, method and path.
    *
@@ -47,8 +59,10 @@ export interface TestApi {
   /**
    * The tables the migrations actually produced.
    *
-   * The one sanctioned way past the HTTP boundary, because "no `users` table
-   * exists" (ADR-0012) is a schema invariant no route can ever expose. It
+   * The one sanctioned way past the HTTP boundary, because which tables the
+   * migrations produced — `users` and `sessions` present, `roles`,
+   * `permissions` and `tenants` absent (ADR-0055) — is a schema invariant no
+   * route can ever expose. It
    * returns names and nothing else, so it cannot be used to read domain data
    * or to write a row — which is what the "fixtures through the API" rule is
    * protecting.
@@ -150,7 +164,6 @@ export async function startTestApi(
     prisma: runtime.prisma,
     queue: runtime.queue,
     objectStore: runtime.objectStore,
-    edgeSecret: TEST_EDGE_SECRET,
     timeSource: options.timeSource,
     inboundMail: options.inboundMail ?? stubInboundMailProvider,
     ...(ingestDomain === null ? {} : { ingestDomain }),
@@ -190,11 +203,59 @@ export async function startTestApi(
   }
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
+  /**
+   * The first account and one session for it, written directly.
+   *
+   * The **one** place this harness writes rows rather than building a fixture
+   * through the API, and it is the bootstrap rather than an exception to the
+   * rule: on a real deployment the first account is made by a command on the
+   * machine before anything can sign in, and there is no route that could make
+   * it (ADR-0055 part 7). Both the create route and the sign-in route are
+   * driven over HTTP like everything else, by `users.test.ts` and
+   * `sessions.test.ts`.
+   *
+   * No audit line: signing in through the route would write one into every
+   * test's database, and `export.test.ts` asserts that an untouched database
+   * has nothing in `audit_entries`.
+   *
+   * And it **outlives any clock a test advances**, unlike the year a real
+   * sign-in gets: a dozen suites age a fake TimeSource by days or by four
+   * hundred of them to watch something get old, and a fixture that expired
+   * under them would turn every one of those into a 401 about the wrong thing.
+   * What a real session's life is worth is asserted against one minted by the
+   * route, in `sessions.test.ts` and `gate.test.ts`.
+   */
+  // Through the port, and spelled with the default the way the worker's is
+  // above: the boundary is what defaults a `TimeSource`, and a bootstrap that
+  // read the wall clock directly would be the one persisted timestamp in this
+  // product that did not come from one (ADR-0022).
+  const now = (options.timeSource ?? systemTimeSource).now();
+  const user = await runtime.prisma.user.create({
+    data: {
+      name: TEST_USER.name,
+      email: TEST_USER.email,
+      passwordHash: await hashPassword(TEST_USER.password),
+      createdAt: now,
+    },
+    select: { id: true, name: true, email: true },
+  });
+  const session = await runtime.prisma.session.create({
+    data: {
+      id: newSessionId(),
+      userId: user.id,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 100 * SESSION_LIFETIME_MS),
+    },
+    select: { id: true },
+  });
+
   return {
     baseUrl,
+    user,
+    sessionId: session.id,
     fetch: (path, init) => {
       const headers = new Headers(init?.headers);
-      headers.set(EDGE_SECRET_HEADER, TEST_EDGE_SECRET);
+      headers.set(SESSION_HEADER, session.id);
       return fetch(`${baseUrl}${path}`, { ...init, headers });
     },
     // A copy: a caller sweeping this must not be able to edit what it swept.
@@ -1604,22 +1665,23 @@ export function fakeAgentRunService(
   },
 ): AgentRunService {
   return {
-    proposeMemoryEdit: async ({ runId }) => {
+    proposeMemoryEdit: async ({ runId, sessionId }) => {
       await app.inject({
         method: 'POST',
         url: `/v1/memory-runs/${runId}/proposal`,
         payload: { content },
         // `inject` runs the whole lifecycle, the gate included, exactly as
-        // the real adapter's HTTP call does (ADR-0020).
-        headers: { [EDGE_SECRET_HEADER]: TEST_EDGE_SECRET },
+        // the real adapter's HTTP call does — and it presents the run's own
+        // session, as the real one does (ADR-0055).
+        headers: { [SESSION_HEADER]: sessionId },
       });
     },
-    extractRegisterEntry: async ({ extractionId }) => {
+    extractRegisterEntry: async ({ extractionId, sessionId }) => {
       await app.inject({
         method: 'POST',
         url: `/v1/extractions/${extractionId}/proposal`,
         payload: extractionProposal,
-        headers: { [EDGE_SECRET_HEADER]: TEST_EDGE_SECRET },
+        headers: { [SESSION_HEADER]: sessionId },
       });
     },
   };

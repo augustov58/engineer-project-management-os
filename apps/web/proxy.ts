@@ -1,27 +1,29 @@
 /**
- * The gate in front of every route (ADR-0020).
+ * The gate in front of every route (issue #105, ADR-0055).
  *
- * ADR-0012 removed identity and could not remove access control: ADR-0003
- * puts real client work on a reachable URL, and between those two decisions
- * sat an application anybody with the URL could read. One long-lived shared
- * secret closes it. There is no session here and nothing to revoke — the
- * cookie holds the secret itself, so rotating it is a redeploy.
+ * ADR-0020 put one long-lived shared secret here, and the cookie held the
+ * secret itself — so this file could decide by comparing. It now holds an
+ * opaque session id, and what can be decided here without a database is
+ * whether the engineer has one at all. Whether it is still a session is the
+ * API's answer, given on every request it validates (`apps/api/src/gate.ts`);
+ * a browser carrying a revoked one is refused there and sent here by
+ * `apiFetch`, which is the one door.
  *
  * `proxy.ts` and not `middleware.ts`: Next 16 deprecated that file convention
  * and renamed it, with the mechanism unchanged.
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { EDGE_COOKIE, UNLOCK_PATH, unlocked } from './app/edge-secret';
+import { SESSION_COOKIE, SIGN_IN_PATH } from './app/session';
 
 export const config = {
   /**
    * Everything except what Next serves as a static asset. Those carry no
    * record — the API's origin is not even in the client bundles — and gating
-   * them would leave the unlock screen itself styleless in front of an
+   * them would leave the sign-in screen itself styleless in front of an
    * engineer who has no way in yet.
    *
-   * `/unlock` is deliberately **not** excluded here. A path a matcher skips
+   * `/sign-in` is deliberately **not** excluded here. A path a matcher skips
    * is a path this file never sees, and a server action is a POST to the
    * route it is used on, so an exclusion silently un-gates that route's
    * actions as well. Everything is matched; the one exemption is below,
@@ -33,16 +35,21 @@ export const config = {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname === UNLOCK_PATH || unlocked(request.cookies.get(EDGE_COOKIE)?.value)) {
+  // An empty value is no cookie: a browser that has been handed `session=`
+  // would otherwise get past here and be refused by the API one round trip
+  // later, which is a redirect the engineer sees for no reason.
+  const presented = request.cookies.get(SESSION_COOKIE)?.value;
+
+  if (pathname === SIGN_IN_PATH || (presented !== undefined && presented !== '')) {
     return NextResponse.next();
   }
 
   /**
-   * A page the engineer typed or followed a link to is sent to the unlock
+   * A page the engineer typed or followed a link to is sent to the sign-in
    * screen, and told where to come back to.
    *
    * Everything else is refused where it stands. An `EventSource` follows a
-   * redirect, would parse the unlock page as a stream, fail, and reconnect
+   * redirect, would parse the sign-in page as a stream, fail, and reconnect
    * forever without ever showing anybody an error — so the four live screens
    * get a 401 they can see. So do the server actions, whose reply is not a
    * document either.
@@ -52,13 +59,10 @@ export function proxy(request: NextRequest) {
     (request.headers.get('accept') ?? '').includes('text/html');
 
   if (!wantsPage) {
-    return NextResponse.json(
-      { message: 'This deployment is gated. Present the shared secret.' },
-      { status: 401 },
-    );
+    return NextResponse.json({ message: 'Not signed in.' }, { status: 401 });
   }
 
-  const unlock = new URL(UNLOCK_PATH, request.nextUrl);
-  unlock.searchParams.set('next', pathname + request.nextUrl.search);
-  return NextResponse.redirect(unlock);
+  const signIn = new URL(SIGN_IN_PATH, request.nextUrl);
+  signIn.searchParams.set('next', pathname + request.nextUrl.search);
+  return NextResponse.redirect(signIn);
 }

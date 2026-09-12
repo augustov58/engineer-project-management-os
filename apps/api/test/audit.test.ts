@@ -75,6 +75,7 @@ async function actions(app: TestApi, projectId: string) {
  * checked: the list may name no route the API does not register either.
  */
 const AUDITED = [
+  'DELETE /v1/sessions/current',
   'DELETE /v1/submissions/:id/open-items/:openItemId',
   'POST /v1/assumption-records/:id/assumptions/:line/counterfactual',
   'POST /v1/assumption-records/:id/flags/:line/open-item',
@@ -123,6 +124,7 @@ const AUDITED = [
   'POST /v1/register-entries/:id/submission',
   'POST /v1/register-entries/:id/turnaround',
   'POST /v1/registers/:id/entries',
+  'POST /v1/sessions',
   'POST /v1/site-visit-floors/:id/complete',
   'POST /v1/site-visits/:id/end',
   'POST /v1/site-visits/:id/floors',
@@ -135,6 +137,8 @@ const AUDITED = [
   'POST /v1/submissions/:id/open-items',
   'POST /v1/submissions/:id/open-items/:openItemId',
   'POST /v1/submissions/:id/reissue',
+  'POST /v1/users',
+  'POST /v1/users/:id/disable',
   'POST /v1/voice-captures/:id/observation',
   'POST /v1/voice-captures/:id/retry',
 ];

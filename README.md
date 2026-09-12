@@ -31,21 +31,38 @@ Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, f
 both things that run off the request — transcribing a recording and rendering a site visit
 report (ADR-0035) — so there is still no third thing to start.
 
-**Both apps refuse to boot without `EDGE_SECRET`** (ADR-0020). It is the one shared secret
-in front of every route, and the whole of this deployment's access control — there are no
-accounts. The `.env.example` files carry a development value, which is not a secret and is
-in source for that reason; a deployment generates a long random string at deploy time,
-holds it in the secret manager, and gives the *same* value to both apps. Rotating it is a
-redeploy: nothing is stored, so there is no session to revoke.
+**There are accounts** (ADR-0055, superseding ADR-0012 and ADR-0020). A person is a row in
+`users`, a signed-in browser is a row in `sessions`, and the gate in front of every route
+is that session. No environment variable configures any of it, and there is nothing to
+rotate by redeploying: a session is revoked on its own row, which is the property the
+shared secret it replaces never had.
 
-The browser is sent to `/unlock`, where the secret is presented once and kept in a cookie.
-The Next server presents it to the API as a header. Two things are worth knowing before
-deploying:
+**A deployment with no accounts is one nobody can sign in to**, so the first one is made on
+the machine:
+
+```bash
+pnpm --filter api user create "Your Name" you@example.com   # then type a password
+pnpm --filter api user reset you@example.com               # the way back in
+pnpm --filter api user enable you@example.com              # re-open a closed account
+```
+
+The password is read from the terminal with the echo off, or from a pipe when there is
+none — never from an argument, which is in the shell's history and in `ps`. On Fly:
+`fly ssh console --app epmos-t1 -C "/home/app/src/scripts/user.sh create 'Your Name' you@example.com"`.
+After that, any signed-in engineer adds the next account at `/users`; it is an audited
+mutation like any other, and there are no roles (ADR-0055 part 7).
+
+The browser is sent to `/sign-in`, and the session id is kept in an `httpOnly` cookie for a
+year. The Next server forwards it to the API as `x-session-id`. Two things are worth
+knowing before deploying:
 
 - `GET /v1/health` is gated with everything else, so a managed platform's HTTP health check
-  must be configured to send `x-edge-secret` (Fly can; Render cannot) or be a TCP check.
-- `POST /v1/ingest/inbound-mail` is the one route the gate lets through, because inbound
-  mail can present nothing. Its address is its credential (ADR-0042).
+  must be configured to send a session or be a TCP check. This deployment checks `/sign-in`
+  on the Next listener instead, which needs no credential (ADR-0045).
+- `POST /v1/ingest/inbound-mail` is the one route the gate lets through with nothing at
+  all, because inbound mail can present nothing. Its address is its credential (ADR-0042).
+  `POST /v1/sessions` is **not** a second exemption: it presents an email and a password
+  instead of a session and refuses everything else with the same 401 the gate does.
 
 **Recording audio needs a secure context.** `getUserMedia` is unavailable over plain HTTP
 except on `localhost`, so voice capture works on this machine and *not* on a phone reaching
@@ -444,24 +461,9 @@ ADR-0025 is why: they are exactly the controls it keeps as native elements so th
 serialise into a form correctly. Being unused is a decision there rather than an oversight,
 so they were left standing.
 
-**`pnpm --filter web build` needs an `EDGE_SECRET` that is not the one in
-`.env.example`.** `next build` runs with `NODE_ENV=production`, and `next.config.ts`
-refuses the development value on purpose, since it is in source and therefore known
-(ADR-0020). `pnpm dev` copies `.env.example` to `.env`, so the value is usually sitting
-there and the build stops before it compiles anything. It does say why — the thrown
-sentence names the cause on the line below — but the headline is
-`Failed to load next.config.ts`, which reads like a syntax error in the config and sends
-you looking in the wrong file:
-
-```
-⨯ Failed to load next.config.ts, see more info here https://nextjs.org/docs/messages/next-config-error
-> Build error occurred
-Error: EDGE_SECRET is the development value from apps/web/.env.example, which is in
-source and so is known. Generate one at deploy time.
-```
-
-Generate one for the run:
-
-```bash
-EDGE_SECRET=$(head -c 32 /dev/urandom | base64) pnpm --filter web build
-```
+**`pnpm --filter web build` needs nothing.** It needed a *generated* `EDGE_SECRET` until
+issue #105 — `next.config.ts` refused the development value under `NODE_ENV=production`,
+which `next build` sets, and the build stopped at config load under a
+`Failed to load next.config.ts` headline that read like a syntax error in the config and
+sent you looking in the wrong file. There is no secret to check now, so that guard and its
+misleading headline are both gone.

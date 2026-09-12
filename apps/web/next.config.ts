@@ -20,41 +20,17 @@ function lanAddresses(): string[] {
 }
 
 /**
- * The one shared secret in front of every route (ADR-0020).
+ * **No credential is checked here any more** (issue #105, ADR-0055).
  *
- * Checked here because this file is the only thing Next loads before it
- * serves anything — `next dev`, `next build` and `next start` all read it —
- * so a missing secret is a refusal to boot rather than a deployment that
- * comes up open. `pnpm dev` copies `.env.example` to `.env`, which carries a
- * development value; a deployment supplies a real one from its secret
- * manager, and rotating it is a redeploy.
+ * This file is the only thing Next loads before it serves anything, so it was
+ * where a missing shared secret became a refusal to boot rather than a
+ * deployment that came up open. There is no shared secret now: the gate is a
+ * session belonging to a person, the first account is made by a command on the
+ * machine, and a deployment with no accounts is one nobody can sign in to —
+ * which is the closed state, reached without a variable to forget. The name
+ * that used to be read here is deliberately not written anywhere in this app;
+ * `test/session.test.ts` asserts that.
  */
-if (
-  process.env['EDGE_SECRET'] === undefined ||
-  process.env['EDGE_SECRET'] === ''
-) {
-  throw new Error(
-    'EDGE_SECRET is not set. Copy apps/web/.env.example to apps/web/.env.',
-  );
-}
-
-/**
- * And the value `.env.example` carries is refused in production, because it
- * is in source and therefore known. `pnpm dev` copies that file to `.env`, so
- * a deployment that shipped the working tree would otherwise pass every check
- * above while being open to anybody who has read this repository. Next sets
- * `NODE_ENV` itself for `build` and `start`, so this half always fires.
- */
-if (
-  process.env.NODE_ENV === 'production' &&
-  process.env['EDGE_SECRET'] === 'development-only-not-a-secret'
-) {
-  throw new Error(
-    'EDGE_SECRET is the development value from apps/web/.env.example, which ' +
-      'is in source and so is known. Generate one at deploy time.',
-  );
-}
-
 /**
  * `next dev` already listens on every interface, but it refuses to serve its
  * own `/_next/*` assets to a browser whose origin is not on its allow list.
