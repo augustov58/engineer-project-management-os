@@ -36,8 +36,9 @@ ADR-0054), **users and sessions replacing the edge gate** (#105, ADR-0055) — t
 shared secret is configured anywhere in either app — and **the gates** (#106, ADR-0052):
 `.github/workflows/ci.yml` runs typecheck, both suites and the web build on every push and
 pull request, and does not deploy. The platform health check is now `/healthz`, a Next route
-that reaches the API, and it has **not** yet been verified on the machine that serves, which
-is what ADR-0045 asks of it. The per-slice record is the milestone table in
+that reaches the API, **verified on the machine that serves** on 2026-09-13 as ADR-0045
+requires: with the API process frozen and Next still serving, it answered 503 where `/sign-in`
+read green. The readings are in ADR-0045. The per-slice record is the milestone table in
 [CONTEXT.md](./CONTEXT.md) and the change log in [docs/changelog.md](./docs/changelog.md).
 Work one ticket at a time, and only when asked.
 
