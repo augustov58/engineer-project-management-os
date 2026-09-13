@@ -77,6 +77,18 @@ test('the sign-in screen is exempted inside the function, and its own action wit
   }
 });
 
+test('the platform check is let past, and it is not a page navigation', () => {
+  // Fly presents no cookie and asks for no document, so without this it would
+  // take the 401 branch below and read a healthy machine as a dead one. It is
+  // exempted inside the function for the reason `/sign-in` is, and `/healthz`
+  // answers on a route handler, which has no server action to un-gate either.
+  expect(proxy(request('/healthz')).status).toBe(200);
+
+  for (const pattern of config.matcher) {
+    expect(pattern).not.toContain('healthz');
+  }
+});
+
 test('a session gets through, and an empty cookie is no session at all', () => {
   expect(proxy(request('/pending', { headers: PAGE, session: 'aWtT9' })).status).toBe(200);
 

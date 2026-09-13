@@ -92,12 +92,18 @@ primary_region = "iad"
     timeout = "5s"
     grace_period = "40s"
     method = "GET"
-    # `/sign-in` and not `/v1/health`: the gate covers the health route with
+    # `/healthz` and not `/v1/health`: the gate covers the health route with
     # everything else, deliberately, so a platform check would have to carry a
-    # session. `/sign-in` is the one path the gate lets by, so checking it
-    # needs no credential and still proves the Next server is serving. It
-    # replaces `/unlock`, which this checked until issue #105.
-    path = "/sign-in"
+    # session and this one has none. `/healthz` is a route of the Next server
+    # that calls the API through the one door and answers 503 when nothing
+    # answers it — so the check watches the process it is a check on, which is
+    # ADR-0052's sixth point and closes issue #94.
+    #
+    # It replaces `/sign-in`, which this checked between issues #105 and #106,
+    # and `/unlock` before that. Both were served entirely by Next and proved
+    # only that Next was serving: an API that was OOM-killed or wedged left
+    # this check green and the machine never restarted.
+    path = "/healthz"
 
 [[vm]]
   size = "shared-cpu-1x"

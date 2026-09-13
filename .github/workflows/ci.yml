@@ -1,0 +1,81 @@
+# The four gates, run on every push and every pull request (ADR-0052).
+#
+# Until this file there was no CI: ADR-0045 recorded it, and every gate ran
+# when someone remembered to run it. Three post-MVP defects reached the machine
+# that serves before anyone did.
+#
+# It gates and does **not** deploy. ADR-0045 chose one machine with a mounted
+# volume, so a deploy on every green merge is a migration on every green merge,
+# and that is a second decision ADR-0052 deliberately did not take. Its named
+# trigger for taking it: the first deploy that is late because a person was.
+name: Gates
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A branch pushed twice in a minute is one branch. The older run is answering a
+# question nobody is waiting for.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # `corepack`, as the Dockerfile does, so the pnpm that runs here is the
+      # one `packageManager` names and not whatever the runner image ships.
+      - run: corepack enable
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      # Chrome's **default** sandbox, which ADR-0035 keeps rather than passing
+      # `--no-sandbox`, needs an unprivileged user namespace. Ubuntu restricts
+      # those through AppArmor, so a report test would fail here for the same
+      # class of reason it needs `seccomp=unconfined` under Docker locally
+      # (ADR-0045). The machine that serves applies neither filter: Fly's
+      # Firecracker VMs have no such profile, and `scripts/chrome-probe.sh` is
+      # what proves the sandbox holds there. This line is about the runner and
+      # says nothing about production.
+      - name: Let Chrome open its sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # `--frozen-lockfile`: a lockfile a dependency edit forgot is a red gate
+      # and not a silently different install. This also runs `prisma generate`
+      # and fetches the Chrome that puppeteer drives.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # The suite starts its own PostgreSQL 16 and Redis 7 through
+      # Testcontainers and migrates a template database with the same
+      # `prisma migrate deploy` production deploys, so there is no `services:`
+      # block above: one would sit unread beside the containers the suite
+      # starts anyway. Real Postgres and real Redis either way, which is what
+      # ADR-0052 asked for.
+      - name: API suite
+        run: pnpm --filter api test
+
+      - name: Web suite
+        run: pnpm --filter web test
+
+      # The fourth gate, and the only one that compiles the stylesheet or reads
+      # a route's generated types — which is why ADR-0049 keeps it outside
+      # `pnpm test` and `.claude/rules/web.md` has asked for it by hand until
+      # now. It needs nothing passed to it since issue #105.
+      - name: Web build
+        run: pnpm --filter web build

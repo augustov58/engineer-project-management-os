@@ -351,9 +351,20 @@ describe('the extraction run', () => {
     // What the OCR step read, stored for audit (ADR-0008).
     expect(pending.ocrText).toContain('fake OCR page');
     // The run is done; the proposal awaits the engineer.
-    expect(pending.finishedAt).not.toBeNull();
-    expect(pending.confirmedAt).toBeNull();
-    expect(pending.rejectedAt).toBeNull();
+    //
+    // Waited for rather than read off `pending` above, and that is the product
+    // and not the test: `pending` is derived from `proposedAt`, which the agent
+    // writes under its own session, and the worker stamps `finishedAt` one
+    // write later. So there is a window — a few milliseconds here, longer on a
+    // loaded CI runner — where the state is `pending` and the run is not yet
+    // finished. Reading both off one poll made this test red about once a full
+    // parallel run, which is a gate that lies (issue #106).
+    const finished = await until(async () => {
+      const found = await extraction(app, queued.id);
+      return found.finishedAt === null ? undefined : found;
+    }, `extraction ${queued.id} to be stamped finished`);
+    expect(finished.confirmedAt).toBeNull();
+    expect(finished.rejectedAt).toBeNull();
   });
 
   test('the document path proposes no title and no revision', async () => {
