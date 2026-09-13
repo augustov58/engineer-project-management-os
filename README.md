@@ -356,6 +356,9 @@ docs/       Agent-facing notes; the ADRs and glossary live in the vault
 - **The renderer is not behind a port** (ADR-0035), which is the first deliberate departure
   from the `TimeSource` / `ObjectStore` / `Transcriber` pattern. Each of those defers a pick
   no test can exercise: a bucket that does not exist, a vendor account nobody has chosen.
+  (Two of those picks have since been made — ADR-0060 and ADR-0061, issue #109 — and the
+  ports stayed, because what they defer now is *which adapter a deployment runs*, and the
+  default is still one that refuses.)
   Chrome is not a pick — no account, no key, no network, no per-call cost, and puppeteer
   pins its own build — so a port would defer nothing while costing the acceptance test its
   subject, the ticket asking for an assertion on the resulting *document*. The real renderer

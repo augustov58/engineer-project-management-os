@@ -27,10 +27,11 @@ reviewing project memory closed as issue #42 and the root typecheck repaired as 
 That is every step of the six-step **Revised MVP sequence** in `PRD and Architecture.md`
 including step 1, which was done 2026-09-05 on job **260001** — the four items the PRD names
 are T-1's *examples* of an open item's shape, not a checklist, and reading them as one is what
-kept the step open; do not re-raise it. What remains of step 5 is the OCR adapter and its
-vendor pick, which is where employer consent now attaches.
+kept the step open; do not re-raise it. **Step 5 is done since #109**: consent landed
+2026-09-08 and both adapters are written, so "no adapter exists" is
+spent. The **inbound mail provider stays unwritten**, the last vendor pick.
 
-**Post-MVP has started** (issue #103). Five tickets have landed: the timezone frame (#104,
+**Post-MVP has started** (issue #103). Six tickets have landed: the timezone frame (#104,
 ADR-0054), **users and sessions replacing the edge gate** (#105, ADR-0055) — there is a
 `users` table at last, a deployment's first account is a command on the machine, and no
 shared secret is configured anywhere in either app — and **the gates** (#106, ADR-0052):
@@ -41,7 +42,9 @@ carry a manifest and are reachable as `POST /v1/tools/:name`, and the route **re
 nothing** — recording is still confirming an assumption record against a submission. It is
 the one mutating-method route exempt from the audit sweep, and the first non-TypeScript code
 here — and **extraction reachable** (#108, no ADR): the register screen asks for one over a
-stored document and every ask lands on the confirmation screen. The platform health check is now `/healthz`, a Next route
+stored document and every ask lands on the confirmation screen — and **the vendor picks** (#109, ADR-0060/0061):
+`OCR=azure` is Azure AI Document Intelligence, `TRANSCRIBER=azure` Azure AI Speech **fast**
+transcription. Both refuse by default; no key in source. The platform health check is now `/healthz`, a Next route
 that reaches the API, **verified on the machine that serves** on 2026-09-13 as ADR-0045
 requires: with the API process frozen and Next still serving, it answered 503 where `/sign-in`
 read green. The readings are in ADR-0045. The per-slice record is the milestone table in
