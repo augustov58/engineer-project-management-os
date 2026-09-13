@@ -1,5 +1,5 @@
 import { requireEnv } from './env.js';
-import { complaint, isAbort, pause, waitFor } from './vendor.js';
+import { complaint, isAbort } from './vendor.js';
 
 /**
  * What a document says, as text, injectable at the worker the way
@@ -100,6 +100,16 @@ const OCR_API_VERSION = '2024-11-30';
 const OCR_WALL_CLOCK_MS = 300_000;
 
 /**
+ * How long the delete may take, separately from the read.
+ *
+ * Ten seconds, because it carries no document and reads no result — it is one
+ * round trip saying *forget this* — and because it runs after the read has
+ * either finished or run out of time, so it must not be able to add another
+ * five minutes to a job that has already spent them.
+ */
+const FORGET_WALL_CLOCK_MS = 10_000;
+
+/**
  * How long to wait between polls when the vendor names nothing itself.
  *
  * The vendor asks for no more than one poll every two seconds and answers with
@@ -107,6 +117,54 @@ const OCR_WALL_CLOCK_MS = 300_000;
  * not.
  */
 const OCR_POLL_MS = 2_000;
+
+/** A `Retry-After` is honoured, but never past this — the bound is ours. */
+const MAX_POLL_MS = 30_000;
+
+/**
+ * How long to wait before asking again: the vendor's opinion where it has one,
+ * ours where it does not, and never longer than `MAX_POLL_MS`.
+ *
+ * Clamped because `Retry-After` is a value the far side chooses, and an hour of
+ * it would hold a worker slot for an hour inside a wall clock that was supposed
+ * to bound exactly that. Only the delta-seconds form is read; the HTTP-date
+ * form falls to the floor below, which is a slower poll and never a wrong one.
+ *
+ * Here and not in `vendor.ts` because it has exactly one reader — the
+ * transcription adapter answers in a single call and never polls — and
+ * ADR-0033's trigger is a *second* record reaching for a thing, not the
+ * expectation that one might.
+ */
+function retryDelayMs(response: Response, floorMs: number): number {
+  const after = Number(response.headers.get('retry-after'));
+  return Number.isFinite(after) && after > 0
+    ? Math.min(after * 1000, MAX_POLL_MS)
+    : floorMs;
+}
+
+/**
+ * Wait, and stop waiting early if the wall clock runs out.
+ *
+ * Not `setTimeout` alone: a poll floor of thirty seconds inside a bound that
+ * has already expired is thirty seconds of a worker doing nothing before it
+ * reads the signal that was set before it started sleeping. An already-aborted
+ * signal is checked rather than listened for, because `abort` does not fire
+ * again on a signal that has already fired.
+ */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
 
 /** What a deployment must supply to reach Azure AI Document Intelligence. */
 export interface AzureOcrOptions {
@@ -159,6 +217,17 @@ export function azureDocumentIntelligenceOcr(
   const analyzeUrl = `${endpoint}/documentintelligence/documentModels/${READ_MODEL}:analyze?api-version=${OCR_API_VERSION}`;
 
   /**
+   * What the row says when the bound was reached rather than the vendor
+   * answering.
+   *
+   * One sentence with two callers — the loop notices a spent clock between
+   * polls, and the `catch` notices a `fetch` the platform aborted mid-flight —
+   * and it is a sentence a person reads off a screen, so the two must not be
+   * free to drift apart.
+   */
+  const ranOut = () => `the OCR vendor did not finish within ${wallClockMs} ms`;
+
+  /**
    * The result is read, and then forgotten at the vendor whatever happened.
    *
    * Never allowed to throw: the worker stores `ocr_text` before it calls the
@@ -167,10 +236,24 @@ export function azureDocumentIntelligenceOcr(
    * clean up turned into a failure to extract. What it costs when it does fail
    * is the vendor's own 24-hour expiry, which is where the document would have
    * sat anyway.
+   *
+   * **Its own bound, and deliberately not the read's.** This runs in a
+   * `finally`, so the commonest reason to reach it with the read's wall clock
+   * already expired is that the wall clock expired — and that is exactly the
+   * case where the document is still sitting at the vendor and most wants
+   * deleting. Handing it the spent signal would skip the delete precisely
+   * then. Handing it no signal at all is what the first version did, and that
+   * is worse in the other direction: an unbounded call inside a function whose
+   * whole promise is a bound, so a vendor that stopped answering turned five
+   * minutes into however long the platform's own default is.
    */
   const forget = async (result: string) => {
     try {
-      await call(result, { method: 'DELETE', headers: identifying });
+      await call(result, {
+        method: 'DELETE',
+        headers: identifying,
+        signal: AbortSignal.timeout(FORGET_WALL_CLOCK_MS),
+      });
     } catch {
       // Nothing: see above.
     }
@@ -199,11 +282,9 @@ export function azureDocumentIntelligenceOcr(
         );
       }
       if (timeout.aborted) {
-        throw new Error(
-          `the OCR vendor did not finish within ${wallClockMs} ms`,
-        );
+        throw new Error(ranOut());
       }
-      await pause(waitFor(response, pollMs), timeout);
+      await pause(retryDelayMs(response, pollMs), timeout);
     }
   };
 
@@ -238,9 +319,7 @@ export function azureDocumentIntelligenceOcr(
         // bound has to be said here as well as inside the loop, or a held
         // vendor call reads on the row as the platform's own word for it.
         if (timeout.aborted && isAbort(error)) {
-          throw new Error(
-            `the OCR vendor did not finish within ${wallClockMs} ms`,
-          );
+          throw new Error(ranOut());
         }
         throw error;
       }

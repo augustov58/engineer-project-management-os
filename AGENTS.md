@@ -42,7 +42,7 @@ carry a manifest and are reachable as `POST /v1/tools/:name`, and the route **re
 nothing** — recording is still confirming an assumption record against a submission. It is
 the one mutating-method route exempt from the audit sweep, and the first non-TypeScript code
 here — and **extraction reachable** (#108, no ADR): the register screen asks for one over a
-stored document and every ask lands on the confirmation screen. — and **the vendor picks** (#109, ADR-0060/0061):
+stored document and every ask lands on the confirmation screen — and **the vendor picks** (#109, ADR-0060/0061):
 `OCR=azure` is Azure AI Document Intelligence, `TRANSCRIBER=azure` Azure AI Speech **fast**
 transcription. Both refuse by default; no key in source. The platform health check is now `/healthz`, a Next route
 that reaches the API, **verified on the machine that serves** on 2026-09-13 as ADR-0045

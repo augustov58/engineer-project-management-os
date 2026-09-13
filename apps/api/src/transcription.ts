@@ -182,11 +182,23 @@ export function azureSpeechTranscriber(
           );
         }
         const heard = (await response.json()) as FastTranscription;
-        // Silence is a thing a walk records and is not a failure: the capture
-        // reads as transcribed with nothing in it, and the engineer types what
-        // they meant to say. Stamping `failed_at` here would hide a recording
-        // the vendor answered perfectly well.
-        return heard.combinedPhrases?.[0]?.text ?? '';
+        // **Every entry, not the first.** The vendor returns one
+        // `combinedPhrases` entry per channel, so taking `[0]` drops a
+        // channel's words from a stereo recording while the capture still
+        // reads as *transcribed* — a rewrite by omission, which is the one
+        // thing ADR-0034 says a transcript may never suffer. The two ways to
+        // be wrong here are not symmetrical: a channel joined twice is
+        // duplicated text the engineer reads on the review screen and deletes,
+        // and a channel dropped is words nobody ever learns were said.
+        //
+        // Silence is a thing a walk records and is not a failure either: the
+        // capture reads as transcribed with nothing in it and the engineer
+        // types what they meant to say. Stamping `failed_at` here would hide a
+        // recording the vendor answered perfectly well.
+        return (heard.combinedPhrases ?? [])
+          .map((phrase) => phrase.text ?? '')
+          .filter((text) => text !== '')
+          .join('\n');
       } catch (error) {
         if (timeout.aborted && isAbort(error)) {
           throw new Error(

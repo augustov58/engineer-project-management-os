@@ -244,11 +244,12 @@ apply to every path stay in `AGENTS.md`.
   project need ever be switched, so **cloud processing with no recorded consent is the
   ordinary case**. Whoever writes the OCR adapter must read each existing project's
   location before the first run, not after. **That read was done on 2026-09-13 before any
-  vendor was configured** (issue #109): one project exists, on the cloud default, with no
-  sign-off recorded — the ordinary case, exactly as predicted. It is recorded in ADR-0060 and
-  **deliberately nowhere in the tracker**, that query's output being the class of material
-  `docs/agents/issue-tracker.md` forbids there. The duty attaches to the *state* and not to
-  the adapter's author, so it is live again the first time a real job is entered.
+  vendor was configured** (issue #109). **What it found is in ADR-0060 and nowhere in this
+  repository** — #109's first criterion says the vault ADR *only*, and a file in this repo is
+  on the tracker as surely as a comment is; that query's output is also the class of material
+  `docs/agents/issue-tracker.md` forbids there. Do not copy the finding here when you next
+  read it. The duty attaches to the *state* and not to the adapter's author, so it is live
+  again the first time a real job is entered.
 - The **audit widened exactly once** here (ADR-0044), which is the change ADR-0043 said would
   be its own: one action, on the project's own setting, in the same transaction as the
   update. **That is no longer the boundary** — story 106 widened the audit to every mutating

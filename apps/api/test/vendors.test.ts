@@ -69,6 +69,8 @@ interface Call {
   method: string;
   headers: Headers;
   body: string | undefined;
+  /** The multipart parts, where the body was one. */
+  form: FormData | undefined;
 }
 
 /**
@@ -89,6 +91,7 @@ function scriptedFetch(script: (call: Call) => Response) {
       method: init?.method ?? 'GET',
       headers: new Headers(init?.headers),
       body: typeof init?.body === 'string' ? init.body : undefined,
+      form: init?.body instanceof FormData ? init.body : undefined,
     };
     calls.push(call);
     return script(call);
@@ -318,6 +321,47 @@ test('a vendor that never finishes is bounded by the wall clock', async () => {
   ).rejects.toThrow(/did not finish/);
 });
 
+test('a vendor that hangs on the delete does not hang the job', async () => {
+  // The delete runs in a `finally` after the read, so an unbounded one would
+  // add its own wait to a function whose whole promise is a bound — and the
+  // read has already succeeded by then, so nothing else would ever stop it.
+  const fetcher = ((_input: unknown, init?: RequestInit) => {
+    if (init?.method === 'DELETE') {
+      // Hangs, and settles only if something aborts it. `init.signal?` and not
+      // `init.signal!`: with the bound removed there is no signal, and the
+      // non-null assertion would throw a TypeError that `forget`'s catch
+      // swallows — which made the first version of this test pass against the
+      // very bug it was written for.
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener(
+          'abort',
+          () => reject(init.signal?.reason),
+          { once: true },
+        );
+      });
+    }
+    return Promise.resolve(
+      init?.method === 'POST'
+        ? accepted()
+        : analysis({ status: 'succeeded', analyzeResult: { content: 'page' } }),
+    );
+  }) as unknown as typeof globalThis.fetch;
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+
+  // It resolves at all, and with the text the vendor already gave: the
+  // delete's own bound expires and is swallowed. Without a signal on that
+  // call this test does not return.
+  expect(await provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf')).toBe(
+    'page',
+  );
+}, 20_000);
+
 // --- the transcription adapter ---------------------------------------------
 
 test('the recording goes up as its own bytes and the words come back', async () => {
@@ -343,6 +387,78 @@ test('the recording goes up as its own bytes and the words come back', async () 
     `${ENDPOINT}/speechtotext/transcriptions:transcribe?api-version=2025-10-15`,
   );
   expect(call!.headers.get('ocp-apim-subscription-key')).toBe(KEY);
+});
+
+test('the recording is one multipart part and the ask is another', async () => {
+  const fetcher = scriptedFetch(() =>
+    analysis({ combinedPhrases: [{ text: 'words' }] }),
+  );
+
+  const transcriber = azureSpeechTranscriber({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+  });
+  await transcriber.transcribe(AN_AUDIO, 'audio/webm');
+
+  // The part names are the vendor's and nothing here can discover them: if
+  // `audio` were `file` the adapter would fail in production and every other
+  // test in this file would still pass. Asserted so the wire shape is written
+  // down once rather than assumed twice.
+  const form = fetcher.calls[0]!.form!;
+  expect([...form.keys()].sort()).toEqual(['audio', 'definition']);
+  expect(form.get('definition')).toBe(JSON.stringify({ locales: ['en-US'] }));
+
+  const sent = form.get('audio') as File;
+  expect(sent.type).toBe('audio/webm');
+  // The port carries no filename and the vendor reads the extension as a hint
+  // to its own demuxer, so it is composed from the content type — the mapping
+  // `voice-form.tsx` already uses to name a recording.
+  expect(sent.name).toBe('recording.webm');
+  expect(Buffer.from(await sent.arrayBuffer())).toEqual(AN_AUDIO);
+});
+
+test('a content type outside the closed three is sent unnamed rather than mislabelled', async () => {
+  const fetcher = scriptedFetch(() =>
+    analysis({ combinedPhrases: [{ text: 'words' }] }),
+  );
+
+  const transcriber = azureSpeechTranscriber({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+  });
+  await transcriber.transcribe(AN_AUDIO, 'audio/flac');
+
+  // Guessing an extension here would tell the vendor something false about
+  // bytes it is about to demux; leaving it off leaves it to sniff.
+  const sent = fetcher.calls[0]!.form!.get('audio') as File;
+  expect(sent.name).toBe('recording');
+  expect(sent.type).toBe('audio/flac');
+});
+
+test('every channel the vendor heard is kept, not the first', async () => {
+  const fetcher = scriptedFetch(() =>
+    analysis({
+      combinedPhrases: [
+        { text: 'the engineer speaking' },
+        { text: 'the superintendent answering' },
+      ],
+    }),
+  );
+
+  const transcriber = azureSpeechTranscriber({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+  });
+
+  // The vendor returns one entry per channel. Keeping `[0]` would drop the
+  // second speaker while the capture still read as transcribed — a rewrite by
+  // omission, and an invisible one, which is what ADR-0034 forbids.
+  expect(await transcriber.transcribe(AN_AUDIO, 'audio/webm')).toBe(
+    'the engineer speaking\nthe superintendent answering',
+  );
 });
 
 test('a recording the vendor heard nothing in transcribes to nothing, and does not fail', async () => {
