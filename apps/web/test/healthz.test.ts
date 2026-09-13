@@ -44,7 +44,28 @@ test('the API answering at all is the machine being healthy', async () => {
   const response = await check();
 
   expect(response.status).toBe(200);
-  expect(apiFetch).toHaveBeenCalledWith('/health', expect.anything());
+
+  // The three things about the call that carry the behaviour, asserted rather
+  // than waved at: without `refusal: 'answer'` a health check gets redirected
+  // to the sign-in screen, without a `signal` a wedged API is Fly's five
+  // seconds to notice instead of this route's three, and a cached answer is a
+  // check on the cache.
+  const [path, init] = apiFetch.mock.calls[0] as [string, RequestInit & { refusal?: string }];
+  expect(path).toBe('/health');
+  expect(init.refusal).toBe('answer');
+  expect(init.cache).toBe('no-store');
+  expect(init.signal).toBeInstanceOf(AbortSignal);
+});
+
+test("the API's answer is drained and not left holding a socket", async () => {
+  // Every thirty seconds, forever, on the 1 gb machine whose memory is the
+  // reason this check exists.
+  const answered = new Response(JSON.stringify({ queue: { waiting: 0 } }));
+  apiFetch.mockResolvedValue(answered);
+
+  await check();
+
+  expect(answered.bodyUsed).toBe(true);
 });
 
 test("the gate's own refusal is an answer, because the process gave it", async () => {
@@ -91,10 +112,10 @@ test('the path the proxy lets past is the path a route answers on', () => {
   // Two halves that must agree and are written in two files: renaming the
   // directory without the proxy leaves the check redirected to sign-in, and
   // Fly would read a 307 as a machine to restart.
-  const paths = productSources().map((source) => source.path);
-  expect(paths).toContain('app/healthz/route.ts');
+  const sources = productSources();
+  expect(sources.map((source) => source.path)).toContain('app/healthz/route.ts');
 
-  const proxySource = productSources().find((source) => source.path === 'proxy.ts');
+  const proxySource = sources.find((source) => source.path === 'proxy.ts');
   expect(proxySource?.text).toContain("'/healthz'");
 });
 

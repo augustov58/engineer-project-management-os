@@ -19,8 +19,13 @@ permissions:
 
 # A branch pushed twice in a minute is one branch. The older run is answering a
 # question nobody is waiting for.
+#
+# Keyed on `head_ref` where there is one, because `github.ref` is
+# `refs/heads/<branch>` on a push and `refs/pull/N/merge` on a pull request:
+# keyed on that, a branch with a PR open runs every gate twice and neither run
+# cancels the other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -61,17 +66,22 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      # The suite starts its own PostgreSQL 16 and Redis 7 through
+      # The root command and not `--filter api` plus `--filter web`, so a
+      # package added in a later slice is gated without anybody remembering —
+      # the argument `gate.md` makes for sweeping every registered route and
+      # `test/sources.ts` for walking the tree. It is also the command AGENTS.md
+      # documents, which is the one issue #49 found had rotted while nothing ran
+      # it. Two of ADR-0052's four gates, in one step: `pnpm -r test` prefixes
+      # each package's output with its name, so a red run still says which.
+      #
+      # The API half starts its own PostgreSQL 16 and Redis 7 through
       # Testcontainers and migrates a template database with the same
       # `prisma migrate deploy` production deploys, so there is no `services:`
       # block above: one would sit unread beside the containers the suite
       # starts anyway. Real Postgres and real Redis either way, which is what
       # ADR-0052 asked for.
-      - name: API suite
-        run: pnpm --filter api test
-
-      - name: Web suite
-        run: pnpm --filter web test
+      - name: Both suites
+        run: pnpm test
 
       # The fourth gate, and the only one that compiles the stylesheet or reads
       # a route's generated types — which is why ADR-0049 keeps it outside

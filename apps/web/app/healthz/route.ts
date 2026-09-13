@@ -1,6 +1,21 @@
 import { apiFetch } from '../api';
 
 /**
+ * Never cached and never prerendered. `apiFetch` reads `cookies()`, which
+ * forces this dynamic on its own, so this line is a statement of intent rather
+ * than a load-bearing one: a health check answered from a cache is a check on
+ * the cache.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
+ * Under Fly's own `timeout = "5s"`, so a wedged API is reported by this route
+ * as a 503 rather than left for the platform to give up on. The same machine
+ * gets restarted either way; this way the reason is in the access log.
+ */
+const ANSWER_WITHIN_MS = 3_000;
+
+/**
  * The platform's health check, which reaches the API (issue #106, ADR-0052).
  *
  * ADR-0045 put the check on `/unlock` and issue #105 moved it to `/sign-in`,
@@ -22,18 +37,9 @@ import { apiFetch } from '../api';
  * answer it is. That is the half of #94 that was invisible; the other half, an
  * API that exited, `scripts/start.sh` already takes the machine down for.
  */
-export const dynamic = 'force-dynamic';
-
-/**
- * Under Fly's own `timeout = "5s"`, so a wedged API is reported by this route
- * as a 503 rather than left for the platform to give up on. The same machine
- * gets restarted either way; this way the reason is in the access log.
- */
-const ANSWER_WITHIN_MS = 3_000;
-
 export async function GET(): Promise<Response> {
   try {
-    await apiFetch('/health', {
+    const answer = await apiFetch('/health', {
       cache: 'no-store',
       // A third reader that must be able to hear *nobody*: this caller has no
       // session and never will, and the default would send a health check to
@@ -41,6 +47,11 @@ export async function GET(): Promise<Response> {
       refusal: 'answer',
       signal: AbortSignal.timeout(ANSWER_WITHIN_MS),
     });
+    // Read and dropped rather than left on the floor. Nothing here wants the
+    // body, and an undrained one holds its socket open until the garbage
+    // collector gets to it — every thirty seconds, forever, on a machine whose
+    // memory is the reason this check exists.
+    await answer.body?.cancel();
   } catch {
     // A connection refused by a dead process, or a request abandoned at the
     // timeout above. Both are the API not answering, which is the one thing

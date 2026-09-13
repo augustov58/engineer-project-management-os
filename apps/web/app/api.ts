@@ -75,11 +75,13 @@ export function apiPath(path: string): string {
  *
  * `sign-in` is right for every screen: the engineer's session was revoked or
  * has expired while they were reading, and the honest next thing is the
- * sign-in screen rather than a stack trace. `answer` is for the two readers
+ * sign-in screen rather than a stack trace. `answer` is for the three readers
  * that must be able to hear *nobody* — the sign-in call itself, which is made
- * with no session on purpose, and the header's read of who is signed in,
- * which renders on the sign-in screen too and would otherwise redirect to the
- * page it is already on, forever.
+ * with no session on purpose; the header's read of who is signed in, which
+ * renders on the sign-in screen too and would otherwise redirect to the page
+ * it is already on, forever; and `/healthz`, the platform's check, which has
+ * no session and never will, and reads the gate's 401 as proof the API
+ * process answered (issue #106).
  */
 export type Refusal = 'sign-in' | 'answer';
 
