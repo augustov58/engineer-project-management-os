@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import { ExtractionConfirmForm } from '../../../../extractions';
+import {
+  ExtractionConfirmForm,
+  ExtractionWatch,
+} from '../../../../extractions';
 import { getExtraction, getProject } from '../../../../api';
 
 /**
@@ -34,6 +37,44 @@ export default async function ExtractionPage({
     ? `/ingested-document-files/${extraction.ingestedDocumentFileId}/bytes`
     : `/document-versions/${extraction.documentVersionId}/bytes`;
 
+  /**
+   * What this screen says when there is nothing to confirm.
+   *
+   * Asking for an extraction lands here now (issue #108), so *queued* and
+   * *reading* are states the engineer arrives on rather than states only a
+   * stale tab shows, and each says what the run is doing instead of the one
+   * sentence that covered all three and read as a refusal on two of them.
+   * While the run can still move it is wrapped in the watch, so the proposal
+   * replaces this without anybody reloading; a resolved run opens no stream.
+   */
+  const running = extraction.state === 'queued' || extraction.state === 'running';
+  const nothingToConfirm = (
+    <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+      {extraction.state === 'confirmed' ? (
+        <>
+          Confirmed —{' '}
+          <Link
+            href={`/register-entries/${extraction.registerEntryId}`}
+            className="underline underline-offset-4"
+          >
+            the entry it became
+          </Link>
+          .
+        </>
+      ) : extraction.state === 'rejected' ? (
+        'Rejected. The source stands as it arrived.'
+      ) : extraction.state === 'failed' ? (
+        <>The run failed: {extraction.failure}</>
+      ) : extraction.state === 'queued' ? (
+        'Queued. Nothing has been read yet — the proposal arrives on this page.'
+      ) : extraction.state === 'running' ? (
+        'Reading the file. The proposal arrives on this page.'
+      ) : (
+        'Read, with nothing to propose.'
+      )}
+    </p>
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -57,26 +98,13 @@ export default async function ExtractionPage({
       </div>
 
       {extraction.state !== 'pending' ? (
-        <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
-          {extraction.state === 'confirmed' ? (
-            <>
-              Confirmed —{' '}
-              <Link
-                href={`/register-entries/${extraction.registerEntryId}`}
-                className="underline underline-offset-4"
-              >
-                the entry it became
-              </Link>
-              .
-            </>
-          ) : extraction.state === 'rejected' ? (
-            'Rejected. The source stands as it arrived.'
-          ) : extraction.state === 'failed' ? (
-            <>The run failed: {extraction.failure}</>
-          ) : (
-            'This extraction has not proposed anything to review.'
-          )}
-        </p>
+        running ? (
+          <ExtractionWatch projectId={id} extraction={extraction}>
+            {nothingToConfirm}
+          </ExtractionWatch>
+        ) : (
+          nothingToConfirm
+        )
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="space-y-3">

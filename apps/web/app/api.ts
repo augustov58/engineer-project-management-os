@@ -901,6 +901,20 @@ export function listDocuments(projectId: string): Promise<StoredDocument[]> {
   return read<StoredDocument[]>(`/projects/${projectId}/documents`);
 }
 
+/**
+ * The documents extraction may be pointed at: every one that is not a
+ * referenced file (ADR-0039).
+ *
+ * The same predicate the write refuses on, read rather than re-stated here —
+ * a screen that filtered `listDocuments` itself would be a second place the
+ * rule lives, free to disagree with the API that enforces it.
+ */
+export function listExtractionTargets(
+  projectId: string,
+): Promise<StoredDocument[]> {
+  return read<StoredDocument[]>(`/projects/${projectId}/extraction-targets`);
+}
+
 /** What this issuance's sheet list points at (story 95). */
 export function listSubmissionDocuments(
   submissionId: string,
