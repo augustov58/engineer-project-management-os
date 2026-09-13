@@ -145,6 +145,23 @@ const AUDITED = [
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+/**
+ * The one mutating-method route that records nothing, and why.
+ *
+ * `POST /v1/tools/:name` asks a helper skill a question and hands back what it
+ * printed (issue #107, ADR-0053). It is a POST because its arguments are a
+ * body, not because anything changes: no row is written, no stamp is set, and
+ * a line saying "a helper was asked" would put a reading into an append-only
+ * record of *changes*. Asking and recording are two acts, and the recording is
+ * still `POST /v1/assumption-records` against a submission (ADR-0029).
+ *
+ * One named exception is a property a test can hold and two is the start of a
+ * list — the argument `gate.md` makes for the ingest webhook, and the reason
+ * this is a set with one member rather than a flag on the sweep. A second entry
+ * here needs an ADR, not a line.
+ */
+const RECORDS_NOTHING = new Set(['POST /v1/tools/:name']);
+
 test('every mutating route the API registers is one that writes an audit line', async () => {
   const app = await api();
 
@@ -152,6 +169,7 @@ test('every mutating route the API registers is one that writes an audit line', 
     .routes()
     .filter((route) => MUTATING.has(route.method))
     .map((route) => `${route.method} ${route.url}`)
+    .filter((route) => !RECORDS_NOTHING.has(route))
     .sort();
 
   // A guard on the sweep itself, as the gate's has: if this ever collects
@@ -159,6 +177,20 @@ test('every mutating route the API registers is one that writes an audit line', 
   // would be untested.
   expect(registered.length).toBeGreaterThan(50);
   expect(registered).toEqual([...AUDITED].sort());
+});
+
+test('the helper route is the only mutating route exempt from the audit, and it is registered', async () => {
+  const app = await api();
+
+  // The exemption may not name a route that does not exist: an entry left
+  // behind after a route was renamed would silently un-gate the rename.
+  const registered = new Set(
+    app.routes().map((route) => `${route.method} ${route.url}`),
+  );
+  for (const exempt of RECORDS_NOTHING) {
+    expect(registered.has(exempt)).toBe(true);
+  }
+  expect([...RECORDS_NOTHING]).toEqual(['POST /v1/tools/:name']);
 });
 
 test('a job records what happened to it, from the first line onwards', async () => {

@@ -1,4 +1,9 @@
-# The four gates, run on every push and every pull request (ADR-0052).
+# The gates, run on every push and every pull request (ADR-0052).
+#
+# Four of them gate what this repository wrote; the fifth, since issue #107,
+# gates what it pinned — `apps/api/tools/` is a submodule of the helpers' own
+# repository, and a bad commit moved into it is a wrong number on a drawing
+# rather than a red typecheck.
 #
 # Until this file there was no CI: ADR-0045 recorded it, and every gate ran
 # when someone remembered to run it. Three post-MVP defects reached the machine
@@ -34,7 +39,22 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # `submodules: true`, for `apps/api/tools/` — the helpers' repository,
+      # pinned by commit (ADR-0053). Without it the registry reads an empty
+      # directory, registers nothing, and every helper test in the suite fails
+      # on an absence rather than on anything either repository wrote.
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+          # The helpers' repository is **private**, and the default
+          # `GITHUB_TOKEN` is scoped to this repository alone — so it checks
+          # this one out and then fails on the submodule. `HELPERS_READ_TOKEN`
+          # is a fine-grained personal access token with read access to
+          # `augustov58/electrical-helpers`; `actions/checkout` uses whatever
+          # token it is given for the submodules too. The fallback is what
+          # keeps a fork, or a clone before the secret exists, failing on the
+          # submodule with a sentence rather than on this line with none.
+          token: ${{ secrets.HELPERS_READ_TOKEN || github.token }}
 
       # `corepack`, as the Dockerfile does, so the pnpm that runs here is the
       # one `packageManager` names and not whatever the runner image ships.
@@ -107,3 +127,9 @@ jobs:
       # now. It needs nothing passed to it since issue #105.
       - name: Web build
         run: pnpm --filter web build
+
+      # The fifth gate: each helper's own test command, named by its manifest
+      # and run from its own directory. `ubuntu-latest` ships Python 3, which
+      # is the only thing these need — no pip, no requirements file.
+      - name: The helpers' own tests
+        run: ./scripts/helper-tests.sh

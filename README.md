@@ -21,9 +21,16 @@ render time with no browser to launch.
 ## Running it
 
 ```bash
+git submodule update --init   # the helper skills; see below
 pnpm install
 pnpm dev
 ```
+
+`apps/api/tools` is a **git submodule**, `augustov58/electrical-helpers`, pinned by commit
+(ADR-0053). It holds the firm's electrical helper skills — Python scripts that do the
+arithmetic this product never does. Without the submodule the registry is empty, every
+`POST /v1/tools/<name>` answers 404, and the helper tests fail on an absence; nothing else
+breaks. It is private, so a clone needs access to it.
 
 `pnpm dev` copies the `.env.example` files if no `.env` exists yet, starts PostgreSQL and
 Redis, applies migrations, and runs both apps: API on <http://127.0.0.1:3001>, frontend on
@@ -63,6 +70,9 @@ knowing before deploying:
   all, because inbound mail can present nothing. Its address is its credential (ADR-0042).
   `POST /v1/sessions` is **not** a second exemption: it presents an email and a password
   instead of a session and refuses everything else with the same 401 the gate does.
+- The image needs **`python3`** since issue #107, for the helper skills. No pip and no
+  requirements file: they import only the standard library. A deployment without it answers
+  every helper route with a sentence saying it cannot run one.
 
 **Recording audio needs a secure context.** `getUserMedia` is unavailable over plain HTTP
 except on `localhost`, so voice capture works on this machine and *not* on a phone reaching
@@ -86,12 +96,16 @@ break that, and would only fail on the second device.
 | `pnpm test` | API test suite — starts its own PostgreSQL and Redis, so nothing needs to be running first; a report test really launches Chrome and reads the PDF back |
 | `pnpm services:up` / `services:down` | The Docker containers on their own |
 | `pnpm --filter api migrate:dev` | Create a migration after editing `schema.prisma` |
+| `./scripts/helper-tests.sh` | Each helper skill's own test command, from its own directory — the fifth CI gate |
 
 ## Layout
 
 ```
 apps/api    Fastify API, Prisma schema and migrations, BullMQ queue and the worker that
             transcribes recordings and renders site visit reports
+apps/api/tools
+            The helper skills, a submodule pinned by commit — the only non-TypeScript
+            code here, and not edited from this repository
 apps/web    Next.js frontend (App Router)
 docs/       Agent-facing notes; the ADRs and glossary live in the vault
 ```

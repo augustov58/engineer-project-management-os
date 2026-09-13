@@ -15,9 +15,17 @@ FROM node:22-bookworm-slim
 # photographs that arrived from outside this product, and `--no-sandbox` is
 # the flag that would make one of them worth worrying about. Keeping the
 # sandbox is why this image runs as a non-root user below.
+#
+# `python3`, for the helper skills (issue #107, ADR-0053). They are the first
+# non-TypeScript code in the repository — the helpers' own repository, pinned
+# by commit as a submodule at `apps/api/tools/` — and they import nothing but
+# the standard library, so this is the interpreter and no pip, no requirements
+# file and no virtualenv. A helper the deployment cannot run is not a helper
+# the product has: without this line every helper route answers 503 saying so.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       fonts-liberation \
+      python3 \
       unzip \
       libasound2 \
       libatk-bridge2.0-0 \

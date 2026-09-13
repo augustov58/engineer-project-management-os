@@ -1,0 +1,8 @@
+{
+  "name": "wrong-record",
+  "computes": "Says its record is something this product cannot read as one.",
+  "entry": "run.py",
+  "arguments": { "passing": "flags", "schema": { "type": "object" } },
+  "record": "json",
+  "test": "true"
+}

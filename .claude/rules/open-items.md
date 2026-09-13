@@ -24,10 +24,15 @@ apply to every path stay in `AGENTS.md`.
   deletes one (ADR-0029). A rerun of the calculation is another record against the same
   submission, dated its own day.
 - An entry of either block is addressed by its **line number**, and every non-blank line is
-  an entry. Do not parse the `- ` / `! ` sigils the three calculators print: they are those
+  an entry. Do not parse the `- ` / `! ` sigils **the helper skills** print: they are those
   scripts' convention, not a contract, and reading them would make this refuse the next
   helper skill's output. `assumptionLines` and `flagLines` are split on every read and
-  stored nowhere.
+  stored nowhere. This read "the three calculators" until 2026-09-13 (issue #107), matching
+  ADR-0029's "all three", which its corrections of 2026-09-08 and 2026-09-11 found was never
+  true in either direction: one helper was on disk when 0029 was written and four are in the
+  helpers' repository now, three of them registered. **The decision rests on the sentence
+  that does not count** — a further helper is free to print something else — so the number is
+  gone from here rather than corrected to a new one that will also go stale.
 - Counterfactuals on an assumption record are **rows**, one per assumed input, keyed by the
   line of `ASSUMPTIONS` they are about (ADR-0029, story 39) — not the single column the
   PRD sketch names. A second one on the same input is refused, matching resolve.
