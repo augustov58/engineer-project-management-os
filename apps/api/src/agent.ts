@@ -19,6 +19,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SESSION_HEADER } from './gate.js';
+import { registry } from './helpers.js';
 import { Type } from 'typebox';
 
 /** What one run is asked to do. The id and the job, and nothing else. */
@@ -366,6 +367,46 @@ export function extractionRunTools(call: CallApi, extractionId: string) {
       },
     },
   ];
+}
+
+/**
+ * The helper skills, as domain tools, generated from the manifests (issue #107,
+ * ADR-0053 corrected 2026-09-11).
+ *
+ * Nothing here names a helper. The list is whatever `tools/` holds, so adding a
+ * helper is adding a directory in the helpers' repository and moving the pin —
+ * and `test/tools.test.ts` asserts the list is exactly the registered manifests
+ * and gains nothing else.
+ *
+ * Each one is a call of `POST /v1/tools/<name>` over the internal API, like
+ * every other domain tool: ADR-0053 amends ADR-0041's allowlist sentence from
+ * "this product's domain tools and nothing else" to "this product's routes and
+ * nothing else", and this is what that sentence buys. The subprocess runs on
+ * the API's side of that call, never inside the SDK's session, so ADR-0041's
+ * rule about an unread resolver is not re-opened.
+ *
+ * **Generated and not yet given to a run.** The two runs this product has are a
+ * memory proposal and an extraction, and neither may call a helper: ADR-0040
+ * fixes the memory run's read set and ADR-0043 gives the extraction run exactly
+ * one tool. The run that asks a helper is the project conversation (ADR-0058),
+ * which is its own ticket. The generator is here rather than there so that the
+ * manifests have one reader for the route and one for the tool list, which is
+ * what makes `helpers.ts` a leaf.
+ */
+export function helperTools(call: CallApi) {
+  return registry().helpers.map((found) => ({
+    name: found.toolName,
+    label: found.manifest.name,
+    description: found.manifest.computes,
+    parameters: found.manifest.arguments.schema,
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const { status, body } = await call(`/tools/${found.manifest.name}`, {
+        method: 'POST',
+        body: params,
+      });
+      return asResult(status, body);
+    },
+  }));
 }
 
 /**

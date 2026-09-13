@@ -30,12 +30,17 @@ are T-1's *examples* of an open item's shape, not a checklist, and reading them 
 kept the step open; do not re-raise it. What remains of step 5 is the OCR adapter and its
 vendor pick, which is where employer consent now attaches.
 
-**Post-MVP has started** (issue #103). Three tickets have landed: the timezone frame (#104,
+**Post-MVP has started** (issue #103). Four tickets have landed: the timezone frame (#104,
 ADR-0054), **users and sessions replacing the edge gate** (#105, ADR-0055) — there is a
 `users` table at last, a deployment's first account is a command on the machine, and no
 shared secret is configured anywhere in either app — and **the gates** (#106, ADR-0052):
 `.github/workflows/ci.yml` runs typecheck, both suites and the web build on every push and
-pull request, and does not deploy. The platform health check is now `/healthz`, a Next route
+pull request, and does not deploy — and **the helper skills** (#107, ADR-0053): `apps/api/tools/` is a
+git submodule pinned by commit at the helpers' own repository, three of its four helpers
+carry a manifest and are reachable as `POST /v1/tools/:name`, and the route **records
+nothing** — recording is still confirming an assumption record against a submission. It is
+the one mutating-method route exempt from the audit sweep, and the first non-TypeScript code
+here. The platform health check is now `/healthz`, a Next route
 that reaches the API, **verified on the machine that serves** on 2026-09-13 as ADR-0045
 requires: with the API process frozen and Next still serving, it answered 503 where `/sign-in`
 read green. The readings are in ADR-0045. The per-slice record is the milestone table in
@@ -46,7 +51,9 @@ Work one ticket at a time, and only when asked.
 and each pass. Since issue #50 (ADR-0049) `pnpm test` covers `apps/web` too — component-level
 Vitest, no browser. The frontend **build** is part of neither, and is the fourth gate CI runs
 since issue #106 — `.claude/rules/web.md` says what it catches and how to run it by hand,
-which is still what to do before calling a frontend change done. See [README.md](./README.md).
+which is still what to do before calling a frontend change done. Since issue #107 there is a
+**fifth** gate, `./scripts/helper-tests.sh`, which runs each helper's own test command — it
+gates what this repository *pinned* where the others gate what it wrote. See [README.md](./README.md).
 
 ## Ground rules for agents
 
@@ -68,7 +75,8 @@ The rules for one record live in `.claude/rules/`, one file per path family, and
 loads a file the moment a path in its frontmatter is read through the Read tool. A file
 opened through the shell loads nothing, so before editing anything in the left column, read
 the file on the right. Every rule there was a bullet in this file until 2026-09-01, and none
-was rewritten.
+was rewritten — except `helpers.md`, written for issue #107 against a path family that did
+not exist before it.
 
 | Before editing | Read |
 |---|---|
@@ -83,6 +91,7 @@ was rewritten.
 | project memory, proposals, agent runs, the audit, the activity feed | [memory.md](./.claude/rules/memory.md) |
 | the ingest address, documents and referenced files, extraction, the processing location | [ingest.md](./.claude/rules/ingest.md) |
 | the gate, users, sessions, sign-in, `proxy.ts`, `apiFetch` | [gate.md](./.claude/rules/gate.md) |
+| helper skills, the manifests, `POST /v1/tools/:name`, the pinned `apps/api/tools/` | [helpers.md](./.claude/rules/helpers.md) |
 
 `prisma/schema.prisma`, `worker.ts` and the project page are listed in every file whose
 record they touch, so reading one of them loads all of those, on purpose. A rule about one

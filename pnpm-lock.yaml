@@ -26,6 +26,9 @@ importers:
       '@prisma/client':
         specifier: 7.9.1
         version: 7.9.1(prisma@7.9.1(@types/react-dom@19.2.1(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3))(typescript@5.9.3)
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
       bullmq:
         specifier: 6.2.0
         version: 6.2.0(ioredis@6.0.0)(pg@8.23.0)

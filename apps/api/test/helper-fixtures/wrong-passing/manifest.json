@@ -1,0 +1,8 @@
+{
+  "name": "wrong-passing",
+  "computes": "Takes its arguments a way nothing here implements.",
+  "entry": "run.py",
+  "arguments": { "passing": "json-file", "schema": { "type": "object" } },
+  "record": "blocks",
+  "test": "true"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "bad-schema",
+  "computes": "Carries an argument schema that is not a schema.",
+  "entry": "run.py",
+  "arguments": { "passing": "flags", "schema": { "type": "not-a-json-schema-type" } },
+  "record": "blocks",
+  "test": "true"
+}

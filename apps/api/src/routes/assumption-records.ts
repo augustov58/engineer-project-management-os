@@ -24,8 +24,8 @@ import { audit } from '../audit.js';
  * the date.
  *
  * The caps follow the sheet list's reasoning — this is the other field that
- * holds a list rather than a phrase, and real output from the three
- * calculators runs to a handful of lines and about a kilobyte. The code
+ * holds a list rather than a phrase, and real output from the helper skills
+ * runs to a handful of lines and about a kilobyte. The code
  * edition gets the project name's 200, because one calculation may be done
  * against five standards at once.
  *
@@ -98,10 +98,12 @@ const blockLineParamsSchema = {
  * there; a line with nothing on it is a 409, because the line exists and is
  * simply not an entry.
  *
- * Every non-blank line is an entry. The three calculators all write one
- * assumption or flag per line under a header, prefixed `- ` and `! `, but
+ * Every non-blank line is an entry. The helper skills registered today write
+ * one assumption or flag per line under a header, prefixed `- ` and `! `, but
  * those sigils are their convention and not a contract — reading them here
- * would make this refuse the next helper skill's output.
+ * would make this refuse the next helper skill's output. This said "the three
+ * calculators" until issue #107, matching a count ADR-0029's dated corrections
+ * found was never true; the decision rests on the sentence that does not count.
  */
 function entryAt(
   block: string,
@@ -373,7 +375,7 @@ export function assumptionRecordRoutes(
       // Left off, the flag says what is unresolved in its own words —
       // which is the whole of "generate an open item directly from a
       // FLAGS / VERIFY entry". Only the surrounding whitespace goes: the
-      // sigil the calculators prefix stays, because stripping it would be
+      // sigil the helper prefixed stays, because stripping it would be
       // this reading a format it has no contract with.
       const wording = unresolved ?? entry.text.trim();
       if (wording.length > UNRESOLVED_MAX) {

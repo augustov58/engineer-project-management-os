@@ -1,0 +1,8 @@
+{
+  "name": "silent",
+  "computes": "Prints a report carrying neither block.",
+  "entry": "run.py",
+  "arguments": { "passing": "flags", "schema": { "type": "object", "additionalProperties": false, "properties": {} } },
+  "record": "blocks",
+  "test": "true"
+}

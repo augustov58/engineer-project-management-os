@@ -1,0 +1,8 @@
+{
+  "name": "something-else",
+  "computes": "Its manifest and its directory disagree about what it is called.",
+  "entry": "run.py",
+  "arguments": { "passing": "flags", "schema": { "type": "object" } },
+  "record": "blocks",
+  "test": "true"
+}
