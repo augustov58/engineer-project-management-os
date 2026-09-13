@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import {
   ExtractionConfirmForm,
-  ExtractionProgress,
+  ExtractionWatch,
 } from '../../../../extractions';
 import { getExtraction, getProject } from '../../../../api';
 
@@ -48,7 +48,7 @@ export default async function ExtractionPage({
    * replaces this without anybody reloading; a resolved run opens no stream.
    */
   const running = extraction.state === 'queued' || extraction.state === 'running';
-  const unresolved = (
+  const nothingToConfirm = (
     <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
       {extraction.state === 'confirmed' ? (
         <>
@@ -99,11 +99,11 @@ export default async function ExtractionPage({
 
       {extraction.state !== 'pending' ? (
         running ? (
-          <ExtractionProgress projectId={id} extraction={extraction}>
-            {unresolved}
-          </ExtractionProgress>
+          <ExtractionWatch projectId={id} extraction={extraction}>
+            {nothingToConfirm}
+          </ExtractionWatch>
         ) : (
-          unresolved
+          nothingToConfirm
         )
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">

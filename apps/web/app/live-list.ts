@@ -49,9 +49,16 @@ export function useLiveList<T>(
       }
     };
     return () => source.close();
-    // `summarise` is a module-level function at both call sites and is
-    // deliberately not a dependency: an inline one would be a new value on
-    // every render and would reopen the stream each time.
+    // `summarise` is deliberately not a dependency: a new value on every
+    // render would reopen the stream each time. It was a module-level
+    // function at both call sites when that was written; `ExtractionWatch`
+    // (issue #108) is a third, and passes an **inline** one, because what it
+    // summarises is one row's state and the row's id is a prop. That is safe
+    // for the same reason it is not a dependency — the effect captures this
+    // function once, at mount, and never reads it again — and it is the
+    // reason to be careful with it: anything the closure reads is frozen at
+    // the value it had then. `ExtractionWatch`'s fallback is, and the seed it
+    // is the fallback for is read once too.
   }, [path, router]);
 
   return live;

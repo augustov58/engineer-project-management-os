@@ -7,7 +7,10 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import * as api from '../app/api';
-import { requestExtractionFromDocument } from '../app/actions';
+import {
+  requestExtractionFromChosenDocument,
+  requestExtractionFromDocument,
+} from '../app/actions';
 import { ExtractFromDocumentForm } from '../app/extract-button';
 import ExtractionPage from '../app/projects/[id]/extractions/[extractionId]/page';
 import RegisterLog from '../app/registers/[id]/page';
@@ -110,6 +113,9 @@ const document: api.StoredDocument = {
   ],
 };
 
+/** The API's own sentence for an ask whose run is already going. */
+const alreadyGoing = 'an extraction of that document is already in flight';
+
 /** An answer from the one module that reaches the API. */
 function answer(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -191,19 +197,44 @@ test('asking lands on the confirmation screen that already exists', async () => 
   );
 });
 
-test('an ask already in flight neither redirects nor reads as an error', async () => {
-  // The second half of a double click. There is no extraction of this ask to
-  // land on, so the screen it was asked from is where the engineer stays.
+test('an ask already in flight is swallowed where the screen shows the truth', async () => {
+  // The second half of a double click on the Documents section, which sits
+  // above the project screen's live extraction list. There is no row of this
+  // ask's own to land on, and the re-render says what is actually happening.
   vi.mocked(api.apiFetch).mockResolvedValue(
-    answer(409, {
-      message: 'an extraction of that document is already in flight',
-    }),
+    answer(409, { message: alreadyGoing }),
   );
 
   await expect(
     requestExtractionFromDocument(project.id, document.id, undefined),
   ).resolves.toBeUndefined();
   expect(nav.redirected).not.toHaveBeenCalled();
+});
+
+test('and is said aloud from the register screen, which shows nothing', async () => {
+  // The same 409 from a screen carrying no extraction list, which this ask
+  // also redirects away from: swallowed here it is a click that changes
+  // nothing on the page at all. Not only a double click — the targets read
+  // excludes a referenced file and nothing else, so a document whose run is
+  // already going is still in the select.
+  vi.mocked(api.apiFetch).mockResolvedValue(
+    answer(409, { message: alreadyGoing }),
+  );
+
+  const picked = new FormData();
+  picked.set('documentId', document.id);
+
+  await expect(
+    requestExtractionFromChosenDocument(project.id, undefined, picked),
+  ).resolves.toBe(alreadyGoing);
+  expect(nav.redirected).not.toHaveBeenCalled();
+});
+
+test('the register screen refuses an ask with no document picked', async () => {
+  await expect(
+    requestExtractionFromChosenDocument(project.id, undefined, new FormData()),
+  ).resolves.toBe('pick a document first');
+  expect(vi.mocked(api.apiFetch)).not.toHaveBeenCalled();
 });
 
 /**

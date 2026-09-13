@@ -126,9 +126,10 @@ export default async function RegisterLog({
 
             Offered on both registers and not narrowed to RFIs. The agent
             proposes the kind and the confirmation screen carries a Register
-            select, so nothing here is RFI-shaped; hiding it on the other log
-            would be this screen deciding a predicate that is not its own,
-            which is what left the capability unreachable in the first place.
+            select, so nothing here is RFI-shaped; hiding it on the other
+            register would be this screen deciding a predicate that is not its
+            own, which is what left the capability unreachable in the first
+            place.
 
             Nothing is offered where there is nothing to point at: a job with
             no document extraction could read has an empty control and no way

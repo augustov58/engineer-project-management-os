@@ -1814,8 +1814,7 @@ export async function addIngestedDocument(
  * reached the framework and read as a crash, which teaches the engineer to
  * distrust the one refusal that keeps a client's documents from a third party.
  * So the API's own message comes back for the button to show, as every other
- * refusal on the page is shown. In flight already is still swallowed: it is
- * the second half of a double click, and the re-render shows what is true.
+ * refusal on the page is shown.
  *
  * What the ask now does with a 201 is go to the extraction it created. The
  * capability was complete and unreachable — asking left the engineer on the
@@ -1824,12 +1823,20 @@ export async function addIngestedDocument(
  * already exists and it renders every state, so landing there before the
  * agent has read anything shows the run rather than a form.
  *
- * The tolerated 409 does not redirect and cannot: the ask that is already in
- * flight is somebody else's row and this one created nothing to land on.
+ * **In flight already is swallowed only where the screen says so.** It is the
+ * second half of a double click, and on the project screen the re-render
+ * shows what is true — the Extractions list sits under both buttons there.
+ * The register screen has no such list and this ask redirects away from it,
+ * so a swallowed refusal there is a click that changes nothing at all, which
+ * is the silence this issue exists to end rather than a case of it. That
+ * screen passes no `tolerated` and gets the API's own sentence. It cannot
+ * land on the run instead: the id of the one already in flight is not in the
+ * 409, and criterion 4 of issue #108 is that nothing in the API changes.
  */
 async function requestExtraction(
   path: string,
-  tolerated: string,
+  /** The one 409 the calling screen can show the truth of by re-rendering. */
+  tolerated: string | undefined,
   projectId: string,
 ): Promise<string | undefined> {
   const response = await send(path);
@@ -1865,6 +1872,11 @@ export async function requestExtractionFromFile(
   );
 }
 
+/** One document's ask, and the 409 the Documents section renders the truth of. */
+const DOCUMENT_EXTRACTION = (documentId: string) =>
+  `/documents/${documentId}/extractions`;
+const DOCUMENT_IN_FLIGHT = 'an extraction of that document is already in flight';
+
 /**
  * Asking for an extraction over a stored document's latest version. A
  * referenced file is refused at the API and not offered here.
@@ -1875,8 +1887,8 @@ export async function requestExtractionFromDocument(
   _previous: string | undefined,
 ): Promise<string | undefined> {
   return requestExtraction(
-    `/documents/${documentId}/extractions`,
-    'an extraction of that document is already in flight',
+    DOCUMENT_EXTRACTION(documentId),
+    DOCUMENT_IN_FLIGHT,
     projectId,
   );
 }
@@ -1888,6 +1900,13 @@ export async function requestExtractionFromDocument(
  * The **document** is what the form carries and never a version: the API
  * resolves the latest itself and stamps it, so a control that named a version
  * would be offering a choice the route does not take.
+ *
+ * It tolerates **nothing**, which is the one way it differs from the ask above
+ * it. The register screen carries no extraction list, and asking again is not
+ * only a double click here: `GET /projects/:id/extraction-targets` excludes a
+ * referenced file and nothing else, so a document whose run is already going —
+ * asked for on another screen, or by somebody else — is still in this select.
+ * Swallowed, that click would change nothing on the page at all.
  */
 export async function requestExtractionFromChosenDocument(
   projectId: string,
@@ -1899,8 +1918,8 @@ export async function requestExtractionFromChosenDocument(
     return 'pick a document first';
   }
   return requestExtraction(
-    `/documents/${documentId}/extractions`,
-    'an extraction of that document is already in flight',
+    DOCUMENT_EXTRACTION(documentId),
+    undefined,
     projectId,
   );
 }

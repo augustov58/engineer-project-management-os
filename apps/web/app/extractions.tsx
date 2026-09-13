@@ -139,7 +139,7 @@ export function ExtractionList({
  * Mounted only while the run can still change — a resolved extraction has
  * nothing left to watch and opens no stream.
  */
-export function ExtractionProgress({
+export function ExtractionWatch({
   projectId,
   extraction,
   children,
