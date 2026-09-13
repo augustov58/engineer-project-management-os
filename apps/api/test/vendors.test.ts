@@ -1,0 +1,464 @@
+/**
+ * The two vendor adapters and the environment that selects them (issue #109).
+ *
+ * **No test here calls a vendor.** The seam is the `fetch` each adapter is
+ * built with: every case below hands it a function that answers the way the
+ * vendor's documentation says the vendor answers, so what is asserted is the
+ * request this product composes and the reading it takes of a reply — never
+ * that Azure is up. The harness's substitutes at the port itself
+ * (`fakeOcrProvider`, `refusingTranscriber` and the rest) are untouched and
+ * still what every record test uses; this file is one level below them, and is
+ * the only place the wire shape is written down twice.
+ *
+ * That is also the whole of what a test can say about an adapter. Whether the
+ * vendor really accepts a `.docx`, and whether a recording made by a phone's
+ * `MediaRecorder` really comes back as words, are facts about the vendor and
+ * are checked on the deployed machine by hand — recorded in the ADRs, not
+ * here.
+ */
+
+import { afterEach, expect, test } from 'vitest';
+import {
+  azureDocumentIntelligenceOcr,
+  ocrProviderFromEnv,
+  stubOcrProvider,
+  unconfiguredOcrProvider,
+} from '../src/ocr.js';
+import {
+  azureSpeechTranscriber,
+  stubTranscriber,
+  transcriberFromEnv,
+  unconfiguredTranscriber,
+} from '../src/transcription.js';
+
+const ENDPOINT = 'https://example-resource.cognitiveservices.azure.com';
+const KEY = 'a-key-that-is-never-in-source';
+
+const A_DOCUMENT = Buffer.from('%PDF-1.7 a drawing set');
+const AN_AUDIO = Buffer.from('a recording made on a walk');
+
+/**
+ * The environment is process-wide, so every test that names a vendor puts back
+ * what it found. Restored rather than deleted: a developer's own `OCR=stub`
+ * must survive the suite.
+ */
+const environment: [string, string | undefined][] = [];
+
+function setEnv(name: string, value: string | undefined) {
+  environment.push([name, process.env[name]]);
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+afterEach(() => {
+  for (const [name, value] of environment.splice(0).reverse()) {
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
+});
+
+/** One recorded call, in the order the adapter made it. */
+interface Call {
+  url: string;
+  method: string;
+  headers: Headers;
+  body: string | undefined;
+}
+
+/**
+ * A `fetch` that answers from a script and records what it was asked.
+ *
+ * The script is consumed in order and the last entry repeats, which is what
+ * lets one entry stand for "the vendor is still running" however many times it
+ * is polled.
+ */
+function scriptedFetch(script: (call: Call) => Response) {
+  const calls: Call[] = [];
+  const fetcher = async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const call: Call = {
+      url: String(input),
+      method: init?.method ?? 'GET',
+      headers: new Headers(init?.headers),
+      body: typeof init?.body === 'string' ? init.body : undefined,
+    };
+    calls.push(call);
+    return script(call);
+  };
+  return Object.assign(fetcher as unknown as typeof globalThis.fetch, {
+    calls,
+  });
+}
+
+const RESULT =
+  'https://example-resource.cognitiveservices.azure.com/documentintelligence/documentModels/prebuilt-read/analyzeResults/a-result-id?api-version=2024-11-30';
+
+function accepted() {
+  return new Response(null, {
+    status: 202,
+    headers: { 'operation-location': RESULT },
+  });
+}
+
+function analysis(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+// --- the OCR adapter -------------------------------------------------------
+
+test('the document goes to the Read model inline, and what the vendor read comes back', async () => {
+  const fetcher = scriptedFetch((call) =>
+    call.method === 'POST'
+      ? accepted()
+      : analysis({
+          status: 'succeeded',
+          analyzeResult: { content: 'RFI-001 — the baseplate detail' },
+        }),
+  );
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+
+  expect(await provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf')).toBe(
+    'RFI-001 — the baseplate detail',
+  );
+
+  const [analyze] = fetcher.calls;
+  expect(analyze!.method).toBe('POST');
+  expect(analyze!.url).toBe(
+    `${ENDPOINT}/documentintelligence/documentModels/prebuilt-read:analyze?api-version=2024-11-30`,
+  );
+  expect(analyze!.headers.get('ocp-apim-subscription-key')).toBe(KEY);
+  expect(analyze!.headers.get('content-type')).toBe('application/json');
+  // The bytes themselves, inline: there is no object storage in this
+  // deployment and the vendor was picked for being able to take them this way.
+  expect(JSON.parse(analyze!.body!)).toEqual({
+    base64Source: A_DOCUMENT.toString('base64'),
+  });
+});
+
+test('the vendor is polled at the result it named until it finishes', async () => {
+  let polls = 0;
+  const fetcher = scriptedFetch((call) => {
+    if (call.method !== 'GET') {
+      // The delete that follows a read is not a poll, and counting it here is
+      // what made this test wrong before the adapter was.
+      return accepted();
+    }
+    polls += 1;
+    return polls < 3
+      ? analysis({ status: 'running' })
+      : analysis({ status: 'succeeded', analyzeResult: { content: 'page' } });
+  });
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+
+  expect(await provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf')).toBe(
+    'page',
+  );
+  expect(polls).toBe(3);
+  expect(fetcher.calls[1]!.url).toBe(RESULT);
+  expect(fetcher.calls[1]!.headers.get('ocp-apim-subscription-key')).toBe(KEY);
+});
+
+test('the analyze result is deleted once it has been read', async () => {
+  const fetcher = scriptedFetch((call) =>
+    call.method === 'POST'
+      ? accepted()
+      : call.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : analysis({ status: 'succeeded', analyzeResult: { content: 'page' } }),
+  );
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+  await provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf');
+
+  // The 24-hour retention is the vendor's default; this is the call that does
+  // not wait for it, and it is the control the vendor was picked for.
+  const deletes = fetcher.calls.filter((call) => call.method === 'DELETE');
+  expect(deletes).toHaveLength(1);
+  expect(deletes[0]!.url).toBe(RESULT);
+  expect(deletes[0]!.headers.get('ocp-apim-subscription-key')).toBe(KEY);
+});
+
+test('a delete the vendor refuses does not lose the text it already read', async () => {
+  const fetcher = scriptedFetch((call) => {
+    if (call.method === 'POST') {
+      return accepted();
+    }
+    if (call.method === 'DELETE') {
+      return new Response('no', { status: 500 });
+    }
+    return analysis({ status: 'succeeded', analyzeResult: { content: 'page' } });
+  });
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+
+  // The worker stores `ocr_text` before the agent is called (ADR-0043), so
+  // throwing here would discard a read the vendor has already been paid for
+  // and already holds — the opposite of what the delete is for.
+  expect(await provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf')).toBe(
+    'page',
+  );
+});
+
+test('a document the vendor refuses fails with the vendor status and never the document', async () => {
+  const fetcher = scriptedFetch(() =>
+    analysis(
+      { error: { code: 'InvalidContent', message: 'unsupported media type' } },
+      415,
+    ),
+  );
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+
+  await expect(
+    provider.read(A_DOCUMENT, 'application/acad', 'plan.dwg'),
+  ).rejects.toThrow(/415/);
+  // Whatever is stamped on the row is read by a person on a screen, so it
+  // carries the vendor's complaint and neither the key nor the document.
+  await expect(
+    provider.read(A_DOCUMENT, 'application/acad', 'plan.dwg'),
+  ).rejects.toThrow(/unsupported media type/);
+  await expect(
+    provider.read(A_DOCUMENT, 'application/acad', 'plan.dwg'),
+  ).rejects.not.toThrow(new RegExp(KEY));
+});
+
+test('an analysis the vendor gave up on fails with the vendor own sentence', async () => {
+  const fetcher = scriptedFetch((call) =>
+    call.method === 'POST'
+      ? accepted()
+      : analysis({
+          status: 'failed',
+          error: { code: 'InvalidRequest', message: 'the file is password-locked' },
+        }),
+  );
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+
+  await expect(
+    provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf'),
+  ).rejects.toThrow(/password-locked/);
+});
+
+test('a vendor that accepts the document and names no result fails rather than hanging', async () => {
+  const fetcher = scriptedFetch(() => new Response(null, { status: 202 }));
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 0,
+  });
+
+  await expect(
+    provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf'),
+  ).rejects.toThrow(/named no result/);
+});
+
+test('a vendor that never finishes is bounded by the wall clock', async () => {
+  const fetcher = scriptedFetch((call) =>
+    call.method === 'POST' ? accepted() : analysis({ status: 'running' }),
+  );
+
+  const provider = azureDocumentIntelligenceOcr({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    pollMs: 1,
+    wallClockMs: 30,
+  });
+
+  // A held vendor call is a job that never ends and a record stuck at
+  // *running* on the screen, which is the state the four stamps exist to make
+  // visible. The bound turns it into a failure a person can retry.
+  await expect(
+    provider.read(A_DOCUMENT, 'application/pdf', 'set.pdf'),
+  ).rejects.toThrow(/did not finish/);
+});
+
+// --- the transcription adapter ---------------------------------------------
+
+test('the recording goes up as its own bytes and the words come back', async () => {
+  const fetcher = scriptedFetch(() =>
+    analysis({
+      combinedPhrases: [{ text: 'conduit is running below the slab' }],
+    }),
+  );
+
+  const transcriber = azureSpeechTranscriber({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+  });
+
+  expect(await transcriber.transcribe(AN_AUDIO, 'audio/webm')).toBe(
+    'conduit is running below the slab',
+  );
+
+  const [call] = fetcher.calls;
+  expect(call!.method).toBe('POST');
+  expect(call!.url).toBe(
+    `${ENDPOINT}/speechtotext/transcriptions:transcribe?api-version=2025-10-15`,
+  );
+  expect(call!.headers.get('ocp-apim-subscription-key')).toBe(KEY);
+});
+
+test('a recording the vendor heard nothing in transcribes to nothing, and does not fail', async () => {
+  const fetcher = scriptedFetch(() => analysis({ combinedPhrases: [] }));
+
+  const transcriber = azureSpeechTranscriber({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+  });
+
+  // Silence is a thing a walk records, and it is not a vendor failure: the
+  // capture reads as transcribed with nothing in it, and the engineer types
+  // what they meant to say. A rejection here would stamp `failed_at` on a
+  // recording the vendor answered perfectly well.
+  expect(await transcriber.transcribe(AN_AUDIO, 'audio/webm')).toBe('');
+});
+
+test('a recording the vendor refuses fails with its status and never the key', async () => {
+  const fetcher = scriptedFetch(
+    () => new Response('unsupported audio format', { status: 400 }),
+  );
+
+  const transcriber = azureSpeechTranscriber({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+  });
+
+  await expect(transcriber.transcribe(AN_AUDIO, 'audio/ogg')).rejects.toThrow(
+    /400/,
+  );
+  await expect(transcriber.transcribe(AN_AUDIO, 'audio/ogg')).rejects.toThrow(
+    /unsupported audio format/,
+  );
+  await expect(
+    transcriber.transcribe(AN_AUDIO, 'audio/ogg'),
+  ).rejects.not.toThrow(new RegExp(KEY));
+});
+
+test('a vendor that never answers is bounded by the wall clock', async () => {
+  // A held call and not a thrown one: a real `fetch` rejects with the signal's
+  // own reason when the bound expires, so the adapter has to recognise that
+  // rather than the vendor having the courtesy to refuse.
+  const fetcher = ((_input: unknown, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init!.signal!.addEventListener(
+        'abort',
+        () => reject(init!.signal!.reason),
+        { once: true },
+      );
+    })) as unknown as typeof globalThis.fetch;
+
+  const transcriber = azureSpeechTranscriber({
+    endpoint: ENDPOINT,
+    key: KEY,
+    fetch: fetcher,
+    wallClockMs: 10,
+  });
+
+  await expect(transcriber.transcribe(AN_AUDIO, 'audio/webm')).rejects.toThrow(
+    /did not answer/,
+  );
+});
+
+// --- what a deployment selects ---------------------------------------------
+
+test('a deployment that configures nothing still refuses, with the port sentence', () => {
+  setEnv('OCR', undefined);
+  setEnv('TRANSCRIBER', undefined);
+
+  expect(ocrProviderFromEnv()).toBe(unconfiguredOcrProvider);
+  expect(transcriberFromEnv()).toBe(unconfiguredTranscriber);
+});
+
+test('an unrecognised vendor name is the refusing default and never a guess', () => {
+  setEnv('OCR', 'textract');
+  setEnv('TRANSCRIBER', 'whisper');
+
+  expect(ocrProviderFromEnv()).toBe(unconfiguredOcrProvider);
+  expect(transcriberFromEnv()).toBe(unconfiguredTranscriber);
+});
+
+test('the stubs are still off by default and still reachable by name', () => {
+  setEnv('OCR', 'stub');
+  setEnv('TRANSCRIBER', 'stub');
+
+  expect(ocrProviderFromEnv()).toBe(stubOcrProvider);
+  expect(transcriberFromEnv()).toBe(stubTranscriber);
+});
+
+test('naming a vendor builds its adapter', () => {
+  setEnv('OCR', 'azure');
+  setEnv('AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT', ENDPOINT);
+  setEnv('AZURE_DOCUMENT_INTELLIGENCE_KEY', KEY);
+  setEnv('TRANSCRIBER', 'azure');
+  setEnv('AZURE_SPEECH_ENDPOINT', ENDPOINT);
+  setEnv('AZURE_SPEECH_KEY', KEY);
+
+  expect(ocrProviderFromEnv()).not.toBe(unconfiguredOcrProvider);
+  expect(transcriberFromEnv()).not.toBe(unconfiguredTranscriber);
+});
+
+test('a vendor named without its credential takes the process down at startup', () => {
+  setEnv('OCR', 'azure');
+  setEnv('AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT', ENDPOINT);
+  setEnv('AZURE_DOCUMENT_INTELLIGENCE_KEY', undefined);
+  setEnv('TRANSCRIBER', 'azure');
+  setEnv('AZURE_SPEECH_ENDPOINT', ENDPOINT);
+  setEnv('AZURE_SPEECH_KEY', undefined);
+
+  // `index.ts` calls both of these while it is still wiring, so this throw is
+  // a deployment that does not boot rather than one that boots and fails a
+  // record at a time with a sentence about a vendor.
+  expect(() => ocrProviderFromEnv()).toThrow(
+    /AZURE_DOCUMENT_INTELLIGENCE_KEY is not set/,
+  );
+  expect(() => transcriberFromEnv()).toThrow(/AZURE_SPEECH_KEY is not set/);
+});

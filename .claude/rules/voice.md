@@ -50,10 +50,20 @@ apply to every path stay in `AGENTS.md`.
   no Fastify plugin, so ADR-0023's single `register` call stays the only place a prefix
   could be added. The machinery is `stream.ts` since slice 12 and a walk's reports open a
   stream through the same function (ADR-0035); what a record supplies is the reader.
-- The transcription vendor sits behind a `Transcriber` port with **no adapter written**
-  (ADR-0034). The default refuses and says so; `TRANSCRIBER=stub` returns one fixed
-  self-describing line so the review screen can be exercised, is off by default, and must
-  never be set on a real walk.
+- The transcription vendor sits behind a `Transcriber` port, and since issue #109 an adapter
+  **is** written: **Azure AI Speech fast transcription** (ADR-0061), selected by
+  `TRANSCRIBER=azure` with `AZURE_SPEECH_ENDPOINT` and `AZURE_SPEECH_KEY`. `transcribe` is
+  **one** call — the audio goes up as `multipart/form-data` and the words come back in the
+  same response — because there is no object storage here and Azure's *batch* speech API
+  reads only from a blob URL. Do not reach for batch. The default still refuses and says so,
+  and **an unrecognised vendor name falls through to the refusing default rather than
+  guessing**; `TRANSCRIBER=stub` returns one fixed self-describing line so the review screen
+  can be exercised, is off by default, and must never be set on a real walk.
+- **Silence is not a failure.** A recording the vendor heard nothing in transcribes to the
+  empty string and the capture reads as *transcribed*; stamping `failed_at` there would hide
+  a recording the vendor answered perfectly well. The adapter is bounded at two minutes
+  against the OCR adapter's five, that call being synchronous — the bound catches a vendor
+  that stopped answering, not one doing long work.
 - `observationBodySchema` and `observationData` are exported from `routes/site-visits.ts`
   and used by both writers of that table. ADR-0030 predicted this route and named the risk;
   do not restate the one-axis schema in `routes/voice.ts`.

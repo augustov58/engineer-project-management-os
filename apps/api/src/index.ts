@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { agentRunServiceFromEnv } from './agent.js';
+import { requireEnv } from './env.js';
 import { inboundMailProviderFromEnv } from './inbound-mail.js';
 import { ocrProviderFromEnv } from './ocr.js';
 import { createRuntime } from './runtime.js';
@@ -7,16 +8,6 @@ import { buildServer } from './server.js';
 import { systemTimeSource } from './time-source.js';
 import { transcriberFromEnv } from './transcription.js';
 import { buildWorker } from './worker.js';
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(
-      `${name} is not set. Copy apps/api/.env.example to apps/api/.env.`,
-    );
-  }
-  return value;
-}
 
 function apiPort(): number {
   const raw = process.env['API_PORT'];

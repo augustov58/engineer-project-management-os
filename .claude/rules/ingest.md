@@ -180,8 +180,16 @@ apply to every path stay in `AGENTS.md`.
   narrowed, recorded in ADR-0043).
 - The extract worker's order is what keeps the consent gate: bytes, then the `OcrProvider`,
   then `ocr_text` **stored before the agent is called**, then the run — so a refusing
-  default fails the row honestly and leaves what the vendor read. The OCR port's default
-  refuses; `OCR=stub` returns one fixed page and is for the screen, never a real document.
+  default fails the row honestly and leaves what the vendor read. Since issue #109 an adapter
+  **is** written: **Azure AI Document Intelligence** `prebuilt-read` (ADR-0060), selected by
+  `OCR=azure` with `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` and `AZURE_DOCUMENT_INTELLIGENCE_KEY`.
+  The bytes go **inline** as `base64Source` — there is no object storage here, which is what
+  disqualified Textract and Google Document AI — and the analyze result is **deleted** once
+  read rather than left to the vendor's 24-hour expiry. That delete is never allowed to
+  throw: it runs in a `finally`, and a failed clean-up must not become a failed extraction.
+  The OCR port's default still refuses and **an unrecognised vendor name falls through to it
+  rather than guessing**; `OCR=stub` returns one fixed page and is for the screen, never a
+  real document.
   There is **no retry route**: asking again is another row, and a redelivered job re-calls
   the vendors — that re-run is the only recovery path, and the compare-and-set on finish is
   what keeps two attempts from both settling the row.
@@ -235,7 +243,12 @@ apply to every path stay in `AGENTS.md`.
   counting it met. Its force came from local being the default; under a cloud default no
   project need ever be switched, so **cloud processing with no recorded consent is the
   ordinary case**. Whoever writes the OCR adapter must read each existing project's
-  location before the first run, not after.
+  location before the first run, not after. **That read was done on 2026-09-13 before any
+  vendor was configured** (issue #109): one project exists, on the cloud default, with no
+  sign-off recorded — the ordinary case, exactly as predicted. It is recorded in ADR-0060 and
+  **deliberately nowhere in the tracker**, that query's output being the class of material
+  `docs/agents/issue-tracker.md` forbids there. The duty attaches to the *state* and not to
+  the adapter's author, so it is live again the first time a real job is entered.
 - The **audit widened exactly once** here (ADR-0044), which is the change ADR-0043 said would
   be its own: one action, on the project's own setting, in the same transaction as the
   update. **That is no longer the boundary** — story 106 widened the audit to every mutating
