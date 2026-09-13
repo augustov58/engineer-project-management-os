@@ -30,7 +30,7 @@ are T-1's *examples* of an open item's shape, not a checklist, and reading them 
 kept the step open; do not re-raise it. What remains of step 5 is the OCR adapter and its
 vendor pick, which is where employer consent now attaches.
 
-**Post-MVP has started** (issue #103). Four tickets have landed: the timezone frame (#104,
+**Post-MVP has started** (issue #103). Five tickets have landed: the timezone frame (#104,
 ADR-0054), **users and sessions replacing the edge gate** (#105, ADR-0055) — there is a
 `users` table at last, a deployment's first account is a command on the machine, and no
 shared secret is configured anywhere in either app — and **the gates** (#106, ADR-0052):
@@ -40,7 +40,8 @@ git submodule pinned by commit at the helpers' own repository, three of its four
 carry a manifest and are reachable as `POST /v1/tools/:name`, and the route **records
 nothing** — recording is still confirming an assumption record against a submission. It is
 the one mutating-method route exempt from the audit sweep, and the first non-TypeScript code
-here. The platform health check is now `/healthz`, a Next route
+here — and **extraction reachable** (#108, no ADR): the register screen asks for one over a
+stored document and every ask lands on the confirmation screen. The platform health check is now `/healthz`, a Next route
 that reaches the API, **verified on the machine that serves** on 2026-09-13 as ADR-0045
 requires: with the API process frozen and Next still serving, it answered 503 where `/sign-in`
 read green. The readings are in ADR-0045. The per-slice record is the milestone table in

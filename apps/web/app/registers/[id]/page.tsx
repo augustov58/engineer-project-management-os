@@ -2,8 +2,17 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { createRegisterEntry } from '../../actions';
-import { getProject, getRegister, REGISTER_NAMES } from '../../api';
+import {
+  createRegisterEntry,
+  requestExtractionFromChosenDocument,
+} from '../../actions';
+import {
+  getProject,
+  getRegister,
+  listExtractionTargets,
+  REGISTER_NAMES,
+} from '../../api';
+import { ExtractFromDocumentForm } from '../../extract-button';
 import { NewRegisterEntryForm } from '../../register-forms';
 import { day } from '../../wall-clock';
 import { BallInCourtBadge, ClockBadge } from '../../ball-in-court';
@@ -22,7 +31,13 @@ export default async function RegisterLog({
     notFound();
   }
 
-  const project = await getProject(register.projectId);
+  const [project, targets] = await Promise.all([
+    getProject(register.projectId),
+    // What extraction may be pointed at on this job (issue #108). Read from
+    // the API's own predicate rather than filtered out of the document list
+    // here, so this screen and the route that refuses cannot disagree.
+    listExtractionTargets(register.projectId),
+  ]);
   if (project === undefined) {
     notFound();
   }
@@ -102,7 +117,32 @@ export default async function RegisterLog({
             Log {register.kind === 'RFI' ? 'an RFI' : 'a submittal'}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/*
+            Extraction, offered where the typing happens (issue #108). The
+            entry is built from the document instead of typed: asking lands on
+            the confirmation screen, where every proposed field is editable
+            before anything commits.
+
+            Offered on both registers and not narrowed to RFIs. The agent
+            proposes the kind and the confirmation screen carries a Register
+            select, so nothing here is RFI-shaped; hiding it on the other log
+            would be this screen deciding a predicate that is not its own,
+            which is what left the capability unreachable in the first place.
+
+            Nothing is offered where there is nothing to point at: a job with
+            no document extraction could read has an empty control and no way
+            to fill it, and the way in is the Documents section.
+          */}
+          {targets.length > 0 && (
+            <ExtractFromDocumentForm
+              documents={targets}
+              request={requestExtractionFromChosenDocument.bind(
+                null,
+                project.id,
+              )}
+            />
+          )}
           <NewRegisterEntryForm
             submit={createRegisterEntry.bind(null, register.id, project.id)}
             kind={register.kind}

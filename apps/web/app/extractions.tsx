@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState, useState } from 'react';
+import { useActionState, useState, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -119,6 +119,44 @@ export function ExtractionList({
       ))}
     </ul>
   );
+}
+
+/**
+ * The run, watched on the screen the ask now lands on (issue #108).
+ *
+ * Asking for an extraction redirects here, which means the confirmation
+ * screen is reached before there is anything to confirm. Left static it would
+ * be a worse answer than the one it replaced: the project screen's list is
+ * live, so the engineer used to watch the state move there and click through
+ * when the proposal arrived. This wraps the sentence that says what the run
+ * is doing and asks the server for the page again when this extraction's
+ * state changes — the same stream that list already opens, so nothing new is
+ * served and no second stream exists to disagree with it.
+ *
+ * `summarise` is this extraction's state alone, falling back to the state the
+ * page was rendered from: that makes the seed equal to what is on screen, so
+ * the stream's first delivery refreshes only if something actually moved.
+ * Mounted only while the run can still change — a resolved extraction has
+ * nothing left to watch and opens no stream.
+ */
+export function ExtractionProgress({
+  projectId,
+  extraction,
+  children,
+}: {
+  projectId: string;
+  extraction: { id: string; state: Extraction['state'] };
+  children: ReactNode;
+}) {
+  useLiveList<ExtractionActivity>(
+    `/projects/${projectId}/extractions/stream`,
+    { extractions: [] },
+    (activity) =>
+      activity.extractions.find((one) => one.id === extraction.id)?.state ??
+      extraction.state,
+  );
+
+  return <>{children}</>;
 }
 
 /**

@@ -1806,7 +1806,8 @@ export async function addIngestedDocument(
 // ── Extraction to a draft, human-confirmed (issue #20) ───────────────────────
 
 /**
- * The ask behind both Extract buttons, answered rather than thrown (issue #67).
+ * The ask behind every Extract control, answered rather than thrown
+ * (issue #67), and landing on the confirmation screen (issue #108).
  *
  * Not `sendOrThrow`: a job on local processing refuses this with ADR-0044's
  * sentence, and that is the gate firing exactly as designed — thrown, it
@@ -1815,6 +1816,16 @@ export async function addIngestedDocument(
  * So the API's own message comes back for the button to show, as every other
  * refusal on the page is shown. In flight already is still swallowed: it is
  * the second half of a double click, and the re-render shows what is true.
+ *
+ * What the ask now does with a 201 is go to the extraction it created. The
+ * capability was complete and unreachable — asking left the engineer on the
+ * screen they asked from, to find the proposal under the project's
+ * Extractions section (issue #100). The confirmation screen is the one that
+ * already exists and it renders every state, so landing there before the
+ * agent has read anything shows the run rather than a form.
+ *
+ * The tolerated 409 does not redirect and cannot: the ask that is already in
+ * flight is somebody else's row and this one created nothing to land on.
  */
 async function requestExtraction(
   path: string,
@@ -1829,9 +1840,13 @@ async function requestExtraction(
     if (response.status !== 409 || problem.message !== tolerated) {
       return problem.message ?? `the API returned ${response.status}`;
     }
+    revalidatePath(`/projects/${projectId}`);
+    return undefined;
   }
+
+  const asked = (await response.json()) as { id: string };
   revalidatePath(`/projects/${projectId}`);
-  return undefined;
+  redirect(`/projects/${projectId}/extractions/${asked.id}`);
 }
 
 /**
@@ -1859,6 +1874,30 @@ export async function requestExtractionFromDocument(
   documentId: string,
   _previous: string | undefined,
 ): Promise<string | undefined> {
+  return requestExtraction(
+    `/documents/${documentId}/extractions`,
+    'an extraction of that document is already in flight',
+    projectId,
+  );
+}
+
+/**
+ * The same ask, from a screen where the document is chosen rather than
+ * already known (issue #108).
+ *
+ * The **document** is what the form carries and never a version: the API
+ * resolves the latest itself and stamps it, so a control that named a version
+ * would be offering a choice the route does not take.
+ */
+export async function requestExtractionFromChosenDocument(
+  projectId: string,
+  _previous: string | undefined,
+  formData: FormData,
+): Promise<string | undefined> {
+  const documentId = formData.get('documentId');
+  if (typeof documentId !== 'string' || documentId === '') {
+    return 'pick a document first';
+  }
   return requestExtraction(
     `/documents/${documentId}/extractions`,
     'an extraction of that document is already in flight',
