@@ -121,8 +121,13 @@ else
   else
     bad "analyze answered $body, not 202"
     case "$body" in
-      401|403) say '        the key is wrong, or belongs to a different resource' ;;
-      404)     say '        the endpoint or the api-version is wrong — this is the failure no test can catch' ;;
+      401|403) say '        the key is wrong, or belongs to a different resource, or is from'
+               say '        another region — Azure keys are region-scoped. A brand-new key can'
+               say '        also take a minute to propagate; wait and re-run before changing it.' ;;
+      404)     say '        the endpoint or the api-version is wrong — this is the failure no test can catch.'
+               say '        Check the endpoint ends in .cognitiveservices.azure.com and NOT'
+               say '        .services.ai.azure.com, which is a different endpoint on the same'
+               say '        resource and does not carry this route.' ;;
       000)     say '        could not reach the host at all; check the endpoint spelling' ;;
     esac
   fi
@@ -172,8 +177,15 @@ PY
   else
     bad "transcribe answered $code, not 200"
     case "$code" in
-      401|403) say '        the key is wrong, or belongs to a different resource' ;;
-      404)     say '        the endpoint or the api-version is wrong — this is the failure no test can catch' ;;
+      401|403) say '        the key is wrong, or belongs to a different resource, or is from'
+               say '        another region — Azure keys are region-scoped. A brand-new key can'
+               say '        also take a minute to propagate; wait and re-run before changing it.' ;;
+      404)     say '        the endpoint or the api-version is wrong — this is the failure no test can catch.'
+               say '        Known fallback: both endpoint shapes are documented for this route, so if'
+               say '        the custom subdomain 404s, try the regional host instead —'
+               say '        https://eastus.api.cognitive.microsoft.com  (a stale Microsoft page'
+               say '        recommends the regional one for Speech and contradicts the'
+               say '        fast-transcription how-to, so one of the two is worth trying).' ;;
       000)     say '        could not reach the host at all; check the endpoint spelling' ;;
     esac
     head -c 300 "$out"; say ''
