@@ -30,17 +30,22 @@ are T-1's *examples* of an open item's shape, not a checklist, and reading them 
 kept the step open; do not re-raise it. What remains of step 5 is the OCR adapter and its
 vendor pick, which is where employer consent now attaches.
 
-**Post-MVP has started** (issue #103). Two tickets have landed: the timezone frame (#104,
-ADR-0054) and **users and sessions replacing the edge gate** (#105, ADR-0055) — there is a
+**Post-MVP has started** (issue #103). Three tickets have landed: the timezone frame (#104,
+ADR-0054), **users and sessions replacing the edge gate** (#105, ADR-0055) — there is a
 `users` table at last, a deployment's first account is a command on the machine, and no
-shared secret is configured anywhere in either app. The per-slice record is the milestone table in
+shared secret is configured anywhere in either app — and **the gates** (#106, ADR-0052):
+`.github/workflows/ci.yml` runs typecheck, both suites and the web build on every push and
+pull request, and does not deploy. The platform health check is now `/healthz`, a Next route
+that reaches the API, and it has **not** yet been verified on the machine that serves, which
+is what ADR-0045 asks of it. The per-slice record is the milestone table in
 [CONTEXT.md](./CONTEXT.md) and the change log in [docs/changelog.md](./docs/changelog.md).
 Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root
 and each pass. Since issue #50 (ADR-0049) `pnpm test` covers `apps/web` too — component-level
-Vitest, no browser. The frontend **build** is still part of neither — `.claude/rules/web.md`
-says what it catches and how to run it. See [README.md](./README.md).
+Vitest, no browser. The frontend **build** is part of neither, and is the fourth gate CI runs
+since issue #106 — `.claude/rules/web.md` says what it catches and how to run it by hand,
+which is still what to do before calling a frontend change done. See [README.md](./README.md).
 
 ## Ground rules for agents
 

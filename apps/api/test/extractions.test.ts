@@ -175,6 +175,35 @@ async function extraction(app: TestApi, id: string) {
   return (await response.json()) as ExtractionDetail;
 }
 
+/**
+ * The extraction, once the run behind it has stopped writing.
+ *
+ * A released vendor is not a finished run: the agent returns, then
+ * `underRunSession` revokes the run's session in a `finally` and the worker
+ * stamps `finishedAt` — two more writes, after the line that released it. A
+ * test that releases and returns leaves them racing `afterEach`, which force-
+ * closes the worker, disconnects Prisma and drops the database
+ * `WITH (FORCE)`; the abandoned writes reconnect into a database about to go,
+ * and the terminated connection surfaces as an unhandled error that fails the
+ * whole run with every test in it passing.
+ *
+ * That is what the first CI run did (issue #106): 614 passed, exit 1, `57P01
+ * terminating connection due to administrator command`. It had never been seen
+ * on a developer's machine, where the writes land before the teardown does.
+ * So: release, then wait for the run to settle.
+ */
+async function settles(app: TestApi, id: string) {
+  return until(
+    async () => {
+      const found = await extraction(app, id);
+      return found.finishedAt === null && found.failedAt === null
+        ? undefined
+        : found;
+    },
+    `extraction ${id} to settle`,
+  );
+}
+
 /** The extraction, once it has reached the state the test is about. */
 async function reaches(
   app: TestApi,
@@ -351,9 +380,20 @@ describe('the extraction run', () => {
     // What the OCR step read, stored for audit (ADR-0008).
     expect(pending.ocrText).toContain('fake OCR page');
     // The run is done; the proposal awaits the engineer.
-    expect(pending.finishedAt).not.toBeNull();
-    expect(pending.confirmedAt).toBeNull();
-    expect(pending.rejectedAt).toBeNull();
+    //
+    // Waited for rather than read off `pending` above, and that is the product
+    // and not the test: `pending` is derived from `proposedAt`, which the agent
+    // writes under its own session, and the worker stamps `finishedAt` one
+    // write later. So there is a window — a few milliseconds here, longer on a
+    // loaded CI runner — where the state is `pending` and the run is not yet
+    // finished. Reading both off one poll made this test red about once a full
+    // parallel run, which is a gate that lies (issue #106).
+    const finished = await until(async () => {
+      const found = await extraction(app, queued.id);
+      return found.finishedAt === null ? undefined : found;
+    }, `extraction ${queued.id} to be stamped finished`);
+    expect(finished.confirmedAt).toBeNull();
+    expect(finished.rejectedAt).toBeNull();
   });
 
   test('the document path proposes no title and no revision', async () => {
@@ -532,6 +572,7 @@ describe('the proposal route', () => {
       message: 'that extraction has already proposed',
     });
     held.release();
+    await settles(app, running.id);
   });
 
   test('a document-source run refuses a proposed title and revision, and an arrival-source run requires them', async () => {
@@ -549,6 +590,7 @@ describe('the proposal route', () => {
       message: 'a stored document already has a title and a revision',
     });
     held.release();
+    await settles(app, documentRun.id);
 
     const heldAgain = heldAgentRunService();
     // Restart with a second held service is not possible on one app; use a fresh one.
@@ -566,6 +608,7 @@ describe('the proposal route', () => {
       message: 'an extraction of an arrival needs a title and a revision',
     });
     heldAgain.release();
+    await settles(app2, arrivalRun.id);
   });
 
   test('of an unknown extraction is a 404', async () => {

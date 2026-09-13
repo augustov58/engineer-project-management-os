@@ -24,7 +24,13 @@ export const SESSION_COOKIE = 'session';
 /** What the API reads it from, the same name `apps/api` writes down. */
 export const SESSION_HEADER = 'x-session-id';
 
-/** Where the engineer signs in, and the one path the gate lets by. */
+/**
+ * Where the engineer signs in, and the one path the gate lets a *person* by.
+ *
+ * Since issue #106 `proxy.ts` lets a second path by, `/healthz`, which no
+ * person asks for: it is the platform's health check, it renders nothing, and
+ * it is spelled where it is exempted rather than here.
+ */
 export const SIGN_IN_PATH = '/sign-in';
 
 /**

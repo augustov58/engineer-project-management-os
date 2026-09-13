@@ -44,7 +44,10 @@ apply to every path stay in `AGENTS.md`.
   stand in the gate's place (ADR-0042). `GET /v1/health` is **gated**, deliberately: a
   deployment's HTTP check must send a session or be a TCP check, because one named
   exception is a property a test can hold and two is the start of a list. Do not add a
-  second.
+  second. Issue #106 found the third way rather than the second exemption: `/healthz` on the
+  **Next** server calls this route through `apiFetch`, carries no session, and reads the
+  gate's own 401 as proof the API process answered. What that costs is the payload — the
+  queue depth and the database behind it stay gated, and the platform check gets one bit.
 - `POST /v1/sessions` is **where a session is obtained, not a second exemption**. It
   presents an email and a password instead of a session id and authenticates its own
   caller, and it refuses a wrong password, an unknown address, a disabled account and a
@@ -64,15 +67,19 @@ apply to every path stay in `AGENTS.md`.
   server-only module in the browser's graph, which Turbopack refuses to build.
 - A 401 sends the engineer to `/sign-in` **only when a session was actually presented**.
   A 401 with none is the sign-in route answering a wrong password, and redirecting there
-  would swallow the sentence the form is about to show. The two readers that must be able
-  to hear *nobody* — the sign-in call and the header's read of who is signed in — pass
-  `refusal: 'answer'`; the header's read is on the sign-in screen too, and would otherwise
-  redirect to the page it is already on, forever.
+  would swallow the sentence the form is about to show. The three readers that must be able
+  to hear *nobody* — the sign-in call, the header's read of who is signed in, and since
+  issue #106 the `/healthz` route the platform check asks — pass `refusal: 'answer'`; the
+  header's read is on the sign-in screen too, and would otherwise redirect to the page it is
+  already on, forever. The health check never has a session and never will, and the gate's
+  401 is the answer it is reading: the API process replied.
 - `apps/web/proxy.ts` and **not** `middleware.ts`: Next 16 deprecated that file convention
   and renamed it. Its matcher excludes only `_next/static`, `_next/image` and `favicon.ico`;
   `/sign-in` is exempted **inside the function and never in the matcher**, because a server
   action is a POST to the route it is used on, so a matcher exclusion silently un-gates that
-  route's actions too. A page navigation without the cookie is redirected to `/sign-in`;
+  route's actions too. `/healthz` (issue #106) is exempted beside it on a weaker argument —
+  a route handler has no server action to un-gate — and kept there anyway, so one place says
+  what gets past this file. A page navigation without the cookie is redirected to `/sign-in`;
   everything else is refused **where it stands** with a 401, because an `EventSource` follows
   a redirect into an HTML page and then reconnects forever without showing anybody an error.
   What the proxy can decide without a database is whether there is a cookie at all; whether

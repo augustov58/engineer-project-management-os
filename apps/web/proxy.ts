@@ -26,11 +26,25 @@ export const config = {
    * `/sign-in` is deliberately **not** excluded here. A path a matcher skips
    * is a path this file never sees, and a server action is a POST to the
    * route it is used on, so an exclusion silently un-gates that route's
-   * actions as well. Everything is matched; the one exemption is below,
-   * where it can be read.
+   * actions as well. Everything is matched; the two exemptions are below,
+   * where they can be read.
    */
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
+
+/**
+ * Where the platform's health check asks whether the API is answering
+ * (issue #106, ADR-0052).
+ *
+ * Exempted here and not in the matcher for the same reason `/sign-in` is,
+ * though the argument is weaker: a route handler has no server action to
+ * un-gate. Kept alongside it anyway, so there is one place a reader finds out
+ * what gets past this file.
+ *
+ * Fly presents no cookie and asks for no document, so without this the check
+ * would take the 401 branch and read a healthy machine as a dead one.
+ */
+const HEALTH_PATH = '/healthz';
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -40,7 +54,11 @@ export function proxy(request: NextRequest) {
   // later, which is a redirect the engineer sees for no reason.
   const presented = request.cookies.get(SESSION_COOKIE)?.value;
 
-  if (pathname === SIGN_IN_PATH || (presented !== undefined && presented !== '')) {
+  if (
+    pathname === SIGN_IN_PATH ||
+    pathname === HEALTH_PATH ||
+    (presented !== undefined && presented !== '')
+  ) {
     return NextResponse.next();
   }
 
