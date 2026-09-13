@@ -58,10 +58,28 @@ jobs:
       - name: Let Chrome open its sandbox
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
+      # Chrome lives in `~/.cache/puppeteer`, **outside** the pnpm store, so it
+      # needs a cache of its own. Keyed on the lockfile, which is what pins the
+      # puppeteer version that decides the build.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: puppeteer-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       # `--frozen-lockfile`: a lockfile a dependency edit forgot is a red gate
-      # and not a silently different install. This also runs `prisma generate`
-      # and fetches the Chrome that puppeteer drives.
+      # and not a silently different install. This also runs `prisma generate`.
       - run: pnpm install --frozen-lockfile
+
+      # Not redundant, and the third CI run is why. A **warm pnpm store** links
+      # puppeteer without re-running its install script, and that script is what
+      # downloads Chrome — so a hit on the store cache with a miss here is an
+      # install that exits 0 with no browser, and twelve report tests failing on
+      # a vendor's absence rather than on anything this repo wrote. It is the
+      # same shape as the Dockerfile's missing-`unzip` note: Chrome absent,
+      # install exits 0. Idempotent — on a cache hit it prints the path it
+      # already has.
+      - name: Make sure Chrome is actually there
+        run: pnpm --filter api exec puppeteer browsers install chrome
 
       - name: Typecheck
         run: pnpm typecheck
