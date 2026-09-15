@@ -2,12 +2,15 @@ import { afterEach, expect, test } from 'vitest';
 import {
   createOpenItem,
   createProject,
+  createUser,
   fakeTimeSource,
   openItemBody,
   startTestApi,
   type OpenItemResponse,
   type TestApi,
 } from './harness.js';
+
+const NO_SUCH = '2f1e6d8c-0000-4000-8000-000000000000';
 
 const started: TestApi[] = [];
 
@@ -37,6 +40,29 @@ async function pending(app: TestApi, query = '') {
   })[];
 }
 
+function post(app: TestApi, path: string, body?: unknown) {
+  return app.fetch(path, {
+    method: 'POST',
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+  });
+}
+
+/** The job's activity feed, newest first (ADR-0048). */
+async function activity(app: TestApi, projectId: string) {
+  const response = await app.fetch(`/v1/projects/${projectId}/activity`);
+  expect(response.status).toBe(200);
+  return (await response.json()) as {
+    action: string;
+    detail: string;
+    actor: { id: string; name: string } | null;
+  }[];
+}
+
 function resolve(app: TestApi, id: string, body: unknown) {
   return app.fetch(`/v1/open-items/${id}/resolve`, {
     method: 'POST',
@@ -60,7 +86,6 @@ test('an open item created against a project is read back with every field', asy
     waitingSince: '2026-03-01T12:00:00.000Z',
     invalidationTrigger: 'A transformer swap',
     counterfactual: 'If the height is lower the run has to be rerouted',
-    owner: 'AV',
   });
 
   expect(created).toMatchObject({
@@ -72,7 +97,11 @@ test('an open item created against a project is read back with every field', asy
     waitingSince: '2026-03-01T12:00:00.000Z',
     invalidationTrigger: 'A transformer swap',
     counterfactual: 'If the height is lower the run has to be rerouted',
-    owner: 'AV',
+    // The item sits with whoever raised it (issue #112, ADR-0055 part 5).
+    // Set from the session and never from the body, which carries no owner
+    // at all — free text until then, on ADR-0012's "there is no `users`
+    // table", which ADR-0055 ended by making one.
+    owner: app.user,
     resolvedAt: null,
     resolutionNote: null,
   });
@@ -85,10 +114,85 @@ test('the optional fields come back null when they are not supplied', async () =
 
   const created = await createOpenItem(app, project.id, {
     invalidationTrigger: undefined,
-    owner: undefined,
   });
 
-  expect(created).toMatchObject({ invalidationTrigger: null, owner: null });
+  expect(created).toMatchObject({ invalidationTrigger: null });
+});
+
+test('an open item is handed on, and the hand-over is on the record', async () => {
+  const app = await api();
+  const project = await createProject(app, 'T-1', 'Example job');
+  const second = await createUser(app, 'Grace Hopper', 'grace@example.test');
+
+  const raised = await createOpenItem(app, project.id);
+  expect(raised.owner).toEqual(app.user);
+
+  const handed = await post(app, `/v1/open-items/${raised.id}/owner`, {
+    ownerId: second.id,
+  });
+  expect(handed.status).toBe(200);
+  expect(((await handed.json()) as OpenItemResponse).owner).toEqual(second);
+
+  // Read back the same way from the project's own list, not only from the
+  // answer the write gave.
+  const [read] = await projectItems(app, project.id);
+  expect(read?.owner).toEqual(second);
+
+  // Both names, because the column it moved from is overwritten and the line
+  // is the only place the hand-over survives.
+  expect((await activity(app, project.id))[0]).toMatchObject({
+    action: 'open item handed on',
+    detail: `${raised.unresolved} — Ada Lovelace handed it to Grace Hopper`,
+    // The hand-over is the **subject's**; who typed it is the actor, and the
+    // two are different people the moment an item is handed on (issue #111).
+    actor: { id: app.user.id, name: 'Ada Lovelace' },
+  });
+});
+
+test('an item cannot be handed to an account that is not one', async () => {
+  const app = await api();
+  const project = await createProject(app, 'T-1', 'Example job');
+  const raised = await createOpenItem(app, project.id);
+  const path = `/v1/open-items/${raised.id}/owner`;
+
+  expect((await post(app, path, { ownerId: NO_SUCH })).status).toBe(404);
+
+  // A disabled account keeps what it already holds and is given nothing new.
+  const leaver = await createUser(app, 'Grace Hopper', 'grace@example.test');
+  expect(
+    (await post(app, `/v1/users/${leaver.id}/disable`)).status,
+  ).toBe(200);
+  const closed = await post(app, path, { ownerId: leaver.id });
+  expect(closed.status).toBe(409);
+  expect(await closed.json()).toEqual({ message: 'that account is disabled' });
+
+  const [read] = await projectItems(app, project.id);
+  expect(read?.owner).toEqual(app.user);
+});
+
+test('the pending view answers for me, and for everybody', async () => {
+  const app = await api();
+  const project = await createProject(app, 'T-1', 'Example job');
+  const second = await createUser(app, 'Grace Hopper', 'grace@example.test');
+
+  const mine = await createOpenItem(app, project.id, { unresolved: 'Mine' });
+  const theirs = await createOpenItem(app, project.id, {
+    unresolved: 'Theirs',
+  });
+  await post(app, `/v1/open-items/${theirs.id}/owner`, { ownerId: second.id });
+
+  // *Ours* is the route's own answer and the default: what this read means is
+  // every unresolved item across every job, and which of them an engineer is
+  // shown first is the screen's decision (ADR-0038's shape).
+  expect((await pending(app)).map((item) => item.id).sort()).toEqual(
+    [mine.id, theirs.id].sort(),
+  );
+
+  // *Mine* is the caller's own, never a supplied id: asking about somebody
+  // else is a different question and this one has no answer but *me*.
+  expect((await pending(app, '?mine=true')).map((item) => item.id)).toEqual([
+    mine.id,
+  ]);
 });
 
 test('nobody owing the next move is a real value, distinct from an empty field', async () => {
@@ -326,7 +430,10 @@ test.each([
   ['a party of only whitespace', { waitingOn: '   ' }],
   ['a statement of only whitespace', { unresolved: '   ' }],
   ['a counterfactual of only whitespace', { counterfactual: '  ' }],
-  ['an owner of only whitespace', { owner: ' ' }],
+  // `owner` stopped being a field in issue #112. A client still sending one
+  // gets a 400 and not a silently stripped key, which is what
+  // `removeAdditional: false` at the boundary is for.
+  ['an owner, which this record no longer has', { owner: 'AV' }],
 ])('an open item with %s is rejected and nothing is stored', async (_, patch) => {
   const app = await api();
   const project = await createProject(app, 'T-1', 'Example job');

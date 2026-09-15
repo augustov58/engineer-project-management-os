@@ -4,6 +4,7 @@ import {
   createPhase,
   createProject,
   createSubmission,
+  createUser,
   startTestApi,
   submissionBody,
   type ExposureRow,
@@ -48,9 +49,11 @@ async function submissions(app: TestApi, projectId: string) {
 }
 
 /** The exposure view, across every project or narrowed to one. */
-async function exposure(app: TestApi, projectId?: string) {
+async function exposure(app: TestApi, projectId?: string, query = '') {
   const path =
-    projectId === undefined ? '/v1/exposure' : `/v1/exposure?projectId=${projectId}`;
+    projectId === undefined
+      ? `/v1/exposure${query === '' ? '' : `?${query}`}`
+      : `/v1/exposure?projectId=${projectId}${query === '' ? '' : `&${query}`}`;
   const response = await app.fetch(path);
   expect(response.status).toBe(200);
   return (await response.json()) as ExposureRow[];
@@ -279,6 +282,50 @@ test('exposure is the issued submissions currently carrying unresolved items', a
   // Resolving the last unconfirmed input takes the set out of exposure.
   await resolve(app, item.id);
   expect(await exposure(app, project.id)).toEqual([]);
+});
+
+test('exposure answers for me, and for everybody', async () => {
+  const app = await api();
+  const { project, phase } = await job(app, 'S-1', 'Riverside clinic');
+  const second = await createUser(app, 'Grace Hopper', 'grace@example.test');
+
+  const mine = await createOpenItem(app, project.id, { unresolved: 'Mine' });
+  const theirs = await createOpenItem(app, project.id, {
+    unresolved: 'Theirs',
+  });
+  expect(
+    (await post(app, `/v1/open-items/${theirs.id}/owner`, {
+      ownerId: second.id,
+    })).status,
+  ).toBe(200);
+
+  const onMine = await createSubmission(app, project.id, {
+    phaseId: phase.id,
+    openItemIds: [mine.id],
+  });
+  const onTheirs = await createSubmission(app, project.id, {
+    phaseId: phase.id,
+    revision: 'Rev 2',
+    openItemIds: [theirs.id],
+  });
+
+  // *Ours* is the route's own answer and the default: what this read means is
+  // unchanged, and which sets an engineer is shown first is the screen's
+  // decision (ADR-0038's shape).
+  expect((await exposure(app, project.id)).map((row) => row.id).sort()).toEqual(
+    [onMine.id, onTheirs.id].sort(),
+  );
+
+  // A set is *mine* when what it is standing on is mine — the exposure a
+  // person can act on. Read off the caller's session and never a supplied id.
+  expect(
+    (await exposure(app, project.id, 'mine=true')).map((row) => row.id),
+  ).toEqual([onMine.id]);
+
+  // And across every job, with the same answer.
+  expect(
+    (await exposure(app, undefined, 'mine=true')).map((row) => row.id),
+  ).toEqual([onMine.id]);
 });
 
 test('exposure across every project names the job each set belongs to', async () => {

@@ -9,10 +9,12 @@ import {
   createProject,
   createRegisterEntry,
   createSubmission,
+  createUser,
   fakeTimeSource,
   handoffBody,
   listRegisters,
   openItemBody,
+  ours,
   registerEntryBody,
   startTestApi,
 } from './harness.js';
@@ -125,7 +127,7 @@ test('an entry is logged with its number, subject, parties and first handoff', a
     subject: 'Rooftop unit shop drawings',
     fromParty: 'Acme Mechanical',
     toParty: 'Us',
-    ballInCourt: handoffBody({ party: 'Us', inOurCourt: true }),
+    ballInCourt: ours(app),
   });
 
   expect(logged.number).toBe('23 05 93-1.1');
@@ -155,11 +157,7 @@ test('a handoff may be dated, for a log written up after the fact', async () => 
   const { submittals } = await job(app);
 
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: handoffBody({
-      party: 'Us',
-      inOurCourt: true,
-      heldSince: '2026-06-01T09:30:00.000Z',
-    }),
+    ballInCourt: ours(app, { heldSince: '2026-06-01T09:30:00.000Z' }),
   });
 
   expect(logged.ballInCourt?.heldSince).toBe('2026-06-01T09:30:00.000Z');
@@ -178,7 +176,7 @@ test('the same number may be a submittal and an RFI, and never twice in one log'
   const again = await post(
     app,
     `/v1/registers/${submittals.id}/entries`,
-    registerEntryBody({ number: '001' }),
+    registerEntryBody({ number: '001', ballInCourt: ours(app) }),
   );
   expect(again.status).toBe(409);
   expect(await again.json()).toEqual({
@@ -209,7 +207,7 @@ test('the current holder is derived from a multi-handoff sequence', async () => 
 
   // Received for review: ours.
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: handoffBody({ party: 'Us', inOurCourt: true }),
+    ballInCourt: ours(app),
   });
 
   // Sent back for revision: theirs.
@@ -225,10 +223,7 @@ test('the current holder is derived from a multi-handoff sequence', async () => 
 
   // Resubmitted: ours again, and genuinely a second interval.
   time.advance(10 * 24 * 60 * 60 * 1000);
-  await post(app, `/v1/register-entries/${logged.id}/handoffs`, {
-    party: 'Us',
-    inOurCourt: true,
-  });
+  await post(app, `/v1/register-entries/${logged.id}/handoffs`, ours(app));
 
   // Out to the architect for coordination.
   time.advance(2 * 24 * 60 * 60 * 1000);
@@ -261,11 +256,7 @@ test('the history is ordered by when the ball moved, not by when it was entered'
   const { submittals } = await job(app);
 
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: handoffBody({
-      party: 'Us',
-      inOurCourt: true,
-      heldSince: '2026-07-01T09:00:00.000Z',
-    }),
+    ballInCourt: ours(app, { heldSince: '2026-07-01T09:00:00.000Z' }),
   });
 
   // Entered last, but it happened in the middle: a transmittal log is written
@@ -296,14 +287,14 @@ test('handing the ball to whoever already holds it is two intervals, not a no-op
   const { submittals } = await job(app);
 
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: handoffBody({ party: 'Us', inOurCourt: true }),
+    ballInCourt: ours(app),
   });
 
   time.advance(24 * 60 * 60 * 1000);
   const again = await post(
     app,
     `/v1/register-entries/${logged.id}/handoffs`,
-    { party: 'Us', inOurCourt: true },
+    ours(app),
   );
 
   expect(again.status).toBe(201);
@@ -317,7 +308,7 @@ test('a party is not what says the ball is ours', async () => {
   // A job that calls us by the firm's name still accrues, and a third party
   // named "us" does not.
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: handoffBody({ party: 'Alcott Engineering', inOurCourt: true }),
+    ballInCourt: ours(app, { party: 'Alcott Engineering' }),
   });
   expect(logged.ballInCourt?.inOurCourt).toBe(true);
 
@@ -643,6 +634,8 @@ test('a handoff comes back with exactly these fields', async () => {
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id);
 
+  // `user` and never `userId`: the person the ball came to goes out named,
+  // as an open item's owner and a walk's conducted-by do (issue #112).
   expect(Object.keys(logged.handoffs[0] ?? {}).sort()).toEqual([
     'createdAt',
     'heldSince',
@@ -650,7 +643,70 @@ test('a handoff comes back with exactly these fields', async () => {
     'inOurCourt',
     'party',
     'registerEntryId',
+    'user',
   ]);
+  expect(logged.handoffs[0]?.user).toEqual(app.user);
+});
+
+test('a handoff that brings the ball to us names the person it comes to', async () => {
+  const app = await api();
+  const { submittals } = await job(app);
+  const second = await createUser(app, 'Grace Hopper', 'grace@example.test');
+
+  // Out to a contractor: a party is not a user, and there is nobody here to
+  // name (ADR-0036 keeps `party` free text).
+  const logged = await createRegisterEntry(app, submittals.id, {
+    ballInCourt: handoffBody({ party: 'Acme Mechanical', inOurCourt: false }),
+  });
+  expect(logged.ballInCourt?.user).toBeNull();
+
+  // Back to us, and to somebody in particular — **supplied**, not read off
+  // the session: an entry logged from a transmittal log may bring the ball to
+  // a colleague, which is ADR-0037's reason the party is supplied too.
+  const back = await post(app, `/v1/register-entries/${logged.id}/handoffs`, {
+    party: 'Us',
+    inOurCourt: true,
+    userId: second.id,
+  });
+  expect(back.status).toBe(201);
+  expect((await entry(app, logged.id)).ballInCourt?.user).toEqual(second);
+});
+
+test('a handoff names a person exactly when the ball is ours', async () => {
+  const app = await api();
+  const { submittals } = await job(app);
+  const logged = await createRegisterEntry(app, submittals.id);
+  const path = `/v1/register-entries/${logged.id}/handoffs`;
+
+  // Ours and nobody: refused, because a ball in our court is in somebody's.
+  const nobody = await post(app, path, { party: 'Us', inOurCourt: true });
+  expect(nobody.status).toBe(409);
+  expect(await nobody.json()).toEqual({
+    message: "a ball in our court is in somebody's court; name them",
+  });
+
+  // Theirs and somebody: refused too. The grammar has no optional segment,
+  // which is ADR-0030's one-axis rule arriving for a second record.
+  const both = await post(app, path, {
+    party: 'Acme Mechanical',
+    inOurCourt: false,
+    userId: app.user.id,
+  });
+  expect(both.status).toBe(409);
+  expect(await both.json()).toEqual({
+    message: 'a ball handed to another party names no user',
+  });
+
+  // An account that is not one.
+  const absent = await post(app, path, {
+    party: 'Us',
+    inOurCourt: true,
+    userId: NO_SUCH,
+  });
+  expect(absent.status).toBe(404);
+
+  // Nothing was written by any of the three.
+  expect((await entry(app, logged.id)).handoffs).toHaveLength(1);
 });
 
 test.each(['PATCH', 'PUT', 'DELETE'])(
@@ -817,14 +873,15 @@ const DISPOSITIONS = [
   'For Record Only',
 ];
 
-/** A handoff that puts the ball in our court, which is what the clock reads. */
-function ours() {
-  return handoffBody({ party: 'Us', inOurCourt: true });
-}
-
-async function clock(app: TestApi, projectId?: string): Promise<ClockRow[]> {
+async function clock(
+  app: TestApi,
+  projectId?: string,
+  query = '',
+): Promise<ClockRow[]> {
   const path =
-    projectId === undefined ? '/v1/clock' : `/v1/clock?projectId=${projectId}`;
+    projectId === undefined
+      ? `/v1/clock${query === '' ? '' : `?${query}`}`
+      : `/v1/clock?projectId=${projectId}${query === '' ? '' : `&${query}`}`;
   const response = await app.fetch(path);
   expect(response.status).toBe(200);
   return (await response.json()) as ClockRow[];
@@ -904,7 +961,7 @@ test('elapsed in-court time excludes the intervals the ball was elsewhere', asyn
 
   // Received for review: ours.
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   // Six days on our desk, then back to the contractor for revision.
@@ -916,10 +973,7 @@ test('elapsed in-court time excludes the intervals the ball was elsewhere', asyn
 
   // Ten days with them, then resubmitted: genuinely a second interval.
   time.advance(days(10));
-  await post(app, `/v1/register-entries/${logged.id}/handoffs`, {
-    party: 'Us',
-    inOurCourt: true,
-  });
+  await post(app, `/v1/register-entries/${logged.id}/handoffs`, ours(app));
 
   // Two more days, then out to the architect for coordination.
   time.advance(days(2));
@@ -942,7 +996,7 @@ test('the open interval accrues while the ball is still ours', async () => {
   const app = await api({ timeSource: time });
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   expect(logged.inCourtMs).toBe(0);
@@ -982,7 +1036,7 @@ test('a party is not what says the ball is ours, and the clock reads the boolean
   // A job that calls us by the firm's name still accrues.
   const named = await createRegisterEntry(app, submittals.id, {
     number: 'SUB-001',
-    ballInCourt: handoffBody({ party: 'Fenwick Engineering', inOurCourt: true }),
+    ballInCourt: ours(app, { party: 'Fenwick Engineering' }),
   });
   // And a third party who happens to be called "us" does not.
   const notOurs = await createRegisterEntry(app, submittals.id, {
@@ -1004,7 +1058,7 @@ test('an entry is past its clock only once elapsed in-court time exceeds the tar
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
     turnaroundDays: 14,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(14));
@@ -1020,7 +1074,7 @@ test('an entry with no turnaround target is never past its clock', async () => {
   const app = await api({ timeSource: time });
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(400));
@@ -1039,7 +1093,7 @@ test('handing the ball on takes an entry off the clock and leaves what it took u
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
     turnaroundDays: 14,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(40));
@@ -1065,7 +1119,7 @@ test('recording a disposition stops the clock and hands the ball back in one act
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
     turnaroundDays: 14,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(20));
@@ -1100,7 +1154,7 @@ test.each(DISPOSITIONS)('%s is one of the five a review may reach', async (dispo
   const app = await api();
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   const reviewed = await post(
@@ -1127,7 +1181,7 @@ test.each([
     const app = await api();
     const { submittals } = await job(app);
     const logged = await createRegisterEntry(app, submittals.id, {
-      ballInCourt: ours(),
+      ballInCourt: ours(app),
     });
 
     const reviewed = await post(
@@ -1154,7 +1208,7 @@ test('only a submittal has a disposition', async () => {
   const logged = await createRegisterEntry(app, rfis.id, {
     number: 'RFI-004',
     question: 'What is the load at the north stair?',
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   const reviewed = await post(
@@ -1176,7 +1230,7 @@ test('a second disposition is refused rather than overwriting the first', async 
   const app = await api();
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   const back = { party: 'Acme Mechanical', inOurCourt: false };
@@ -1203,7 +1257,7 @@ test('a disposition entered from a transmittal log is dated when the review happ
   const app = await api({ timeSource: time });
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   // Typed up on the 25th; the review went back on the 10th.
@@ -1232,7 +1286,7 @@ test('a next round is logged in the same register and linked to the round it fol
   const first = await createRegisterEntry(app, submittals.id, {
     number: 'SUB-001',
     turnaroundDays: 14,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
   await post(app, `/v1/register-entries/${first.id}/disposition`, {
     disposition: 'Revise and Resubmit',
@@ -1245,7 +1299,7 @@ test('a next round is logged in the same register and linked to the round it fol
     registerEntryBody({
       number: 'SUB-001.1',
       turnaroundDays: 14,
-      ballInCourt: ours(),
+      ballInCourt: ours(app),
     }),
   );
 
@@ -1274,7 +1328,7 @@ test('the next round starts its own clock', async () => {
   const first = await createRegisterEntry(app, submittals.id, {
     number: 'SUB-001',
     turnaroundDays: 14,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(20));
@@ -1284,7 +1338,7 @@ test('the next round starts its own clock', async () => {
     registerEntryBody({
       number: 'SUB-001.1',
       turnaroundDays: 14,
-      ballInCourt: ours(),
+      ballInCourt: ours(app),
     }),
   );
   const next = (await created.json()) as RegisterEntryResponse;
@@ -1300,18 +1354,18 @@ test('a second next round is refused rather than repointing the first', async ()
   const { submittals } = await job(app);
   const first = await createRegisterEntry(app, submittals.id, {
     number: 'SUB-001',
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
   await post(
     app,
     `/v1/register-entries/${first.id}/next-round`,
-    registerEntryBody({ number: 'SUB-001.1', ballInCourt: ours() }),
+    registerEntryBody({ number: 'SUB-001.1', ballInCourt: ours(app) }),
   );
 
   const again = await post(
     app,
     `/v1/register-entries/${first.id}/next-round`,
-    registerEntryBody({ number: 'SUB-001.2', ballInCourt: ours() }),
+    registerEntryBody({ number: 'SUB-001.2', ballInCourt: ours(app) }),
   );
 
   expect(again.status).toBe(409);
@@ -1327,7 +1381,7 @@ test('only a submittal has another round', async () => {
   const logged = await createRegisterEntry(app, rfis.id, {
     number: 'RFI-004',
     question: 'What is the load at the north stair?',
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   const created = await post(
@@ -1336,7 +1390,7 @@ test('only a submittal has another round', async () => {
     registerEntryBody({
       number: 'RFI-004.1',
       question: 'And at the south?',
-      ballInCourt: ours(),
+      ballInCourt: ours(app),
     }),
   );
 
@@ -1357,7 +1411,7 @@ test('the clock lists every entry past its clock across every project, longest f
   await createRegisterEntry(app, first.submittals.id, {
     number: 'SUB-001',
     turnaroundDays: 3,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
   // Never ours, however short its target.
   await createRegisterEntry(app, first.submittals.id, {
@@ -1369,7 +1423,7 @@ test('the clock lists every entry past its clock across every project, longest f
   await createRegisterEntry(app, first.submittals.id, {
     number: 'SUB-003',
     turnaroundDays: 90,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(10));
@@ -1381,11 +1435,7 @@ test('the clock lists every entry past its clock across every project, longest f
   await createRegisterEntry(app, second.submittals.id, {
     number: 'SUB-009',
     turnaroundDays: 25,
-    ballInCourt: handoffBody({
-      party: 'Us',
-      inOurCourt: true,
-      heldSince: '2026-06-21T09:00:00.000Z',
-    }),
+    ballInCourt: ours(app, { heldSince: '2026-06-21T09:00:00.000Z' }),
   });
 
   time.advance(days(10));
@@ -1420,12 +1470,12 @@ test("the clock for one job is that job's entries", async () => {
   await createRegisterEntry(app, first.submittals.id, {
     number: 'SUB-001',
     turnaroundDays: 3,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
   await createRegisterEntry(app, second.submittals.id, {
     number: 'SUB-009',
     turnaroundDays: 3,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(10));
@@ -1447,7 +1497,7 @@ test('an archived project leaves the clock across every project and keeps its ow
   await createRegisterEntry(app, submittals.id, {
     number: 'SUB-001',
     turnaroundDays: 3,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   time.advance(days(10));
@@ -1464,12 +1514,57 @@ test('an archived project leaves the clock across every project and keeps its ow
   ]);
 });
 
+test('the clock answers for me, and for everybody', async () => {
+  const time = fakeTimeSource(new Date('2026-07-01T09:00:00.000Z'));
+  const app = await api({ timeSource: time });
+  const { project, submittals } = await job(app);
+  const second = await createUser(app, 'Grace Hopper', 'grace@example.test');
+
+  const toMe = await createRegisterEntry(app, submittals.id, {
+    number: 'SUB-100',
+    turnaroundDays: 3,
+    ballInCourt: ours(app),
+  });
+  const toThem = await createRegisterEntry(app, submittals.id, {
+    number: 'SUB-200',
+    turnaroundDays: 3,
+    ballInCourt: ours(app, { userId: second.id }),
+  });
+
+  time.advance(days(10));
+
+  // *Ours* is the default: the route means what it has always meant.
+  expect((await clock(app, project.id)).map((row) => row.id).sort()).toEqual(
+    [toMe.id, toThem.id].sort(),
+  );
+
+  // "Nothing sitting in **my** court past its clock" — and "my" is a user
+  // since ADR-0055.
+  expect(
+    (await clock(app, project.id, 'mine=true')).map((row) => row.id),
+  ).toEqual([toMe.id]);
+  expect((await clock(app, undefined, 'mine=true')).map((row) => row.id)).toEqual(
+    [toMe.id],
+  );
+
+  // Read off the **current** handoff and not the history: an entry that was
+  // mine and is somebody else's now is sitting in their court (ADR-0037).
+  await post(app, `/v1/register-entries/${toMe.id}/handoffs`, {
+    party: 'Us',
+    inOurCourt: true,
+    userId: second.id,
+  });
+  expect((await clock(app, project.id, 'mine=true')).map((row) => row.id)).toEqual(
+    [],
+  );
+});
+
 test('the clock is empty when nothing is sitting in our court past its target', async () => {
   const app = await api();
   const { submittals } = await job(app);
   await createRegisterEntry(app, submittals.id, {
     turnaroundDays: 14,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   expect(await clock(app)).toEqual([]);
@@ -1481,18 +1576,18 @@ test('a handoff dated forward credits no time that has not elapsed', async () =>
   const { submittals } = await job(app);
   const logged = await createRegisterEntry(app, submittals.id, {
     turnaroundDays: 14,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
 
   // A transmittal log is written up by hand and can carry a date that has not
   // arrived. Ten days have passed; this says the ball is ours again from the
   // twenty-first, which is ten days off.
   time.advance(days(10));
-  await post(app, `/v1/register-entries/${logged.id}/handoffs`, {
-    party: 'Us',
-    inOurCourt: true,
-    heldSince: '2026-07-21T09:00:00.000Z',
-  });
+  await post(
+    app,
+    `/v1/register-entries/${logged.id}/handoffs`,
+    ours(app, { heldSince: '2026-07-21T09:00:00.000Z' }),
+  );
 
   const read = await entry(app, logged.id);
   // Ten days and not twenty: an interval may not end after now, or the entry

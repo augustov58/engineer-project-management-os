@@ -20,10 +20,18 @@ import {
   noSuchSubmission,
   openItemRefusal,
   refuse,
+  type Refusal,
+  userRefusal,
 } from '../refusals.js';
 import { openItemBodySchema } from './open-items.js';
+import {
+  chasedItems,
+  namedUser,
+  openItemOnTheWire,
+  userOnTheWire,
+} from '../wire.js';
 import { audit } from '../audit.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -87,6 +95,11 @@ export const handoffBodySchema = {
     party: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
     inOurCourt: { type: 'boolean' },
     heldSince: { type: 'string', format: 'date-time' },
+    // Who it comes to, where it comes to us (issue #112, ADR-0055 part 5).
+    // Required exactly when `inOurCourt` is true — which a body schema cannot
+    // say, the way it cannot say which kind carries a question, so
+    // `handoffRefusal` says it at the boundary and a CHECK stands under it.
+    userId: { type: 'string' },
   },
 } as const;
 
@@ -152,7 +165,13 @@ const linkSubmissionBodySchema = {
 const clockQuerySchema = {
   type: 'object',
   additionalProperties: false,
-  properties: { projectId: { type: 'string' } },
+  properties: {
+    projectId: { type: 'string' },
+    // *Mine* (issue #112, ADR-0055 part 5). The outcome test reads "nothing
+    // sitting in **my** court past its clock", and since ADR-0055 "my" is a
+    // user. False here and true on the morning screen, as exposure's is.
+    mine: { type: 'boolean', default: false },
+  },
 } as const;
 
 /** The contractual number the clock is measured against (story 73). */
@@ -189,6 +208,7 @@ export interface HandoffBody {
   party: string;
   inOurCourt: boolean;
   heldSince?: string;
+  userId?: string;
 }
 interface EntryBody {
   number: string;
@@ -211,11 +231,11 @@ interface EntryBody {
  * two handoffs stamped the same instant still have a last one.
  */
 const entryInclude = {
-  handoffs: { orderBy: [{ heldSince: 'asc' }, { createdAt: 'asc' }] },
-  openItems: {
-    orderBy: { openItem: { waitingSince: 'asc' } },
-    select: { openItem: true },
+  handoffs: {
+    orderBy: [{ heldSince: 'asc' }, { createdAt: 'asc' }],
+    include: { user: namedUser },
   },
+  openItems: chasedItems,
   // The round that followed this one, if a resubmittal came back. Selected
   // rather than included: `previous_round_id` is unique, so there is at most
   // one and its id is the whole of what a screen needs to link forward — the
@@ -227,6 +247,26 @@ const entryInclude = {
 type StoredEntry = Prisma.RegisterEntryGetPayload<{
   include: typeof entryInclude;
 }>;
+
+/**
+ * A handoff on the wire, with the person it came to (issue #112).
+ *
+ * The raw `user_id` is swapped for the person, as an open item's owner and a
+ * walk's conducted-by are: what a screen shows beside the party's name is a
+ * name. Null where the ball went out to another party, which is most of them.
+ *
+ * Here rather than in `wire.ts`, by ADR-0033's count rule: one record reads
+ * handoffs.
+ */
+function handoffOnTheWire<
+  T extends {
+    userId: string | null;
+    user: { id: string; name: string; email: string } | null;
+  },
+>(handoff: T) {
+  const { userId: _id, user, ...rest } = handoff;
+  return { ...rest, user: user === null ? null : userOnTheWire(user) };
+}
 
 /**
  * An entry on the wire: whose move it is now, how long it has been ours, and
@@ -252,7 +292,8 @@ type StoredEntry = Prisma.RegisterEntryGetPayload<{
  * would be wrong for however long nothing rewrote it.
  */
 function entryOnTheWire(entry: StoredEntry, timeSource: TimeSource) {
-  const { handoffs, openItems, nextRound, register, ...rest } = entry;
+  const { handoffs: stored, openItems, nextRound, register, ...rest } = entry;
+  const handoffs = stored.map(handoffOnTheWire);
   // `?? null` for the wire and not as a defence: an entry is created with
   // its first handoff in the same transaction and nothing deletes one, so
   // the list is never empty — but `at(-1)` is typed `| undefined`, and an
@@ -269,7 +310,7 @@ function entryOnTheWire(entry: StoredEntry, timeSource: TimeSource) {
     inCourtMs: inCourt,
     pastClock: isPastClock(rest.turnaroundDays, ballInCourt, inCourt),
     handoffs,
-    openItems: openItems.map((row) => row.openItem),
+    openItems: openItems.map((row) => openItemOnTheWire(row.openItem)),
   };
 }
 
@@ -435,9 +476,44 @@ export function handoffData(body: HandoffBody, timeSource: TimeSource) {
   return {
     party: body.party,
     inOurCourt: body.inOurCourt,
+    // `?? null` and not left off: the column is nullable and a handoff out to
+    // a contractor genuinely has nobody on our side (issue #112).
+    userId: body.userId ?? null,
     heldSince: instant(body.heldSince, timeSource),
     createdAt: timeSource.now(),
   };
+}
+
+/**
+ * Whether a handoff names the right person, or nobody, checked before it is
+ * written (issue #112, ADR-0055 part 5).
+ *
+ * Both directions, which is ADR-0030's one-axis rule and not a convenience:
+ * a ball in our court is in somebody's court, and a ball handed to a
+ * contractor is in nobody-here's — `party` is a free-text party and a party
+ * is not a user (ADR-0036). A CHECK holds the same pairing underneath, since
+ * it is a property of the record rather than a habit of the interface.
+ *
+ * Exported beside `handoffData` and for its reason: `routes/extractions.ts`
+ * writes this table too, and a second statement of this rule is a second rule.
+ */
+export async function handoffRefusal(
+  prisma: PrismaClient,
+  body: HandoffBody,
+): Promise<Refusal | null> {
+  if (body.inOurCourt && body.userId === undefined) {
+    return {
+      code: 409,
+      message: 'a ball in our court is in somebody\'s court; name them',
+    };
+  }
+  if (!body.inOurCourt && body.userId !== undefined) {
+    return {
+      code: 409,
+      message: 'a ball handed to another party names no user',
+    };
+  }
+  return body.userId === undefined ? null : userRefusal(prisma, body.userId);
 }
 
 export function registerRoutes(
@@ -516,6 +592,11 @@ export function registerRoutes(
         return reply.code(409).send({ message: 'a submittal has no question' });
       }
 
+      const badHandoff = await handoffRefusal(prisma, ballInCourt);
+      if (badHandoff !== null) {
+        return refuse(reply, badHandoff);
+      }
+
       const now = timeSource.now();
       try {
         const logged = await prisma.$transaction(async (tx) => {
@@ -585,6 +666,11 @@ export function registerRoutes(
       const entry = await findEntry(prisma, request.params.id);
       if (entry === null) {
         return noSuchRegisterEntry(reply);
+      }
+
+      const badHandoff = await handoffRefusal(prisma, request.body);
+      if (badHandoff !== null) {
+        return refuse(reply, badHandoff);
       }
 
       const handoff = handoffData(request.body, timeSource);
@@ -811,6 +897,11 @@ export function registerRoutes(
           .send({ message: 'that entry already has a disposition' });
       }
 
+      const badHandoff = await handoffRefusal(prisma, request.body.ballInCourt);
+      if (badHandoff !== null) {
+        return refuse(reply, badHandoff);
+      }
+
       const handoff = handoffData(request.body.ballInCourt, timeSource);
       await prisma.$transaction(async (tx) => {
         await tx.registerEntry.update({
@@ -879,6 +970,11 @@ export function registerRoutes(
         return reply.code(409).send({ message: 'a submittal has no question' });
       }
 
+      const badHandoff = await handoffRefusal(prisma, ballInCourt);
+      if (badHandoff !== null) {
+        return refuse(reply, badHandoff);
+      }
+
       const now = timeSource.now();
       try {
         const logged = await prisma.$transaction(async (tx) => {
@@ -944,7 +1040,6 @@ export function registerRoutes(
       waitingSince?: string;
       invalidationTrigger?: string;
       counterfactual: string;
-      owner?: string;
     };
   }>(
     '/register-entries/:id/open-items',
@@ -964,8 +1059,10 @@ export function registerRoutes(
             subjectType: 'PROJECT',
             subjectId: entry.register.projectId,
             waitingSince: instant(waitingSince, timeSource),
+            ownerId: callerOf(request).userId,
             registerEntries: { create: { registerEntryId: entry.id } },
           },
+          include: { owner: namedUser },
         });
         await audit(tx, {
           projectId: entry.register.projectId,
@@ -977,7 +1074,7 @@ export function registerRoutes(
         });
         return created;
       });
-      return reply.code(201).send(item);
+      return reply.code(201).send(openItemOnTheWire(item));
     },
   );
 
@@ -1059,11 +1156,11 @@ export function registerRoutes(
    * a child table's intervals with an open last one, so the rows are read and
    * the arithmetic decides. There are two registers per job.
    */
-  v1.get<{ Querystring: { projectId?: string } }>(
+  v1.get<{ Querystring: { projectId?: string; mine: boolean } }>(
     '/clock',
     { schema: { querystring: clockQuerySchema } },
     async (request, reply) => {
-      const { projectId } = request.query;
+      const { projectId, mine } = request.query;
       if (projectId !== undefined) {
         const project = await prisma.project.findUnique({
           where: { id: projectId },
@@ -1086,9 +1183,17 @@ export function registerRoutes(
         include: clockInclude,
       });
 
+      // *Mine* is read off the **current** handoff and not off the history:
+      // an entry that was mine last month and is somebody else's now is
+      // sitting in their court, and *past its clock* has always been about
+      // where the ball is **now** (ADR-0037). Beside `pastClock` in the
+      // application for the same reason it is — the sum has an open last
+      // interval, so neither predicate can be pushed into a `where` clause.
+      const me = callerOf(request).userId;
       return entries
         .map((entry) => withProject(entry, timeSource))
         .filter((entry) => entry.pastClock)
+        .filter((entry) => !mine || entry.ballInCourt?.user?.id === me)
         .sort(
           (a, b) =>
             b.inCourtMs - a.inCourtMs ||

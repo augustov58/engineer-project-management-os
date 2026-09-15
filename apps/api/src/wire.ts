@@ -69,6 +69,69 @@ export function withDate<T extends { startedAt: Date }>(
 }
 
 /**
+ * The person a record names, as an `include` asks for them (issue #112).
+ *
+ * One shape for all three — a walk's **conducted by**, an open item's
+ * **owner**, the **user** a ball came to — so that what a person looks like on
+ * the wire is decided once. `include: { owner: true }` would hand back the
+ * password hash, which is exactly what `userOnTheWire` below exists to stop
+ * each route having to remember.
+ */
+export const namedUser = {
+  select: { id: true, name: true, email: true },
+} as const;
+
+/**
+ * A site visit on the wire, with the date it was and the person who made it
+ * (issue #112, ADR-0055 part 5).
+ *
+ * The raw `conducted_by` id is swapped for the person, the way
+ * `projectOnTheWire` swaps the ingest token for the address: what a screen and
+ * the **report** want is a name, and a bare foreign key on the wire is one a
+ * reader has to go and resolve. `userOnTheWire` is what keeps the hash off it.
+ *
+ * Separate from `withDate` rather than folded into it, because a **sighting**
+ * carries its walk as a stub of three fields and has no person on it — an
+ * issue's read names the walks it was seen on, not who made each of them.
+ */
+export function visitOnTheWire<
+  T extends {
+    startedAt: Date;
+    conductedById: string;
+    conductedBy: { id: string; name: string; email: string };
+  },
+>(visit: T, timeZone: string) {
+  const { conductedById: _id, conductedBy: walker, ...rest } = visit;
+  return { ...withDate(rest, timeZone), conductedBy: userOnTheWire(walker) };
+}
+
+/**
+ * An open item on the wire, with the person it sits with (issue #112,
+ * ADR-0055 part 5).
+ *
+ * The same swap `visitOnTheWire` makes, and needed in more places: an open
+ * item is read back on its own, on the pending items view, and inside four
+ * other records — a submission, an issue, a register entry and an assumption
+ * record each name the items they are being chased for. Every one of those
+ * goes through here, so a bare `owner_id` reaches no screen.
+ */
+export function openItemOnTheWire<
+  T extends {
+    ownerId: string;
+    owner: { id: string; name: string; email: string };
+  },
+>(item: T) {
+  const { ownerId: _id, owner: sitsWith, ...rest } = item;
+  return { ...rest, owner: userOnTheWire(sitsWith) };
+}
+
+/** The open items a record is being chased for, read with their people. */
+export const chasedItems = {
+  orderBy: { openItem: { waitingSince: 'asc' } },
+  select: { openItem: { include: { owner: namedUser } } },
+} as const;
+
+/**
  * The location as the field says it: `Floor N — <qualifier>, <Side|Sector>`
  * (glossary, story 53).
  *
@@ -157,10 +220,7 @@ export const issueInclude = {
       },
     },
   },
-  openItems: {
-    orderBy: { openItem: { waitingSince: 'asc' } },
-    select: { openItem: true },
-  },
+  openItems: chasedItems,
   // The photo evidence for this finding, across every walk it was seen on
   // (issue #11). A list, whose length is the count.
   photos: photosTaken,
@@ -191,7 +251,7 @@ export function withSightings(found: Finding, timeZone: string) {
         siteVisit: withDate(siteVisit, timeZone),
       };
     }),
-    openItems: openItems.map((row) => row.openItem),
+    openItems: openItems.map((row) => openItemOnTheWire(row.openItem)),
     photos: photos.map(photoOnTheWire),
   };
 }

@@ -3,6 +3,7 @@ import {
   createObservation,
   createProject,
   createSiteVisit,
+  createUser,
   fakeTimeSource,
   observationBody,
   startFloor,
@@ -79,6 +80,77 @@ test('a site visit is created against a project with a start and an end', async 
   expect(created.projectId).toBe(project.id);
   expect(created.startedAt).toBe('2026-07-23T13:00:00.000Z');
   expect(created.endedAt).toBe('2026-07-23T16:30:00.000Z');
+});
+
+test('a site visit comes back with exactly these fields', async () => {
+  const app = await api();
+  const project = await createProject(app, 'V-1', 'Riverside clinic');
+  const walk = await createSiteVisit(app, project.id);
+
+  // `conductedBy` and never `conductedById`: the person goes out named, as an
+  // open item's owner and a handoff's user do (issue #112). `visitedOn` is
+  // derived and `endedAt` is nullable; there is still no status column, and
+  // one cannot be added without this test saying so.
+  expect(Object.keys(walk).sort()).toEqual([
+    'conductedBy',
+    'createdAt',
+    'endedAt',
+    'id',
+    'projectId',
+    'startedAt',
+    'visitedOn',
+  ]);
+  expect(walk.conductedBy).toEqual(app.user);
+});
+
+test('a walk is conducted by whoever recorded it, and that is correctable', async () => {
+  const app = await api();
+  const project = await createProject(app, 'V-1', 'Riverside clinic');
+  const second = await createUser(app, 'Grace Hopper', 'grace@example.test');
+
+  // The acting user and never a field of the body: a visit is made by
+  // somebody, and the create route has nothing to ask (ADR-0055 part 5).
+  const walk = await createSiteVisit(app, project.id);
+  expect(walk.conductedBy).toEqual(app.user);
+
+  // Editable, because a walk typed up in the evening is often not typed up by
+  // whoever made it.
+  const moved = await post(app, `/v1/site-visits/${walk.id}/conducted-by`, {
+    conductedById: second.id,
+  });
+  expect(moved.status).toBe(200);
+  expect(((await moved.json()) as SiteVisitResponse).conductedBy).toEqual(second);
+
+  // Read back the same from the visit's own screen and from the list.
+  expect((await visit(app, walk.id)).conductedBy).toEqual(second);
+  expect((await visits(app, project.id))[0]?.conductedBy).toEqual(second);
+
+  // Repeatable, unlike ending a walk: the wrong name is a typing mistake and
+  // the right one may be arrived at twice.
+  const back = await post(app, `/v1/site-visits/${walk.id}/conducted-by`, {
+    conductedById: app.user.id,
+  });
+  expect(back.status).toBe(200);
+  expect((await visit(app, walk.id)).conductedBy).toEqual(app.user);
+});
+
+test('a walk cannot be conducted by an account that is not one', async () => {
+  const app = await api();
+  const project = await createProject(app, 'V-1', 'Riverside clinic');
+  const walk = await createSiteVisit(app, project.id);
+  const path = `/v1/site-visits/${walk.id}/conducted-by`;
+
+  expect((await post(app, path, { conductedById: NO_SUCH })).status).toBe(404);
+  expect((await post(app, `/v1/site-visits/${NO_SUCH}/conducted-by`, {
+    conductedById: app.user.id,
+  })).status).toBe(404);
+
+  const leaver = await createUser(app, 'Grace Hopper', 'grace@example.test');
+  expect((await post(app, `/v1/users/${leaver.id}/disable`)).status).toBe(200);
+  const closed = await post(app, path, { conductedById: leaver.id });
+  expect(closed.status).toBe(409);
+
+  expect((await visit(app, walk.id)).conductedBy).toEqual(app.user);
 });
 
 test('the visit’s date is the day it started, derived and stored nowhere', async () => {

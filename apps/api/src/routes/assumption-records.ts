@@ -16,8 +16,9 @@ import {
 } from '../refusals.js';
 import { UNRESOLVED_MAX, openItemBodySchema } from './open-items.js';
 import { itemOnSubmission } from './submissions.js';
+import { namedUser, openItemOnTheWire } from '../wire.js';
 import { audit } from '../audit.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 /**
  * The durable artifact of engineering reasoning (issue #8): two blocks
@@ -355,7 +356,6 @@ export function assumptionRecordRoutes(
       waitingSince?: string;
       invalidationTrigger?: string;
       counterfactual: string;
-      owner?: string;
     };
   }>(
     '/assumption-records/:id/flags/:line/open-item',
@@ -403,7 +403,9 @@ export function assumptionRecordRoutes(
               record.submission,
               wording,
               timeSource,
+              callerOf(request).userId,
             ),
+            include: { owner: namedUser },
           });
           await tx.raisedFlag.create({
             data: { assumptionRecordId: id, line, openItemId: created.id },
@@ -420,7 +422,7 @@ export function assumptionRecordRoutes(
           });
           return created;
         });
-        return reply.code(201).send(item);
+        return reply.code(201).send(openItemOnTheWire(item));
       } catch (error) {
         // Unqualified, and safe to be: every other row this transaction
         // writes carries a freshly generated id, so `raised_flags` is the

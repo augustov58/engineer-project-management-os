@@ -22,7 +22,12 @@ import {
 import { progressStreams } from '../stream.js';
 import { EXTRACT, type ExtractJob } from '../worker.js';
 import { DOCUMENT_CONTENT_TYPES } from './documents.js';
-import { handoffBodySchema, handoffData, TURNAROUND_DAYS } from './registers.js';
+import {
+  handoffBodySchema,
+  handoffData,
+  handoffRefusal,
+  TURNAROUND_DAYS,
+} from './registers.js';
 import { audit } from '../audit.js';
 import { actorOf, callerOf, mintRunSession } from '../gate.js';
 
@@ -73,7 +78,12 @@ interface FieldsBody {
   question?: string;
   response?: string;
   turnaroundDays?: number;
-  ballInCourt: { party: string; inOurCourt: boolean; heldSince?: string };
+  ballInCourt: {
+    party: string;
+    inOurCourt: boolean;
+    heldSince?: string;
+    userId?: string;
+  };
   title?: string;
   revision?: string;
 }
@@ -521,6 +531,18 @@ export function extractionRoutes(
       if (refusal !== null) {
         return refuse(reply, refusal);
       }
+      // A proposal names a **party** and never a person (issue #112). The
+      // agent has read a piece of correspondence; which engineer here the ball
+      // comes to is not in it, and there is no `proposed_user_id` column for
+      // an answer nobody could give — so it is refused rather than dropped,
+      // which is what `additionalProperties: false` exists to do for a field
+      // the shape does not have. The engineer names the person at
+      // confirmation, on the screen where they are the one holding it.
+      if (request.body.ballInCourt.userId !== undefined) {
+        return reply.code(409).send({
+          message: 'an extraction proposes a party, not the person it comes to',
+        });
+      }
 
       const { kind, ballInCourt, question, response, turnaroundDays, title, revision, ...rest } =
         request.body;
@@ -649,6 +671,13 @@ export function extractionRoutes(
         questionRefusal(request.body);
       if (refusal !== null) {
         return refuse(reply, refusal);
+      }
+
+      // The second writer of `ball_in_court_events` reads the same boundary
+      // rather than restating it, as it does for the handoff's shape.
+      const badHandoff = await handoffRefusal(prisma, request.body.ballInCourt);
+      if (badHandoff !== null) {
+        return refuse(reply, badHandoff);
       }
 
       const file = extraction.ingestedDocumentFile;

@@ -25,8 +25,9 @@ import {
   refuse,
 } from '../refusals.js';
 import { openItemBodySchema } from './open-items.js';
+import { namedUser, openItemOnTheWire } from '../wire.js';
 import { audit, type Actor } from '../audit.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 /**
  * What went out, to whom, when, and at what phase, as one record (issue #5).
@@ -65,7 +66,14 @@ const submissionBodySchema = {
 const exposureQuerySchema = {
   type: 'object',
   additionalProperties: false,
-  properties: { projectId: { type: 'string' } },
+  properties: {
+    projectId: { type: 'string' },
+    // *Mine*: the sets standing on something **I** own (issue #112,
+    // ADR-0055 part 5). False here and true on the morning screen, for the
+    // reason the pending view's is — what this route means is unchanged, and
+    // which of them an engineer is shown first is the screen's decision.
+    mine: { type: 'boolean', default: false },
+  },
 } as const;
 
 /**
@@ -341,11 +349,11 @@ export function itemOnSubmission(
     waitingSince?: string;
     invalidationTrigger?: string;
     counterfactual: string;
-    owner?: string;
   },
   submission: { id: string; projectId: string },
   unresolved: string,
   timeSource: TimeSource,
+  ownerId: string,
 ) {
   const { waitingSince, ...rest } = body;
   return {
@@ -354,8 +362,11 @@ export function itemOnSubmission(
     subjectType: 'PROJECT',
     subjectId: submission.projectId,
     waitingSince: instant(waitingSince, timeSource),
+    // The acting user, passed in rather than read here: this is a leaf shared
+    // by two routes and the caller is the thing it cannot see (issue #112).
+    ownerId,
     submissions: { create: { submissionId: submission.id } },
-  } satisfies Prisma.OpenItemCreateInput | Prisma.OpenItemUncheckedCreateInput;
+  } satisfies Prisma.OpenItemUncheckedCreateInput;
 }
 
 /**
@@ -572,7 +583,7 @@ export function submissionRoutes(
           },
           supersededBy: { select: { id: true } },
           openItems: {
-            include: { openItem: true },
+            include: { openItem: { include: { owner: namedUser } } },
             orderBy: { openItem: { waitingSince: 'asc' } },
           },
         },
@@ -592,7 +603,7 @@ export function submissionRoutes(
         // Where each item stood when the set went out, carried on the
         // item itself: null for one attached afterwards.
         openItems: openItems.map((row) => ({
-          ...row.openItem,
+          ...openItemOnTheWire(row.openItem),
           unresolvedAtIssuance: row.unresolvedAtIssuance,
         })),
       };
@@ -613,11 +624,11 @@ export function submissionRoutes(
    * today's work (glossary, **Pending items**). Asked about one job
    * directly, its own record still answers.
    */
-  v1.get<{ Querystring: { projectId?: string } }>(
+  v1.get<{ Querystring: { projectId?: string; mine: boolean } }>(
     '/exposure',
     { schema: { querystring: exposureQuerySchema } },
     async (request, reply) => {
-      const { projectId } = request.query;
+      const { projectId, mine } = request.query;
       if (projectId !== undefined) {
         const project = await prisma.project.findUnique({
           where: { id: projectId },
@@ -632,7 +643,18 @@ export function submissionRoutes(
 
       const carrying = await prisma.submission.findMany({
         where: {
-          openItems: { some: { openItem: { resolvedAt: null } } },
+          openItems: {
+            some: {
+              openItem: {
+                resolvedAt: null,
+                // A set is *mine* when what it is standing on is mine. The
+                // exposure a person can act on is the items they own, and the
+                // filter belongs on the item because that is where the owner
+                // is (ADR-0055 part 5).
+                ...(mine ? { ownerId: callerOf(request).userId } : {}),
+              },
+            },
+          },
           // Superseded ancestors are not what is out there. A reissue
           // carries the same unresolved items forward, so without this
           // every correction would count its set twice (issue #7).
@@ -672,7 +694,6 @@ export function submissionRoutes(
       waitingSince?: string;
       invalidationTrigger?: string;
       counterfactual: string;
-      owner?: string;
     };
   }>(
     '/submissions/:id/open-items',
@@ -690,7 +711,14 @@ export function submissionRoutes(
       const at = timeSource.now();
       const item = await prisma.$transaction(async (tx) => {
         const created = await tx.openItem.create({
-          data: itemOnSubmission(rest, submission, unresolved, timeSource),
+          data: itemOnSubmission(
+            rest,
+            submission,
+            unresolved,
+            timeSource,
+            callerOf(request).userId,
+          ),
+          include: { owner: namedUser },
         });
         await audit(tx, {
           projectId: submission.projectId,
