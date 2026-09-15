@@ -53,9 +53,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** The screen is an async server component; awaiting it is the render. */
-async function morning() {
-  render(await Home());
+/**
+ * The screen is an async server component; awaiting it is the render.
+ *
+ * `searchParams` is a promise Next hands it, and this is what stands in for
+ * one — the toggle between *mine* and *ours* reads it (issue #112).
+ */
+async function morning(scope?: string) {
+  render(await Home({ searchParams: Promise.resolve({ scope }) }));
 }
 
 /** The exposure card and the clock card, in that order. */
@@ -91,10 +96,42 @@ test('each count is the length of the list its card links to', async () => {
   expect(count(exposure)).toBe('3');
   expect(count(clock)).toBe('7');
 
-  // Unfiltered, across every job: the roll-up is the same call the per-project
-  // screen makes, with no project to narrow it.
-  expect(listExposure).toHaveBeenCalledWith();
-  expect(listClock).toHaveBeenCalledWith();
+  // No project to narrow it: the roll-up is the same call the per-project
+  // screen makes, across every job. The second argument is *mine*, which the
+  // screen defaults to and the route does not (issue #112).
+  expect(listExposure).toHaveBeenCalledWith(undefined, true);
+  expect(listClock).toHaveBeenCalledWith(undefined, true);
+});
+
+test('the screen defaults to mine and one toggle widens it to ours', async () => {
+  listExposure.mockResolvedValue(rows(3));
+  listClock.mockResolvedValue(rows(7));
+
+  // The outcome test reads "nothing sitting in **my** court past its clock",
+  // and since ADR-0055 "my" is a user. The default lives here and not in the
+  // API: each route means every job's, and which rows the engineer is shown
+  // first is the screen's decision — ADR-0038's rule applied to the filter.
+  await morning();
+  expect(listExposure).toHaveBeenCalledWith(undefined, true);
+  expect(listClock).toHaveBeenCalledWith(undefined, true);
+  // And each card drills through carrying the toggle, so a count and the list
+  // it lands on cannot be answering different questions.
+  const [mineExposure, mineClock] = cards();
+  expect(mineExposure.getAttribute('href')).toBe('/exposure');
+  expect(mineClock.getAttribute('href')).toBe('/clock');
+
+  cleanup();
+  vi.clearAllMocks();
+  listProjects.mockResolvedValue([]);
+  listExposure.mockResolvedValue(rows(3));
+  listClock.mockResolvedValue(rows(7));
+
+  await morning('ours');
+  expect(listExposure).toHaveBeenCalledWith(undefined, false);
+  expect(listClock).toHaveBeenCalledWith(undefined, false);
+  const [oursExposure, oursClock] = cards();
+  expect(oursExposure.getAttribute('href')).toBe('/exposure?scope=ours');
+  expect(oursClock.getAttribute('href')).toBe('/clock?scope=ours');
 });
 
 test('one of each reads as one of each', async () => {
@@ -107,7 +144,20 @@ test('one of each reads as one of each', async () => {
   expect(exposure.textContent).toContain(
     'issued submission currently standing on an unresolved open item',
   );
+  // *Mine* is the default, so the sentence is the first person; *ours* is
+  // what the toggle widens it to.
   expect(clock.textContent).toContain(
+    'register entry sitting in my court past its turnaround',
+  );
+
+  cleanup();
+  vi.clearAllMocks();
+  listProjects.mockResolvedValue([]);
+  listExposure.mockResolvedValue(rows(1));
+  listClock.mockResolvedValue(rows(1));
+
+  await morning('ours');
+  expect(cards()[1].textContent).toContain(
     'register entry sitting in our court past its turnaround',
   );
 });

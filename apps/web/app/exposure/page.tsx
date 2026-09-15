@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { getProject, listExposure } from '../api';
+import { ScopeToggle, isMine, scopeOf } from '../scope';
 import { day } from '../wall-clock';
 
 /** The point of this screen is what is carrying an unconfirmed input now. */
@@ -19,9 +20,12 @@ export const dynamic = 'force-dynamic';
 export default async function Exposure({
   searchParams,
 }: {
-  searchParams: Promise<{ projectId?: string }>;
+  searchParams: Promise<{ projectId?: string; scope?: string }>;
 }) {
-  const { projectId } = await searchParams;
+  const { projectId, scope: asked } = await searchParams;
+  // *Mine* by default, as the count that linked here is (issue #112). A set
+  // is mine when what it is standing on is mine.
+  const scope = scopeOf(asked);
 
   // The job is looked up first rather than alongside. `listExposure` throws on
   // the API's 404, so fetching both together would turn an unknown id into a
@@ -33,7 +37,17 @@ export default async function Exposure({
     notFound();
   }
 
-  const carrying = await listExposure(projectId);
+  const carrying = await listExposure(projectId, isMine(scope));
+  const here = (next: 'mine' | 'ours') => {
+    const query = new URLSearchParams();
+    if (projectId !== undefined) {
+      query.set('projectId', projectId);
+    }
+    if (next === 'ours') {
+      query.set('scope', 'ours');
+    }
+    return query.size === 0 ? '/exposure' : `/exposure?${query.toString()}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -51,9 +65,12 @@ export default async function Exposure({
           {carrying.length === 0
             ? 'Nothing issued is standing on an unresolved open item.'
             : `${carrying.length} issued ${carrying.length === 1 ? 'submission is' : 'submissions are'} standing on an unresolved open item${
-                project === undefined ? ' across every live project' : ''
-              }`}
+                isMine(scope) ? ' of mine' : ''
+              }${project === undefined ? ' across every live project' : ''}`}
         </p>
+        <div className="mt-3">
+          <ScopeToggle scope={scope} href={here} />
+        </div>
       </div>
 
       {carrying.length > 0 && (

@@ -1,0 +1,70 @@
+import Link from 'next/link';
+
+/**
+ * *Mine* or *ours* — the one toggle on the daily layer (issue #112,
+ * ADR-0055 part 5).
+ *
+ * The outcome test reads "nothing sitting in **my** court past its clock", and
+ * since ADR-0055 "my" is a user rather than the author. So the three screens
+ * that answer it default to *mine* and offer one way to widen: the morning
+ * screen's two counts, the two lists they drill through to, and the pending
+ * items view.
+ *
+ * **The default lives here and not in the API.** `GET /v1/exposure`,
+ * `GET /v1/clock` and `GET /v1/open-items` each mean what they have always
+ * meant — every job's — and each takes `?mine=true`. Which rows an engineer is
+ * shown first is the screen's decision, which is ADR-0038's rule that the
+ * morning screen serves no endpoint, applied to its filter.
+ */
+export type Scope = 'mine' | 'ours';
+
+/**
+ * What a query string means. Anything but the one word that widens is *mine*,
+ * so a bookmark carrying nothing lands on the default rather than on an error.
+ */
+export function scopeOf(value: string | undefined): Scope {
+  return value === 'ours' ? 'ours' : 'mine';
+}
+
+/** Whether to ask the API for the caller's own. */
+export function isMine(scope: Scope): boolean {
+  return scope === 'mine';
+}
+
+/**
+ * Two links and not a `<form>`: this is a navigation between two readings of
+ * the same screen, so each half is a URL somebody can bookmark or send, and
+ * the server renders the state rather than a client holding it.
+ *
+ * `href` is supplied because each screen carries its own other parameters —
+ * the job on exposure and the clock, the party and the sort order on pending.
+ */
+export function ScopeToggle({
+  scope,
+  href,
+}: {
+  scope: Scope;
+  href: (scope: Scope) => string;
+}) {
+  return (
+    <div
+      className="bg-muted/30 inline-flex rounded-lg border p-0.5"
+      aria-label="Whose"
+    >
+      {(['mine', 'ours'] as const).map((option) => (
+        <Link
+          key={option}
+          href={href(option)}
+          aria-current={scope === option ? 'true' : undefined}
+          className={
+            scope === option
+              ? 'bg-background rounded-md px-3 py-1 text-sm font-medium shadow-sm'
+              : 'text-muted-foreground hover:text-foreground rounded-md px-3 py-1 text-sm transition-colors'
+          }
+        >
+          {option === 'mine' ? 'Mine' : 'Ours'}
+        </Link>
+      ))}
+    </div>
+  );
+}

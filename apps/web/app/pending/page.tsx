@@ -90,6 +90,7 @@ export default async function PendingItems({
                 <TableHead>Unresolved</TableHead>
                 <TableHead>Blocks</TableHead>
                 <TableHead className="w-36">Next move</TableHead>
+                <TableHead className="w-36">Sits with</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -126,6 +127,13 @@ export default async function PendingItems({
                     <Badge variant="outline">
                       {item.waitingOn ?? 'Nobody'}
                     </Badge>
+                  </TableCell>
+                  {/*
+                    Our side of the line, where **next move** is theirs: an
+                    open item sits with a user and waits on a party.
+                  */}
+                  <TableCell className="text-muted-foreground align-top">
+                    {item.owner.name}
                   </TableCell>
                 </TableRow>
               ))}

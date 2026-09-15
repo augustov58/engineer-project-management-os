@@ -7,7 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { selectClassName } from './native-select';
 import type { AddState } from './actions';
-import { DISPOSITIONS, type RegisterKind, type Submission } from './api';
+import {
+  DISPOSITIONS,
+  type RegisterKind,
+  type Submission,
+  type User,
+} from './api';
 import { day } from './wall-clock';
 
 type Submit = (previous: AddState, formData: FormData) => Promise<AddState>;
@@ -43,7 +48,15 @@ function Submitted({
  * the party name: a job that calls us by the firm's name still accrues, and
  * the clock (issue #15) sums exactly this box.
  */
-function HandoffFields({ legend }: { legend: string }) {
+function HandoffFields({
+  legend,
+  users,
+  me,
+}: {
+  legend: string;
+  users: User[];
+  me: string;
+}) {
   return (
     <fieldset className="space-y-3 rounded-lg border p-3">
       <legend className="text-muted-foreground px-1 text-sm">{legend}</legend>
@@ -84,6 +97,33 @@ function HandoffFields({ legend }: { legend: string }) {
         />
         It is in our court
       </label>
+
+      {/*
+        Who on our side it comes to (issue #112, ADR-0055 part 5). A ball in
+        our court is in somebody's court, and the API refuses one that names
+        nobody; a ball going out to a party names no user, and the action
+        sends this only when the box above is ticked.
+
+        Native, for the reason every other select on this screen is (ADR-0025).
+        Defaulted to whoever is signed in, because that is the answer most of
+        the time and the whole point of the field is that it may be somebody
+        else.
+      */}
+      <div className="space-y-1.5">
+        <Label htmlFor="userId">If it is ours, whose</Label>
+        <select
+          id="userId"
+          name="userId"
+          defaultValue={me}
+          className={selectClassName}
+        >
+          {users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.name}
+            </option>
+          ))}
+        </select>
+      </div>
     </fieldset>
   );
 }
@@ -98,11 +138,17 @@ function HandoffFields({ legend }: { legend: string }) {
 export function NewRegisterEntryForm({
   submit,
   kind,
+  users,
+  me,
   submitLabel,
   defaultTurnaroundDays,
 }: {
   submit: Submit;
   kind: RegisterKind;
+  /** Everyone at the firm, for the handoff's "if it is ours, whose". */
+  users: User[];
+  /** Whoever is signed in, which the select defaults to (issue #112). */
+  me: string;
   submitLabel?: string;
   /**
    * Offered rather than carried: a resubmittal is usually under the same
@@ -202,7 +248,7 @@ export function NewRegisterEntryForm({
         </div>
       )}
 
-      <HandoffFields legend="Whose court it starts in" />
+      <HandoffFields legend="Whose court it starts in" users={users} me={me} />
 
       <Submitted
         pending={pending}
@@ -221,12 +267,20 @@ export function NewRegisterEntryForm({
  * Every handoff is a row and none is ever rewritten, which is what makes a
  * turnaround dispute settleable by the record rather than by memory.
  */
-export function HandoffForm({ submit }: { submit: Submit }) {
+export function HandoffForm({
+  submit,
+  users,
+  me,
+}: {
+  submit: Submit;
+  users: User[];
+  me: string;
+}) {
   const [state, action, pending] = useActionState(submit, { added: 0 });
 
   return (
     <form key={state.added} action={action} className="space-y-3">
-      <HandoffFields legend="Where it goes next" />
+      <HandoffFields legend="Where it goes next" users={users} me={me} />
       <Submitted pending={pending} error={state.error} label="Hand it on" />
     </form>
   );
@@ -371,7 +425,15 @@ export function TurnaroundForm({ submit }: { submit: Submit }) {
  * and the two parties on an entry are its fixed cast rather than whose move it
  * is (ADR-0036).
  */
-export function DispositionForm({ submit }: { submit: Submit }) {
+export function DispositionForm({
+  submit,
+  users,
+  me,
+}: {
+  submit: Submit;
+  users: User[];
+  me: string;
+}) {
   const [state, action, pending] = useActionState(submit, { added: 0 });
 
   return (
@@ -401,7 +463,11 @@ export function DispositionForm({ submit }: { submit: Submit }) {
         </p>
       </div>
 
-      <HandoffFields legend="Where the ball goes back to" />
+      <HandoffFields
+        legend="Where the ball goes back to"
+        users={users}
+        me={me}
+      />
 
       <Submitted
         pending={pending}

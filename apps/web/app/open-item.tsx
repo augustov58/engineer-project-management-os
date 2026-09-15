@@ -1,8 +1,9 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { reopenOpenItem, resolveOpenItem } from './actions';
-import type { OpenItem } from './api';
+import { handOnOpenItem, reopenOpenItem, resolveOpenItem } from './actions';
+import type { OpenItem, User } from './api';
+import { selectClassName } from './native-select';
 import { clock, day } from './wall-clock';
 
 function Field({ label, value }: { label: string; value: string | null }) {
@@ -24,10 +25,17 @@ export function OpenItemEntry({
   detach,
   restedOnAtIssuance = false,
   raisedFromFlag = false,
+  users,
   timeZone,
 }: {
   item: OpenItem;
   projectId: string;
+  /**
+   * Everyone at the firm, so the item can be handed on (issue #112,
+   * ADR-0055 part 5). An item sits with whoever raised it and is changeable;
+   * that is what *mine* means on the pending items view.
+   */
+  users: User[];
   /**
    * Present only where the item is being shown as something an issuance
    * rests on. The button lives inside the entry rather than beside it
@@ -78,7 +86,45 @@ export function OpenItemEntry({
         )}
         <Field label="Open since" value={day(item.waitingSince, timeZone)} />
         <Field label="Invalidated by" value={item.invalidationTrigger} />
-        <Field label="Owner" value={item.owner} />
+        {/*
+          Whose it is on our side of the line, where **next move** above is the
+          party's (issue #112). A user since ADR-0055 part 5, so it is a name
+          and never a blank.
+        */}
+        {/*
+          Not a `Field` like the rest: the owner is the one thing about an
+          item that changes outside resolving it, so the row it is read on is
+          also the row it is handed on from.
+
+          Native, for the reason every other select here is (ADR-0025): the
+          action reads this out of `FormData`.
+        */}
+        <dt className="text-muted-foreground">Owner</dt>
+        <dd>
+          <form
+            action={handOnOpenItem.bind(null, projectId, item.id)}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <label htmlFor={`owner-${item.id}`} className="sr-only">
+              Who it sits with
+            </label>
+            <select
+              id={`owner-${item.id}`}
+              name="ownerId"
+              defaultValue={item.owner.id}
+              className={selectClassName}
+            >
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            <Button type="submit" variant="ghost" size="sm">
+              Hand it on
+            </Button>
+          </form>
+        </dd>
         {item.resolvedAt !== null && (
           <Field
             label="Resolved"

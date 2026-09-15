@@ -110,7 +110,8 @@ function openItemPayload(
     waitingSince: composeDay(formData, 'waitingSince', timeZone),
     invalidationTrigger: omitIfBlank(formData, 'invalidationTrigger'),
     counterfactual: formData.get('counterfactual'),
-    owner: omitIfBlank(formData, 'owner'),
+    // No owner: an item sits with whoever raised it from the moment it exists,
+    // and handing it on is its own action (issue #112, ADR-0055 part 5).
   };
 }
 
@@ -1228,9 +1229,15 @@ function handoffPayload(
   formData: FormData,
   timeZone: string,
 ): Record<string, unknown> {
+  const inOurCourt = formData.get('inOurCourt') !== null;
   return {
     party: formData.get('party'),
-    inOurCourt: formData.get('inOurCourt') !== null,
+    inOurCourt,
+    // Who it comes to, where it comes to us, and nobody where it goes out
+    // (issue #112, ADR-0055 part 5). **Supplied** and not read off the
+    // session: an entry typed up from a transmittal log may bring the ball to
+    // a colleague, which is why the party beside it is supplied too.
+    ...(inOurCourt ? { userId: formData.get('userId') } : {}),
     // A date input gives a day; the record keeps the instant it began on
     // this job (ADR-0054).
     heldSince: composeDay(formData, 'heldSince', timeZone),
@@ -1268,6 +1275,43 @@ export async function createRegisterEntry(
   revalidatePath(`/projects/${projectId}`);
   revalidatePath('/clock');
   return { added: previous.added + 1 };
+}
+
+/**
+ * Hand an open item on (issue #112, ADR-0055 part 5).
+ *
+ * The one thing about an item that changes outside resolving it. A named
+ * action and not an edit form, the way the API is a named POST and not a
+ * PATCH: nothing else here is editable.
+ */
+export async function handOnOpenItem(
+  projectId: string,
+  openItemId: string,
+  formData: FormData,
+): Promise<void> {
+  await sendOrThrow(`/open-items/${openItemId}/owner`, {
+    ownerId: formData.get('ownerId'),
+  });
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/pending');
+}
+
+/**
+ * Correct who walked a site visit (issue #112, ADR-0055 part 5).
+ *
+ * The walk is recorded as conducted by whoever typed it in, which is right
+ * most of the time and wrong whenever a walk is written up in the evening by
+ * somebody who was not on it. The next report prints the corrected name.
+ */
+export async function setConductedBy(
+  siteVisitId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  await sendOrThrow(`/site-visits/${siteVisitId}/conducted-by`, {
+    conductedById: formData.get('conductedById'),
+  });
+  revalidateSiteVisit(siteVisitId, projectId);
 }
 
 /** Hand the ball on. Every handoff is a row and none is ever rewritten. */

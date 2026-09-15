@@ -17,6 +17,7 @@ import {
   recordObservation,
   reobserveIssue,
   retryVoiceCapture,
+  setConductedBy,
   startFloor,
 } from '../../actions';
 import {
@@ -24,7 +25,9 @@ import {
   isWorking,
   listIssues,
   listIssuesWithoutPhotos,
+  listUsers,
 } from '../../api';
+import { selectClassName } from '../../native-select';
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { clock, day } from '../../wall-clock';
 import { PhotoBindings, PhotoForm } from '../../photo-form';
@@ -57,6 +60,12 @@ export default async function SiteVisitRecord({
   // for it: a stub that could label the row and not read its times would be
   // half a job.
   const zone = visit.project.timezone;
+
+  // Everyone at the firm, so the walk can be moved to whoever actually made
+  // it (issue #112). A visit is recorded as conducted by whoever typed it in,
+  // which is right most of the time and wrong whenever a walk is written up
+  // in the evening by somebody who was not on it.
+  const users = await listUsers();
 
   const visitedOn = visit.visitedOn;
 
@@ -125,6 +134,36 @@ export default async function SiteVisitRecord({
             </form>
           )}
         </div>
+
+        {/*
+          Who walked the building, which is the name the **report** prints
+          (issue #112, ADR-0055 part 5). Who typed the row and who asked for a
+          rendering are audit facts and are not here.
+
+          Native, for the reason every other select in this app is (ADR-0025):
+          the action reads this out of `FormData`.
+        */}
+        <form
+          action={setConductedBy.bind(null, visit.id, projectId)}
+          className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-sm"
+        >
+          <label htmlFor="conductedById">Conducted by</label>
+          <select
+            id="conductedById"
+            name="conductedById"
+            defaultValue={visit.conductedBy.id}
+            className={selectClassName}
+          >
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+          <Button type="submit" variant="ghost" size="sm">
+            Change
+          </Button>
+        </form>
       </div>
 
       {/*

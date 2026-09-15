@@ -16,6 +16,7 @@ import {
   setTurnaround,
 } from '../../actions';
 import {
+  currentUser,
   getProject,
   getRegister,
   getRegisterEntry,
@@ -24,6 +25,7 @@ import {
   listPhases,
   listRegisterEntryDocuments,
   listSubmissions,
+  listUsers,
   REGISTER_NAMES,
   REVISE_AND_RESUBMIT,
 } from '../../api';
@@ -57,17 +59,29 @@ export default async function RegisterEntryRecord({
     notFound();
   }
 
-  const [project, phases, submissions, unresolved, onTheEntry, documents] =
-    await Promise.all([
-      getProject(entry.projectId),
-      listPhases(entry.projectId),
-      listSubmissions(entry.projectId),
-      listOpenItems(entry.projectId),
-      // What this piece of correspondence arrived with, or was answered by
-      // (story 97), and everything on the job it could point at.
-      listRegisterEntryDocuments(id),
-      listDocuments(entry.projectId),
-    ]);
+  const [
+    project,
+    phases,
+    submissions,
+    unresolved,
+    onTheEntry,
+    documents,
+    users,
+    me,
+  ] = await Promise.all([
+    getProject(entry.projectId),
+    listPhases(entry.projectId),
+    listSubmissions(entry.projectId),
+    listOpenItems(entry.projectId),
+    // What this piece of correspondence arrived with, or was answered by
+    // (story 97), and everything on the job it could point at.
+    listRegisterEntryDocuments(id),
+    listDocuments(entry.projectId),
+    // Who a handoff into our court may name, and who it defaults to
+    // (issue #112). Everyone at the firm: there are no roles.
+    listUsers(),
+    currentUser(),
+  ]);
   if (project === undefined) {
     notFound();
   }
@@ -206,6 +220,8 @@ export default async function RegisterEntryRecord({
                 in one action.
               </p>
               <DispositionForm
+                users={users}
+                me={me?.id ?? ''}
                 submit={recordDisposition.bind(
                   null,
                   entry.id,
@@ -246,6 +262,8 @@ export default async function RegisterEntryRecord({
                 </CardHeader>
                 <CardContent>
                   <NewRegisterEntryForm
+                    users={users}
+                    me={me?.id ?? ''}
                     submit={createNextRound.bind(
                       null,
                       entry.id,
@@ -298,6 +316,8 @@ export default async function RegisterEntryRecord({
         </ul>
 
         <HandoffForm
+          users={users}
+          me={me?.id ?? ''}
           submit={recordHandoff.bind(
             null,
             entry.id,
@@ -396,7 +416,7 @@ export default async function RegisterEntryRecord({
         ) : (
           <ul className="space-y-3">
             {entry.openItems.map((item) => (
-              <OpenItemEntry timeZone={project.timezone}
+              <OpenItemEntry users={users} timeZone={project.timezone}
                 key={item.id}
                 item={item}
                 projectId={project.id}

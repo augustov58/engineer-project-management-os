@@ -5,7 +5,12 @@ import {
   ExtractionConfirmForm,
   ExtractionWatch,
 } from '../../../../extractions';
-import { getExtraction, getProject } from '../../../../api';
+import {
+  currentUser,
+  getExtraction,
+  getProject,
+  listUsers,
+} from '../../../../api';
 
 /**
  * The confirmation screen (issue #20, stories 86 and 87): the proposal beside
@@ -24,9 +29,13 @@ export default async function ExtractionPage({
   params: Promise<{ id: string; extractionId: string }>;
 }) {
   const { id, extractionId } = await params;
-  const [project, extraction] = await Promise.all([
+  const [project, extraction, users, me] = await Promise.all([
     getProject(id),
     getExtraction(extractionId),
+    // Who the handoff may name, and who it defaults to (issue #112). The
+    // proposal names a party; the person on our side is the engineer's.
+    listUsers(),
+    currentUser(),
   ]);
   if (project === undefined || extraction === undefined) {
     notFound();
@@ -148,7 +157,13 @@ export default async function ExtractionPage({
 
           <section className="space-y-3">
             <h2 className="text-lg font-medium">The proposed entry</h2>
-            <ExtractionConfirmForm projectId={id} extraction={extraction} timeZone={project.timezone} />
+            <ExtractionConfirmForm
+              projectId={id}
+              extraction={extraction}
+              timeZone={project.timezone}
+              users={users}
+              me={me?.id ?? ''}
+            />
           </section>
         </div>
       )}

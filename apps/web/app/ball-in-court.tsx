@@ -38,10 +38,16 @@ export function BallInCourtBadge({
   // is ours is the stored boolean and not a reading of the name, so a job that
   // calls us by the firm's name must still show that name while reading as
   // ours. The variant carries the second fact.
+  //
+  // And since issue #112 a ball in our court is in somebody's court, so the
+  // badge says whose: that is what *mine* on the clock reads, and a screen
+  // that showed only "our court" would leave the engineer unable to see which
+  // of them the count had counted.
   return (
     <Badge variant={ballInCourt.inOurCourt ? 'destructive' : 'secondary'}>
       {ballInCourt.party}
-      {ballInCourt.inOurCourt && ' \u00b7 our court'}
+      {ballInCourt.inOurCourt &&
+        ` \u00b7 ${ballInCourt.user?.name ?? 'our'} court`}
     </Badge>
   );
 }

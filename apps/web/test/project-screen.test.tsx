@@ -44,6 +44,8 @@ vi.mock('../app/api', async (importOriginal) => {
     'listMemoryAudit',
     'listIngestedDocuments',
     'listExtractions',
+    // Everyone at the firm, so an open item can be handed on (issue #112).
+    'listUsers',
   ] as const;
   return {
     ...actual,
