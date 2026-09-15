@@ -555,10 +555,13 @@ test('every mutation writes an audit entry, in the order it happened', async () 
   for (const entry of trail) {
     expect(Object.keys(entry).sort()).toEqual([
       'action',
+      'actor',
       'createdAt',
       'detail',
       'id',
       'projectId',
+      'run',
+      'subject',
     ]);
     expect(entry.projectId).toBe(project.id);
   }

@@ -1,6 +1,6 @@
 /**
- * The append-only audit record, and the one way a line of it is written
- * (story 106).
+ * The append-only audit record, the one way a line of it is written
+ * (story 106), and the one shape both readers hand one back in (issue #111).
  *
  * A **leaf** in ADR-0033's sense: it imports Prisma's types and nothing from a
  * route module, so every record can reach it without reaching through another
@@ -32,6 +32,106 @@
 
 import type { Prisma } from '../generated/prisma/client.js';
 
+/**
+ * Which kind of record a line is about, and the whole of the closed set.
+ *
+ * A union in TypeScript and a plain text column underneath, which is
+ * `action`'s shape and deliberately not ADR-0031's text-with-a-CHECK. That
+ * rule exists for a value an engineer picks off a list at the boundary, where
+ * a database constraint is the floor under a body schema; this one is spelled
+ * at the call site and no request can supply it, so `tsc` checks every writer
+ * there is and a CHECK would only add a migration to every new record type.
+ *
+ * Spelled the way a URL is rather than the way a table is: these are what a
+ * screen follows back to the row that changed, and `open-item` reads as the
+ * glossary's **Open item** where `open_items` reads as storage.
+ *
+ * A **register** is deliberately absent: both are written in the transaction
+ * that writes the project and there is no route that touches one (ADR-0036),
+ * so nothing would ever name it.
+ */
+export type SubjectType =
+  | 'project'
+  | 'phase'
+  | 'submission'
+  | 'open-item'
+  | 'assumption-record'
+  | 'counterfactual'
+  | 'site-visit'
+  | 'site-visit-floor'
+  | 'observation'
+  | 'issue'
+  | 'photo'
+  | 'voice-capture'
+  | 'site-visit-report'
+  | 'register-entry'
+  | 'document'
+  | 'document-version'
+  | 'ingested-document'
+  | 'extraction'
+  | 'memory-version'
+  | 'memory-proposal'
+  | 'agent-run'
+  | 'user';
+
+/**
+ * The row the mutation touched.
+ *
+ * The record the line is *about*: the row created, or the row changed. Where a
+ * mutation writes only a join — a document linked to a submission, an open
+ * item attached to an issue — the subject is the record the link was added to,
+ * a join row having no identity of its own to point at.
+ *
+ * **Never a `sessions` row.** A session id is the credential itself, and this
+ * table is append-only, exported whole and read on a screen. Signing in and
+ * signing out name the **user** instead, which is the record a reader wants
+ * anyway.
+ */
+export interface Subject {
+  type: SubjectType;
+  id: string;
+}
+
+/**
+ * Who made the mutation, and the run they made it during (ADR-0055 parts 4
+ * and 6).
+ *
+ * Read from the session the gate validated and **never from a request body**:
+ * a caller who could name the actor could name somebody else. `actorOf` in
+ * `gate.ts` is the one way one of these is built from a request.
+ *
+ * An agent is never an actor. A run holds a session in the name of the person
+ * who started it, so `userId` is that person and one of the two run ids says
+ * which run — at most one, by a CHECK, because this product has two run
+ * records (ADR-0043) and `sessions` already answers the same question with two
+ * columns.
+ */
+export interface Actor {
+  userId: string | null;
+  agentRunId: string | null;
+  extractionId: string | null;
+}
+
+/**
+ * Nobody presented a session, which is **three places and no more**.
+ *
+ * `POST /v1/ingest/inbound-mail` is the one route the gate lets through
+ * (ADR-0042), and its line saying so is what ADR-0055 means by "the one place
+ * a request has no actor". The other two are `user reset` and `user enable`,
+ * which are commands on the machine and not requests at all — the floor under
+ * a deployment nobody can sign in to, which by definition has nobody to
+ * record.
+ *
+ * A named constant rather than three nulls spelled out, so that an actorless
+ * line reads as a decision at the call site and `grep` finds every one of
+ * them.
+ */
+export const NO_ACTOR: Actor = {
+  userId: null,
+  agentRunId: null,
+  extractionId: null,
+};
+
 /** One line of the record: whose job, what happened, and the particulars. */
 export interface AuditLine {
   /**
@@ -44,6 +144,20 @@ export interface AuditLine {
    * project's audit rather than mislabelled in it.
    */
   projectId: string | null;
+  /**
+   * Who, and the run they were acting during (issue #111).
+   *
+   * Optional **for one step only**: the expand half of the
+   * expand-migrate-contract this ticket takes inside itself, so that the
+   * suite is green while the sixty-seven call sites are being visited one at
+   * a time rather than in one unreviewable commit. It becomes required in the
+   * contract step and the sweep in `test/audit.test.ts` counts what is left.
+   */
+  actor?: Actor;
+  /**
+   * Which row. Optional for the same one step, and for the same reason.
+   */
+  subject?: Subject;
   /**
    * What happened — "submission recorded", "issue closed". Text and not an
    * enum, and phrased as a sentence for a reader: the set is closed by what
@@ -64,9 +178,89 @@ export interface AuditLine {
 /** Write one line, inside the caller's transaction. */
 export async function audit(
   tx: Prisma.TransactionClient,
-  { projectId, action, detail, at }: AuditLine,
+  { projectId, actor, subject, action, detail, at }: AuditLine,
 ): Promise<void> {
   await tx.auditEntry.create({
-    data: { projectId, action, detail, createdAt: at },
+    data: {
+      projectId,
+      actorId: actor?.userId ?? null,
+      agentRunId: actor?.agentRunId ?? null,
+      extractionId: actor?.extractionId ?? null,
+      subjectType: subject?.type ?? null,
+      subjectId: subject?.id ?? null,
+      action,
+      detail,
+      createdAt: at,
+    },
   });
+}
+
+/**
+ * What the two readers of this table need loaded, so that a line can say
+ * **who** and not just which uuid.
+ *
+ * `GET /v1/projects/:id/memory/audit` and `GET /v1/projects/:id/activity` read
+ * the same rows in opposite orders (ADR-0048), and they return the same shape
+ * for the same reason they read the same store: a feed-specific rendering is a
+ * second version of one fact, free to fall behind. One include and one mapper,
+ * here beside the writer, is what keeps the two from drifting.
+ */
+export const auditEntryInclude = {
+  actor: { select: { id: true, name: true } },
+} satisfies Prisma.AuditEntryInclude;
+
+type AuditEntryRow = Prisma.AuditEntryGetPayload<{
+  include: typeof auditEntryInclude;
+}>;
+
+/** The run a line was written during, where it was written during one. */
+export interface RunReference {
+  type: 'agent-run' | 'extraction';
+  id: string;
+}
+
+/** One line, as both readers return it. */
+export interface AuditEntryOnTheWire {
+  id: string;
+  projectId: string | null;
+  /**
+   * Who, by **name** and not only by id: "who recorded this" is a question
+   * somebody asks of a screen. Null on the three lines nobody presented a
+   * session for, and on every line written before issue #111 on a deployment
+   * that had no accounts to backfill to.
+   */
+  actor: { id: string; name: string } | null;
+  /** The run, never the session it held: a session id is a credential. */
+  run: RunReference | null;
+  /** Null on the lines that predate the column, and on nothing written since. */
+  subject: Subject | null;
+  action: string;
+  detail: string;
+  createdAt: Date;
+}
+
+export function auditEntryOnTheWire(row: AuditEntryRow): AuditEntryOnTheWire {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    actor: row.actor,
+    run:
+      row.agentRunId !== null
+        ? { type: 'agent-run', id: row.agentRunId }
+        : row.extractionId !== null
+          ? { type: 'extraction', id: row.extractionId }
+          : null,
+    // The column is `text` and the closed set lives in TypeScript, so reading
+    // one back is the one place the two have to be reconciled. Nothing outside
+    // this repository can write the column — every writer goes through
+    // `audit()` above, where `SubjectType` is checked — so the assertion is
+    // about a value this codebase spelled, not about a value a caller sent.
+    subject:
+      row.subjectType !== null && row.subjectId !== null
+        ? { type: row.subjectType as SubjectType, id: row.subjectId }
+        : null,
+    action: row.action,
+    detail: row.detail,
+    createdAt: row.createdAt,
+  };
 }

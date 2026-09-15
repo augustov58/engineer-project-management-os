@@ -10,7 +10,11 @@ import {
 import { noSuchProject } from '../refusals.js';
 import { progressStreams } from '../stream.js';
 import { PROPOSE_MEMORY_EDIT, type ProposeMemoryEditJob } from '../worker.js';
-import { audit } from '../audit.js';
+import {
+  audit,
+  auditEntryInclude,
+  auditEntryOnTheWire,
+} from '../audit.js';
 import { callerOf, mintRunSession } from '../gate.js';
 
 /**
@@ -635,10 +639,12 @@ export function memoryRoutes(
       if (project === null) {
         return noSuchProject(reply);
       }
-      return prisma.auditEntry.findMany({
+      const entries = await prisma.auditEntry.findMany({
         where: { projectId: project.id },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        include: auditEntryInclude,
       });
+      return entries.map(auditEntryOnTheWire);
     },
   );
 

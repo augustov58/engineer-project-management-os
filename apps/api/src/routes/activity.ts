@@ -21,6 +21,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
+import { auditEntryInclude, auditEntryOnTheWire } from '../audit.js';
 import type { RouteDependencies } from '../http.js';
 import { noSuchProject } from '../refusals.js';
 
@@ -91,14 +92,17 @@ export function activityRoutes(
         return noSuchProject(reply);
       }
 
-      // The same five fields the audit read returns, because they are the same
+      // The same shape the audit read returns, because they are the same
       // rows. A feed-specific shape would be a second rendering of one fact,
-      // free to fall behind the audit's (ADR-0048).
-      return prisma.auditEntry.findMany({
+      // free to fall behind the audit's (ADR-0048) — which is why the mapper
+      // lives beside the writer in `audit.ts` and neither route spells one.
+      const entries = await prisma.auditEntry.findMany({
         where: { projectId: project.id },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: request.query.limit,
+        include: auditEntryInclude,
       });
+      return entries.map(auditEntryOnTheWire);
     },
   );
 }

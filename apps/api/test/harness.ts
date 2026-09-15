@@ -1588,6 +1588,12 @@ export interface MemoryProposalResponse {
 export interface AuditEntryResponse {
   id: string;
   projectId: string;
+  /** Who, by name. Null on the lines nobody presented a session for. */
+  actor: { id: string; name: string } | null;
+  /** The run it was written during, never the session it held (issue #111). */
+  run: { type: 'agent-run' | 'extraction'; id: string } | null;
+  /** Which row. Null only on lines written before issue #111. */
+  subject: { type: string; id: string } | null;
   action: string;
   detail: string;
   createdAt: string;

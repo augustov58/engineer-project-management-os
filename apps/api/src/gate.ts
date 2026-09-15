@@ -24,6 +24,7 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
+import type { Actor } from './audit.js';
 import { refuse, type Refusal } from './refusals.js';
 import type { TimeSource } from './time-source.js';
 
@@ -191,6 +192,28 @@ export function callerOf(request: FastifyRequest): CallerSession {
     throw new Error('a gated route ran with no session');
   }
   return request.session;
+}
+
+/**
+ * Who an audit line written on this request is recorded against (issue #111,
+ * ADR-0055 part 4).
+ *
+ * **The one way an actor is built from a request**, and it reads the session
+ * the gate validated rather than anything the caller sent: a request body that
+ * could name the actor is a request body that could name somebody else, and
+ * the whole of "who recorded this" would be worth nothing.
+ *
+ * The run ids come from the same row, so a line written by an agent's tool
+ * carries the person *and* the run with no special case anywhere — the
+ * property ADR-0055 part 6 is made of. A person's own request has both null.
+ */
+export function actorOf(request: FastifyRequest): Actor {
+  const caller = callerOf(request);
+  return {
+    userId: caller.userId,
+    agentRunId: caller.agentRunId,
+    extractionId: caller.extractionId,
+  };
 }
 
 /**

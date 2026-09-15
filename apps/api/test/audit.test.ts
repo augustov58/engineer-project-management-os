@@ -7,6 +7,8 @@
  * that the line's instant is the injected `TimeSource`'s.
  */
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
 import {
   addDocument,
@@ -193,6 +195,88 @@ test('the helper route is the only mutating route exempt from the audit, and it 
   expect([...RECORDS_NOTHING]).toEqual(['POST /v1/tools/:name']);
 });
 
+/**
+ * Every writer of a line, found in the source rather than driven through a
+ * route (issue #111).
+ *
+ * The sweep above is exhaustive over *routes* and cannot be exhaustive over
+ * *writers*: `POST /v1/projects/:id/submissions` and `POST /v1/submissions/
+ * :id/reissue` share one call site inside `writeIssuance`, and `user reset`
+ * and `user enable` are commands on the machine that no `routes()` walk will
+ * ever see. Widening the line to carry a subject is a claim about all
+ * sixty-seven writers, so this reads them off the disk — the shape
+ * `apps/web`'s `session.test.ts` gives the rule that only one module reaches
+ * the API, and for its reason: a call site that omits something paints
+ * nothing and answers nothing.
+ *
+ * `process.cwd()` is `apps/api`: Vitest's root is the package directory
+ * whether the run started here or at the repo root.
+ */
+const apiRoot = resolve(process.cwd());
+
+/**
+ * One `audit(tx, { … })` call, captured up to the line that closes it.
+ *
+ * Every one of the sixty-seven is spelled this way — there is no aliased
+ * import and nothing writes `auditEntry.create` directly, both checked. The
+ * closing pattern is a line carrying nothing but `});`, so a nested object or
+ * a template literal spanning lines inside the call is not mistaken for its
+ * end.
+ */
+const AUDIT_CALL = /await audit\(tx, \{([\s\S]*?)\n\s*\}\);/g;
+
+interface CallSite {
+  /** Relative to `apps/api`, e.g. `src/routes/issues.ts`. */
+  path: string;
+  /** The argument object's body, between the braces. */
+  body: string;
+}
+
+function callSites(directory = join(apiRoot, 'src'), into: CallSite[] = []) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const full = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      callSites(full, into);
+      continue;
+    }
+    if (!entry.name.endsWith('.ts')) {
+      continue;
+    }
+    const text = readFileSync(full, 'utf8');
+    for (const match of text.matchAll(AUDIT_CALL)) {
+      into.push({ path: relative(apiRoot, full), body: match[1] ?? '' });
+    }
+  }
+  return into;
+}
+
+/**
+ * How many writers still pass no subject, which is what makes the expand step
+ * a measurement rather than an intention.
+ *
+ * ADR-0055 part 4 asks for the subject at every call site "with a sweep test
+ * that no line lacks one", and this is that sweep. It runs against the source
+ * because the columns are nullable in the database — the lines written before
+ * issue #111 touched rows nothing here now knows, and backfilling them to
+ * their project would say "project" where the line was about an observation.
+ * What stops a *new* line lacking one is `AuditLine`, where both fields are
+ * required and `tsc` refuses a caller that omits them; this is what proves
+ * that claim is true of every writer rather than of the ones a test drove.
+ */
+const STILL_WITHOUT_A_SUBJECT = 67;
+
+test('every writer of an audit line is found, and the sweep says how many carry a subject', () => {
+  const sites = callSites();
+
+  // A guard on the sweep itself, as the route sweep above has: a regular
+  // expression that stopped matching would pass every assertion below it by
+  // finding nothing at all.
+  expect(sites.length).toBeGreaterThan(60);
+
+  const without = sites.filter((site) => !/\n\s*subject:/.test(site.body));
+  expect(without.length).toBe(STILL_WITHOUT_A_SUBJECT);
+});
+
 test('a job records what happened to it, from the first line onwards', async () => {
   const app = await api();
   const project = await createProject(app, 'A-1', 'Riser replacement');
@@ -260,10 +344,13 @@ test('a job records what happened to it, from the first line onwards', async () 
     expect(entry.projectId).toBe(project.id);
     expect(Object.keys(entry).sort()).toEqual([
       'action',
+      'actor',
       'createdAt',
       'detail',
       'id',
       'projectId',
+      'run',
+      'subject',
     ]);
     expect(entry.detail.length).toBeGreaterThan(0);
   }

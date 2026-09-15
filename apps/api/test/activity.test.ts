@@ -154,10 +154,13 @@ test('a feed line is an audit line, with nothing added and nothing dropped', asy
   for (const line of await feed(app, project.id)) {
     expect(Object.keys(line).sort()).toEqual([
       'action',
+      'actor',
       'createdAt',
       'detail',
       'id',
       'projectId',
+      'run',
+      'subject',
     ]);
     expect(line.projectId).toBe(project.id);
   }

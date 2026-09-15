@@ -1616,6 +1616,10 @@ model AgentRun {
   /// one is minted when the run is created and revoked when it ends.
   sessions Session[]
 
+  /// The audit lines written during this run (issue #111). The run is never
+  /// an actor: each of these names the person as well.
+  auditEntries AuditEntry[]
+
   @@index([projectId, createdAt])
   @@map("agent_runs")
 }
@@ -1665,6 +1669,58 @@ model AuditEntry {
   /// its activity feed rather than mislabelled in either.
   projectId String?  @map("project_id")
   project   Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  /// **Who** (issue #111, ADR-0055 part 4). The user whose session the
+  /// mutation came in on, read at the boundary and never from a request body.
+  /// This column is the whole of "who recorded this": no model carries a
+  /// `created_by`, because that would be thirty-two copies of a fact this
+  /// table holds in the same transaction as the write it describes.
+  ///
+  /// **Null where nobody presented one**, which is three places and no more:
+  /// `POST /v1/ingest/inbound-mail`, the one route the gate lets through
+  /// (ADR-0042), and the two machine commands `user reset` and `user enable`,
+  /// which run on the machine with no session at all. Every line written
+  /// before this column existed is backfilled to the author, the only person
+  /// who had ever written one.
+  actorId String? @map("actor_id")
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  /// The run this line was written **during**, where it was written during
+  /// one. An agent is never an actor: a run holds a session in the name of the
+  /// person who started it, so `actor_id` names that person and this names the
+  /// run, and the line carries both with no special case (ADR-0055 part 6).
+  ///
+  /// Two columns and not one, mirroring `sessions` exactly, because this
+  /// product has **two** run records — ADR-0043 made an extraction a record of
+  /// its own rather than an `agent_runs` row — and a CHECK holds that at most
+  /// one is set. Both null is a person acting for themselves, which is almost
+  /// every row.
+  agentRunId String?   @map("agent_run_id")
+  agentRun   AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: Restrict)
+
+  extractionId String?                  @map("extraction_id")
+  extraction   RegisterEntryExtraction? @relation(fields: [extractionId], references: [id], onDelete: Restrict)
+
+  /// **Which row** the mutation touched (issue #111, ADR-0055 part 4) — the
+  /// record type and its id. `detail` is prose for a reader and names no row;
+  /// this pair is what a screen follows back to the thing that changed.
+  ///
+  /// Text and not an enum or a CHECK, for `action`'s reason and not
+  /// ADR-0031's: a category is what an engineer picks off a list at the
+  /// boundary, where this is spelled at the call site and no request can
+  /// supply it. The closed set lives in TypeScript, where `tsc` checks every
+  /// writer, and a CHECK here would add a migration to every new record type
+  /// for a value nobody outside this repository can write.
+  ///
+  /// **Nullable, and that is the honest answer for history.** The lines
+  /// written before this column existed touched rows nothing now records, and
+  /// backfilling them to their project would say "project" where the line was
+  /// about an observation — classifying by omission, which ADR-0039 refuses.
+  /// Nothing new may lack one: `AuditLine` requires both, so `tsc` refuses a
+  /// writer that omits them, and a sweep in `test/audit.test.ts` counts the
+  /// call sites that carry one against the call sites there are.
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id")
 
   /// What happened — "memory written", "proposal accepted". Text rather than
   /// an enum: it is a sentence for a reader, and the set is closed by what
@@ -1887,6 +1943,10 @@ model RegisterEntryExtraction {
   /// A list for the reason `AgentRun.sessions` is one.
   sessions Session[]
 
+  /// The audit lines written during this run, for `AgentRun.auditEntries`'
+  /// reason and by the same rule.
+  auditEntries AuditEntry[]
+
   @@index([projectId, createdAt])
   @@map("register_entry_extractions")
 }
@@ -1931,6 +1991,10 @@ model User {
   disabledAt DateTime? @map("disabled_at")
 
   sessions Session[]
+
+  /// Everything this person has done, which is the only place the product
+  /// answers "who recorded this" (issue #111, ADR-0055 part 4).
+  auditEntries AuditEntry[]
 
   @@map("users")
 }
