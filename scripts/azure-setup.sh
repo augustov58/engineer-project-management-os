@@ -194,7 +194,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # The adapters read apps/api/.env, and it is gitignored at any depth.
-ENV_FILE="${ENV_FILE:-apps/api/.env}"
+#
+# Assigned, not defaulted. The library above already ran
+# `ENV_FILE="${ENV_FILE:-.env}"`, so a second `:-` here is a no-op and every
+# value landed in the repository root instead — where nothing reads it, and
+# where the check that follows could not see it, so a run with working
+# credentials reported having none. An explicit override is the only thing that
+# still wins.
+ENV_FILE="${AZURE_SETUP_ENV_FILE:-apps/api/.env}"
 
 banner "Azure for the OCR and transcription adapters"
 
@@ -299,6 +306,14 @@ esac
 # One resource, so both adapters get the same pair. They stay two separate
 # variable pairs because the ports are independent: either vendor can be
 # pointed elsewhere later without touching the other.
+# Exported as well as written: the check below is a child process, and `ask`
+# sets a plain shell variable. Belt and braces, so the check cannot skip for
+# want of a value this wizard is holding.
+export AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="$AZURE_AI_ENDPOINT"
+export AZURE_DOCUMENT_INTELLIGENCE_KEY="$AZURE_AI_KEY"
+export AZURE_SPEECH_ENDPOINT="$AZURE_AI_ENDPOINT"
+export AZURE_SPEECH_KEY="$AZURE_AI_KEY"
+
 write_env AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT "$AZURE_AI_ENDPOINT"
 write_env AZURE_DOCUMENT_INTELLIGENCE_KEY "$AZURE_AI_KEY"
 write_env AZURE_SPEECH_ENDPOINT "$AZURE_AI_ENDPOINT"
