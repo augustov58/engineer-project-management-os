@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { inCourtDays } from '../ball-in-court';
 import { getProject, listClock, REGISTER_NAMES } from '../api';
-import { ScopeToggle, isMine, scopeOf } from '../scope';
+import { ScopeToggle, isMine, scopeHref, scopeOf } from '../scope';
 
 /** The point of this screen is what is sitting in our court right now. */
 export const dynamic = 'force-dynamic';
@@ -41,16 +41,8 @@ export default async function Clock({
   }
 
   const onTheClock = await listClock(projectId, isMine(scope));
-  const here = (next: 'mine' | 'ours') => {
-    const query = new URLSearchParams();
-    if (projectId !== undefined) {
-      query.set('projectId', projectId);
-    }
-    if (next === 'ours') {
-      query.set('scope', 'ours');
-    }
-    return query.size === 0 ? '/clock' : `/clock?${query.toString()}`;
-  };
+  const here = (next: 'mine' | 'ours') =>
+    scopeHref('/clock', next, { projectId });
 
   return (
     <div className="space-y-6">

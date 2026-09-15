@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/table';
 import { selectClassName } from '../native-select';
 import { listPendingItems } from '../api';
-import { ScopeToggle, isMine, scopeOf } from '../scope';
+import { ScopeToggle, isMine, scopeHref, scopeOf } from '../scope';
 import { day } from '../wall-clock';
 
 /** The point of this screen is what is unresolved right now. */
@@ -41,16 +41,8 @@ export default async function PendingItems({
   });
   // The toggle keeps the filter and the sort order, so widening does not
   // silently drop what the engineer had narrowed to.
-  const here = (next: 'mine' | 'ours') => {
-    const query = new URLSearchParams({ sort: order });
-    if (waitingOn !== '') {
-      query.set('waitingOn', waitingOn);
-    }
-    if (next === 'ours') {
-      query.set('scope', 'ours');
-    }
-    return `/pending?${query.toString()}`;
-  };
+  const here = (next: 'mine' | 'ours') =>
+    scopeHref('/pending', next, { sort: order, waitingOn });
 
   return (
     <div className="space-y-6">

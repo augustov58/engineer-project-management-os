@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { listClock, listExposure, listProjects, type Project } from './api';
 import { NewProjectForm } from './new-project-form';
-import { ScopeToggle, isMine, scopeOf } from './scope';
+import { ScopeToggle, isMine, scopeHref, scopeOf } from './scope';
 
 /**
  * Read on every request. Both counts are computed queries over the records
@@ -61,7 +61,7 @@ export default async function Home({
   ]);
   // The two cards drill through carrying the same toggle, so a count and the
   // list it lands on cannot be answering different questions.
-  const drill = (path: string) => (scope === 'mine' ? path : `${path}?scope=ours`);
+  const drill = (path: string) => scopeHref(path, scope);
 
   return (
     <div className="space-y-8">
@@ -79,10 +79,7 @@ export default async function Home({
         </p>
       </div>
 
-      <ScopeToggle
-        scope={scope}
-        href={(next) => (next === 'mine' ? '/' : '/?scope=ours')}
-      />
+      <ScopeToggle scope={scope} href={(next) => scopeHref('/', next)} />
 
       {/*
         The two counts, side by side and never combined (ADR-0016). Each is a

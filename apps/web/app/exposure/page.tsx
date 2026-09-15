@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { getProject, listExposure } from '../api';
-import { ScopeToggle, isMine, scopeOf } from '../scope';
+import { ScopeToggle, isMine, scopeHref, scopeOf } from '../scope';
 import { day } from '../wall-clock';
 
 /** The point of this screen is what is carrying an unconfirmed input now. */
@@ -38,16 +38,8 @@ export default async function Exposure({
   }
 
   const carrying = await listExposure(projectId, isMine(scope));
-  const here = (next: 'mine' | 'ours') => {
-    const query = new URLSearchParams();
-    if (projectId !== undefined) {
-      query.set('projectId', projectId);
-    }
-    if (next === 'ours') {
-      query.set('scope', 'ours');
-    }
-    return query.size === 0 ? '/exposure' : `/exposure?${query.toString()}`;
-  };
+  const here = (next: 'mine' | 'ours') =>
+    scopeHref('/exposure', next, { projectId });
 
   return (
     <div className="space-y-6">

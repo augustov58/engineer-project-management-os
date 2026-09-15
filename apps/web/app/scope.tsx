@@ -32,6 +32,35 @@ export function isMine(scope: Scope): boolean {
 }
 
 /**
+ * This screen's own URL at the other reading (issue #112).
+ *
+ * Here rather than spelled at each of the four screens, which is what this
+ * module already exists for: `ScopeToggle` takes an `href` because each screen
+ * carries its own other parameters — the job on exposure and the clock, the
+ * party and the sort order on pending — and a builder repeated four times is
+ * four places one of them could stop carrying them.
+ *
+ * *Mine* is the default, so it is the reading with **no parameter at all**: a
+ * link somebody sends is the narrow one only when it says so.
+ */
+export function scopeHref(
+  path: string,
+  scope: Scope,
+  params: Record<string, string | undefined> = {},
+): string {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') {
+      query.set(name, value);
+    }
+  }
+  if (scope === 'ours') {
+    query.set('scope', 'ours');
+  }
+  return query.size === 0 ? path : `${path}?${query.toString()}`;
+}
+
+/**
  * Two links and not a `<form>`: this is a navigation between two readings of
  * the same screen, so each half is a URL somebody can bookmark or send, and
  * the server renders the state rather than a client holding it.
