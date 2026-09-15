@@ -166,10 +166,20 @@ model ProjectPhase {
 
   name String
 
-  /// Contiguous from zero. Reordering rewrites the whole list in one
-  /// transaction, so the route is the only writer and positions cannot drift
-  /// into gaps or duplicates. Deliberately not a unique constraint: a
-  /// non-deferrable one would reject the reorder mid-flight (ADR-0026).
+  /// Contiguous from zero. Deliberately not a unique constraint: a
+  /// non-deferrable one would reject the reorder mid-flight, since the
+  /// positions are rewritten a row at a time and a swap passes through a
+  /// duplicate, and a deferrable one is a constraint Prisma cannot express
+  /// (ADR-0026).
+  ///
+  /// There are **two** writers, not the one this said until issue #112 — the
+  /// reorder rewrites the whole list and the create appends to it — and both
+  /// take the same advisory lock on the job for the length of their
+  /// transaction (`lockPhases` in `routes/phases.ts`). Without it the create
+  /// counted the rows before inserting, outside any transaction, and six
+  /// phases added at once all landed on the same position; ADR-0026 named
+  /// that race and left it open "because this is a single-user tool", which
+  /// ADR-0055 stopped being true.
   position Int
 
   submissions Submission[]
