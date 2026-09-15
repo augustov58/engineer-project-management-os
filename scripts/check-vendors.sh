@@ -32,14 +32,17 @@ set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Read apps/api/.env if the variables are not already in the environment. Same
-# file `pnpm dev` uses, so a developer who configured one has configured this.
-if [ -f "$root/apps/api/.env" ]; then
+# Read whichever .env exists, if the variables are not already exported.
+# `apps/api/.env` is the one `pnpm dev` uses; the repository root is where the
+# wizard's library defaults, and reading only the first is how a run that had
+# perfectly good credentials reported that it had none.
+for candidate in "$root/apps/api/.env" "$root/.env"; do
+  [ -f "$candidate" ] || continue
   set -a
   # shellcheck disable=SC1091
-  . "$root/apps/api/.env"
+  . "$candidate"
   set +a
-fi
+done
 
 # The versions the adapters compose. Kept here as literals **on purpose**: if
 # these drift from the source, this script stops checking what the product
@@ -126,8 +129,13 @@ else
       --data '{"base64Source":""}' 2>/dev/null)"
     # 400 is the right answer to empty bytes: the route exists and the key was
     # accepted. 202 would mean it somehow took it. Either proves the host.
+    # What counts as "this host has the route": anything that is the route
+    # itself complaining about the deliberately-malformed probe body. 415 is
+    # unsupported-media-type and 400 is bad-request; both are the endpoint
+    # answering. A host without the route gives 404, and a bad key gives 401 —
+    # those are the two we must not confuse with each other or with this.
     case "$probe" in
-      400|202) ok "host answers: $candidate"; di_endpoint="$candidate"; break ;;
+      400|202|415) ok "host answers: $candidate"; di_endpoint="$candidate"; break ;;
       401|403) bad "host $candidate rejected the key ($probe)"; di_endpoint="$candidate"; break ;;
       *)       note "  tried $candidate → $probe" ;;
     esac
@@ -214,8 +222,12 @@ else
       -H "Ocp-Apim-Subscription-Key: $AZURE_SPEECH_KEY" 2>/dev/null)"
     # 400 means the route exists and took the key, and is complaining about the
     # missing multipart body — which is exactly what we sent.
+    # 415 is the commonest answer here: the probe sends no multipart body at
+    # all, and the route says so. It proves the route exists and the key was
+    # accepted, which is the whole question. Treating it as a miss is what made
+    # the first real run report that no host served Speech when all three did.
     case "$probe" in
-      400|200) ok "host answers: $candidate"; speech_endpoint="$candidate"; break ;;
+      400|200|415) ok "host answers: $candidate"; speech_endpoint="$candidate"; break ;;
       401|403) bad "host $candidate rejected the key ($probe)"; speech_endpoint="$candidate"; break ;;
       *)       note "  tried $candidate → $probe" ;;
     esac

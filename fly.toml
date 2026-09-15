@@ -55,15 +55,39 @@ primary_region = "iad"
   # every vendor port in this product takes (ADR-0040), and this is the one
   # place that posture is lifted.
   #
-  # `TRANSCRIBER` and `OCR` are set **nowhere**: both ports' defaults refuse,
-  # which is what keeps the employer-consent gate (ADR-0042, ADR-0043). They
-  # were briefly set as Fly secrets and were unset on 2026-09-05; this comment
-  # claimed they still were until issue #84. `AGENT` is different and belongs
-  # in the deployment config, because it is a real setting the author chose
-  # rather than a fixture. What it turns on: a memory run sends the project's curated prose
-  # to a model provider. Not client documents; ADR-0041 removed the agent's
-  # file tools entirely, so it reads nothing off this disk.
+  # `AGENT` belongs in the deployment config because it is a real setting the
+  # author chose rather than a fixture. What it turns on: a memory run sends the
+  # project's curated prose to a model provider. Not client documents; ADR-0041
+  # removed the agent's file tools entirely, so it reads nothing off this disk.
   AGENT = "pi"
+
+  # The two vendor adapters, on since 2026-09-14 (issue #109, ADR-0060 and
+  # ADR-0061). This comment said they were set **nowhere** until then, and that
+  # sentence was the employer-consent gate for four narrowings of it — spent
+  # now that consent landed on 2026-09-08 and both adapters are written.
+  #
+  # What still holds the line is not this file: `unconfiguredOcrProvider` and
+  # `unconfiguredTranscriber` are what a deployment gets by default and what an
+  # unrecognised vendor name falls through to, and the two processing-location
+  # gates are unchanged — the extraction create routes refuse the ask on a
+  # `LOCAL` project, and the worker reads the setting again before any bytes are
+  # fetched, which is what bounds a job already in Redis when consent is
+  # withdrawn.
+  #
+  # Both credentials are Fly secrets and appear in no file here. Both adapters
+  # reach the **same** Azure resource — one Foundry resource serves Document
+  # Intelligence and Speech alike — but stay two independent variable pairs, so
+  # either vendor can be repointed without touching the other. The host is
+  # `services.ai.azure.com` and **not** the `cognitiveservices.azure.com` the
+  # vendor's own REST docs give; that correction is recorded in both ADRs, and
+  # `scripts/check-vendors.sh` is what proves it for a given deployment.
+  OCR = "azure"
+  TRANSCRIBER = "azure"
+
+  # `INBOUND_MAIL` is still set nowhere, and that sentence is still load-bearing
+  # for the one port that has no adapter: ADR-0042 priced an inbound-parse
+  # provider as the stronger consent case of the three — it would hold the whole
+  # of every forwarded message — and nobody has been asked.
 
 [[mounts]]
   source = "epmos_data"
