@@ -125,7 +125,12 @@ function entryAt(
 /** The entries pointing into a record's blocks. */
 const recordInclude = {
   counterfactuals: { select: { line: true, counterfactual: true } },
-  raisedFlags: { select: { line: true, openItem: true } },
+  // The item, with the person it sits with: every read of an open item goes
+  // through `openItemOnTheWire`, so a bare `owner_id` reaches no screen
+  // (issue #112).
+  raisedFlags: {
+    select: { line: true, openItem: { include: { owner: namedUser } } },
+  },
 } as const;
 
 type CapturedRecord = Prisma.AssumptionRecordGetPayload<{
@@ -146,7 +151,9 @@ function withLines(found: CapturedRecord) {
   const written = new Map(
     counterfactuals.map((row) => [row.line, row.counterfactual]),
   );
-  const raised = new Map(raisedFlags.map((row) => [row.line, row.openItem]));
+  const raised = new Map(
+    raisedFlags.map((row) => [row.line, openItemOnTheWire(row.openItem)]),
+  );
 
   return {
     ...record,
