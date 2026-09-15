@@ -186,6 +186,13 @@ finish() {
 
 TOTAL_STAGES=5
 
+# Run from wherever. The first version resolved `scripts/check-vendors.sh` and
+# `apps/api/.env` against the caller's directory, so invoking it by an absolute
+# path silently looked for both in the wrong place — which is exactly what
+# happened the first time somebody tried.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
 # The adapters read apps/api/.env, and it is gitignored at any depth.
 ENV_FILE="${ENV_FILE:-apps/api/.env}"
 
@@ -311,12 +318,13 @@ note "an api-version into every URL, and the tests assert that URL against the"
 note "same literal the adapter builds. A wrong version passes all 654 tests and"
 note "then 404s every real call. Only a real request settles it."
 say ""
-if [[ ! -x scripts/check-vendors.sh ]]; then
-  warn "scripts/check-vendors.sh not found — run this wizard from the repo root."
+if [[ ! -x "$REPO_ROOT/scripts/check-vendors.sh" ]]; then
+  warn "check-vendors.sh is missing from $REPO_ROOT/scripts — this wizard needs"
+  warn "to sit beside it in the same checkout."
   exit 1
 fi
 
-if scripts/check-vendors.sh; then
+if "$REPO_ROOT/scripts/check-vendors.sh"; then
   say ""
   printf '  %s✓ Both services answered.%s\n' "$GREEN" "$RESET"
 else
