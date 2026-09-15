@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { clock, day } from '../../../wall-clock';
 import { getProject, listActivity } from '../../../api';
+import { subjectHref } from '../../../subject-link';
 
 /** A read over a record nothing overwrites; read on every request. */
 export const dynamic = 'force-dynamic';
@@ -81,19 +82,58 @@ export default async function ProjectActivityPage({
         </p>
       ) : (
         <ul className="space-y-2">
-          {activity.map((entry) => (
-            <li
-              key={entry.id}
-              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border p-3 text-sm"
-            >
-              <span className="text-muted-foreground tabular-nums">
-                {day(entry.createdAt, project.timezone)}{' '}
-                {clock(entry.createdAt, project.timezone)}
-              </span>
-              <span className="font-medium">{entry.action}</span>
-              <span className="text-muted-foreground">{entry.detail}</span>
-            </li>
-          ))}
+          {activity.map((entry) => {
+            const href = subjectHref(entry);
+            const line = (
+              <>
+                <span className="text-muted-foreground tabular-nums">
+                  {day(entry.createdAt, project.timezone)}{' '}
+                  {clock(entry.createdAt, project.timezone)}
+                </span>
+                <span className="font-medium">{entry.action}</span>
+                <span className="text-muted-foreground">{entry.detail}</span>
+                {/*
+                  Who, and the run they were in where there was one. An agent
+                  is never an actor (ADR-0055): a run acts under the person who
+                  asked for it, so the name is theirs and the run is said
+                  beside it rather than instead of it.
+
+                  A line with no actor says so in words. The three that have
+                  none are the ingest webhook, where a provider posts to an
+                  address and presents nothing (ADR-0042), and the two commands
+                  on the machine — and a blank there would read as a rendering
+                  that failed rather than as a fact about the line.
+                */}
+                <span className="text-muted-foreground ml-auto text-xs">
+                  {entry.actor === null ? 'no signed-in actor' : entry.actor.name}
+                  {entry.run === null ? '' : ' · during a run'}
+                </span>
+              </>
+            );
+            const shape =
+              'flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border p-3 text-sm';
+            return (
+              <li key={entry.id}>
+                {/*
+                  Linked to the row it is about where this site has a screen
+                  keyed by that row's id, and plain text where it does not —
+                  see `subjectHref`. The map is partial on purpose and the
+                  record is not: a finding's URL carries its number, and the
+                  line carries the row it touched.
+                */}
+                {href === null ? (
+                  <div className={shape}>{line}</div>
+                ) : (
+                  <Link
+                    href={href}
+                    className={`${shape} hover:bg-muted/50 transition-colors`}
+                  >
+                    {line}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -50,13 +50,17 @@ const project: api.Project = {
   cloudSignoffAt: null,
 };
 
-function line(n: number): api.AuditEntry {
+function line(n: number, over: Partial<api.AuditEntry> = {}): api.AuditEntry {
   return {
     id: `entry-${n}`,
     projectId: project.id,
+    actor: { id: 'user-1', name: 'Dana Okonkwo' },
+    run: null,
+    subject: { type: 'observation', id: `observation-${n}` },
     action: `action.${n}`,
     detail: `what happened, number ${n}`,
     createdAt: `2026-09-0${(n % 9) + 1}T14:30:00.000Z`,
+    ...over,
   };
 }
 
@@ -142,4 +146,81 @@ test('the reader passes no limit, so the route decides what lately is', () => {
   expect(reader).not.toBeNull();
   expect(reader![0]).toContain('/activity`');
   expect(reader![0]).not.toContain('limit');
+});
+
+// ── Who, and which row (issue #111, ADR-0055) ────────────────────────────
+
+test('every line says who recorded it', async () => {
+  vi.mocked(api.listActivity).mockResolvedValue([line(1)]);
+
+  await activityScreen();
+
+  // The whole of ADR-0055 part 4 from this side: the one product whose value
+  // is a defensible record had no answer to "who recorded this" anywhere.
+  expect(screen.getByText('Dana Okonkwo')).toBeTruthy();
+});
+
+test('a line nobody is answerable for says so, rather than showing a blank', async () => {
+  // The ingest webhook is the one route a request reaches with no session
+  // (ADR-0042); the two machine commands are not requests at all. A blank
+  // would read as a rendering that failed.
+  vi.mocked(api.listActivity).mockResolvedValue([line(1, { actor: null })]);
+
+  await activityScreen();
+
+  expect(screen.getByText(/no signed-in actor/)).toBeTruthy();
+});
+
+test('a line written during a run names the person and says it was a run', async () => {
+  vi.mocked(api.listActivity).mockResolvedValue([
+    line(1, { run: { type: 'agent-run', id: 'run-1' } }),
+  ]);
+
+  await activityScreen();
+
+  // An agent is never an actor: the run acts under the person who asked for
+  // it, so the name is theirs and the run is said beside it.
+  const [item] = screen.getAllByRole('listitem');
+  expect(item?.textContent).toContain('Dana Okonkwo');
+  expect(item?.textContent).toContain('during a run');
+});
+
+test('a line links to the row it is about, where there is a screen for one', async () => {
+  vi.mocked(api.listActivity).mockResolvedValue([
+    line(1, { subject: { type: 'site-visit', id: 'walk-1' } }),
+    line(2, { subject: { type: 'submission', id: 'set-1' } }),
+    line(3, { subject: { type: 'memory-proposal', id: 'proposal-1' } }),
+  ]);
+
+  await activityScreen();
+
+  expect(
+    screen.getAllByRole('link').map((link) => link.getAttribute('href')),
+  ).toEqual([
+    // The back link at the top of the screen, which is not a feed line.
+    `/projects/${project.id}`,
+    '/site-visits/walk-1',
+    '/submissions/set-1',
+    // A project has one memory and no identity table beneath it (ADR-0040),
+    // so a version, a proposal and the run that wrote it are all read there.
+    `/projects/${project.id}/memory`,
+  ]);
+});
+
+test('a subject with no screen of its own is plain text and not a broken link', async () => {
+  // A finding's URL carries its number and not its id (ADR-0031), and a
+  // photograph and an observation have no page at all. The record says which
+  // row changed either way; what this asserts is that the screen does not
+  // invent a destination for one.
+  vi.mocked(api.listActivity).mockResolvedValue([
+    line(1, { subject: { type: 'issue', id: 'issue-1' } }),
+    line(2, { subject: null }),
+  ]);
+
+  await activityScreen();
+
+  expect(
+    screen.getAllByRole('link').map((link) => link.getAttribute('href')),
+  ).toEqual([`/projects/${project.id}`]);
+  expect(screen.getAllByRole('listitem')).toHaveLength(2);
 });
