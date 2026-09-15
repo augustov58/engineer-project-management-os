@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { NOT_BLANK, type RouteDependencies, instant } from '../http.js';
 import { noSuchOpenItem, noSuchProject } from '../refusals.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * Caps are chosen the way the project name's 200 was: the plan states none,
@@ -126,6 +127,8 @@ export function openItemRoutes(
         });
         await audit(tx, {
           projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'open-item', id: created.id },
           action: 'open item raised',
           detail: created.unresolved,
           at,
@@ -242,6 +245,8 @@ export function openItemRoutes(
         });
         await audit(tx, {
           projectId: item.subjectId,
+          actor: actorOf(request),
+          subject: { type: 'open-item', id: resolved.id },
           action: 'open item resolved',
           detail: `${item.unresolved} — ${request.body.note}`,
           at,
@@ -276,6 +281,8 @@ export function openItemRoutes(
         });
         await audit(tx, {
           projectId: item.subjectId,
+          actor: actorOf(request),
+          subject: { type: 'open-item', id: reopened.id },
           action: 'open item reopened',
           detail:
             item.resolutionNote === null

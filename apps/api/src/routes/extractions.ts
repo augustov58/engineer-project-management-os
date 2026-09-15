@@ -24,7 +24,7 @@ import { EXTRACT, type ExtractJob } from '../worker.js';
 import { DOCUMENT_CONTENT_TYPES } from './documents.js';
 import { handoffBodySchema, handoffData, TURNAROUND_DAYS } from './registers.js';
 import { audit } from '../audit.js';
-import { callerOf, mintRunSession } from '../gate.js';
+import { actorOf, callerOf, mintRunSession } from '../gate.js';
 
 /** This record's own 404, which nothing else sends (ADR-0033). */
 const NO_SUCH_FILE = {
@@ -314,6 +314,8 @@ export function extractionRoutes(
         // said here. What the vendor read is on the row, never on this line.
         await audit(tx, {
           projectId: file.ingestedDocument.projectId,
+          actor: actorOf(request),
+          subject: { type: 'extraction', id: created.id },
           action: 'extraction asked for over an arrival',
           detail: file.filename,
           at,
@@ -412,6 +414,8 @@ export function extractionRoutes(
         // revision was read and not merely which document (ADR-0043).
         await audit(tx, {
           projectId: document.projectId,
+          actor: actorOf(request),
+          subject: { type: 'extraction', id: created.id },
           action: 'extraction asked for over a document',
           detail: `${document.title}, revision ${version.revision}`,
           at,
@@ -559,6 +563,8 @@ export function extractionRoutes(
         // line says what was proposed and never that a record was written.
         await audit(tx, {
           projectId: extraction.projectId,
+          actor: actorOf(request),
+          subject: { type: 'extraction', id: extraction.id },
           action: 'extraction proposed',
           detail: `${kind === 'RFI' ? 'an RFI' : 'a submittal'}, ${rest.number}`,
           at,
@@ -731,6 +737,8 @@ export function extractionRoutes(
           // stamps for a reader who wants the parts.
           await audit(tx, {
             projectId: extraction.projectId,
+            actor: actorOf(request),
+            subject: { type: 'extraction', id: extraction.id },
             action: 'extraction confirmed',
             detail: `${body.kind === 'RFI' ? 'RFI' : 'submittal'} ${body.number} written${
               file === null ? '' : `, from ${file.filename}`
@@ -811,6 +819,8 @@ export function extractionRoutes(
         // (ADR-0043); this line is the record that the engineer declined it.
         await audit(tx, {
           projectId: extraction.projectId,
+          actor: actorOf(request),
+          subject: { type: 'extraction', id: extraction.id },
           action: 'extraction rejected',
           detail: `${
             extraction.proposedKind === 'RFI' ? 'an RFI' : 'a submittal'

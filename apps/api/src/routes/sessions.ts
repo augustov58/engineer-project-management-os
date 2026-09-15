@@ -2,7 +2,12 @@
 
 import type { FastifyInstance } from 'fastify';
 import { audit } from '../audit.js';
-import { callerOf, SESSION_LIFETIME_MS, newSessionId } from '../gate.js';
+import {
+  actorOf,
+  callerOf,
+  SESSION_LIFETIME_MS,
+  newSessionId,
+} from '../gate.js';
 import type { RouteDependencies } from '../http.js';
 import { passwordMatches, unmatchableHash } from '../passwords.js';
 import { refuse, type Refusal } from '../refusals.js';
@@ -77,9 +82,19 @@ export function sessionRoutes(
         },
       });
       // The firm's line and not a job's, so it carries no project (issue
-      // #105). The id is never named: it is the credential itself.
+      // #105). The subject is the **user** and never the session: a session
+      // id is the credential itself, and this table is append-only, read on
+      // a screen and exported whole (issue #111).
+      //
+      // The actor is spelled here rather than read from `actorOf`, because
+      // this is the one gated-past route where the caller has just been
+      // authenticated and has no session yet — signing in is the act of
+      // getting one. It is still the session's user: this route worked out
+      // who, which is what `actorOf` does everywhere else.
       await audit(tx, {
         projectId: null,
+        actor: { userId: user.id, agentRunId: null, extractionId: null },
+        subject: { type: 'user', id: user.id },
         action: 'signed in',
         detail: user.email,
         at: now,
@@ -128,6 +143,8 @@ export function sessionRoutes(
       }
       await audit(tx, {
         projectId: null,
+        actor: actorOf(request),
+        subject: { type: 'user', id: callerOf(request).userId },
         action: 'signed out',
         detail: 'one session revoked',
         at: now,

@@ -25,7 +25,8 @@ import {
   refuse,
 } from '../refusals.js';
 import { openItemBodySchema } from './open-items.js';
-import { audit } from '../audit.js';
+import { audit, type Actor } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * What went out, to whom, when, and at what phase, as one record (issue #5).
@@ -254,6 +255,7 @@ function writeIssuance(
   prisma: PrismaClient,
   timeSource: TimeSource,
   { openItemIds, issuedAt, ...row }: NewSubmission,
+  actor: Actor,
 ) {
   const at = timeSource.now();
   return prisma.$transaction(async (tx) => {
@@ -303,6 +305,8 @@ function writeIssuance(
           });
     await audit(tx, {
       projectId: created.projectId,
+      actor,
+      subject: { type: 'submission', id: created.id },
       action: replaced === null ? 'submission recorded' : 'submission reissued',
       detail: `${
         replaced === null
@@ -421,7 +425,12 @@ export function submissionRoutes(
         return refuse(reply, bad);
       }
 
-      const submission = await writeIssuance(prisma, timeSource, toIssue);
+      const submission = await writeIssuance(
+        prisma,
+        timeSource,
+        toIssue,
+        actorOf(request),
+      );
       return reply.code(201).send(asRecorded(submission));
     },
   );
@@ -495,7 +504,12 @@ export function submissionRoutes(
       }
 
       try {
-        const reissued = await writeIssuance(prisma, timeSource, toIssue);
+        const reissued = await writeIssuance(
+          prisma,
+          timeSource,
+          toIssue,
+          actorOf(request),
+        );
         return reply.code(201).send(asRecorded(reissued));
       } catch (error) {
         // Narrowed to the supersede column: anything else colliding here
@@ -680,6 +694,8 @@ export function submissionRoutes(
         });
         await audit(tx, {
           projectId: submission.projectId,
+          actor: actorOf(request),
+          subject: { type: 'open-item', id: created.id },
           action: 'open item raised on a submission',
           detail: created.unresolved,
           at,
@@ -731,6 +747,8 @@ export function submissionRoutes(
           // *currently* provisional without touching what went out.
           await audit(tx, {
             projectId: submission.projectId,
+            actor: actorOf(request),
+            subject: { type: 'submission', id: submission.id },
             action: 'open item attached to a submission',
             detail: `${item.unresolved} — attached after the issuance`,
             at,
@@ -820,6 +838,8 @@ export function submissionRoutes(
         await tx.submissionOpenItem.delete({ where: key });
         await audit(tx, {
           projectId: submission.projectId,
+          actor: actorOf(request),
+          subject: { type: 'submission', id: submission.id },
           action: 'open item detached from a submission',
           detail: `revision ${submission.revision} — ${item.unresolved}`,
           at,

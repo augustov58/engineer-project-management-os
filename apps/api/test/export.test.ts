@@ -71,7 +71,16 @@ const TABLES = [
   'ingestedDocuments',
   'ingestedDocumentFiles',
   'registerEntryExtractions',
+  'users',
 ] as const;
+
+/**
+ * The one table an untouched database is not empty in: the harness writes its
+ * account directly, which is the bootstrap a real deployment does with a
+ * command on the machine (ADR-0055). There is no state in which somebody has
+ * recorded anything and nobody exists.
+ */
+const NEVER_EMPTY = new Set(['users']);
 
 test('an empty database still names every table', async () => {
   const app = await api();
@@ -81,8 +90,21 @@ test('an empty database still names every table', async () => {
   // not have to tell "no rows" from "this version did not have that table".
   expect(Object.keys(body.records).sort()).toEqual([...TABLES].sort());
   for (const table of TABLES) {
-    expect(body.records[table]).toEqual([]);
+    if (!NEVER_EMPTY.has(table)) {
+      expect(body.records[table]).toEqual([]);
+    }
   }
+  // The people are the firm's record too, and an audit line full of uuids
+  // answers "who recorded this" with nothing (issue #111).
+  expect(body.records['users']).toEqual([
+    {
+      id: app.user.id,
+      name: app.user.name,
+      email: app.user.email,
+      createdAt: expect.any(String),
+      disabledAt: null,
+    },
+  ]);
   expect(body.version).toBe(1);
 });
 
@@ -143,4 +165,18 @@ test('no credential and no storage key appears anywhere in the document', async 
   expect(raw).not.toContain('ingestToken');
   expect(raw).not.toContain('storageKey');
   expect(raw).not.toContain('storage_key');
+
+  // A password hash is a credential by the same rule (ADR-0047, ADR-0055) and
+  // the harder one: unlike an ingest token it cannot be minted again, and an
+  // argon2id hash in a file that sits in cloud storage is a standing offline
+  // target. The encoded form is searched for as well as the field name, so a
+  // table that carried one under another name would still fail this.
+  expect(raw).not.toContain('passwordHash');
+  expect(raw).not.toContain('password_hash');
+  expect(raw).not.toContain('$argon2id$');
+
+  // A session id is the credential itself, so `sessions` is not exported at
+  // all — there is no hash to drop and nothing left of the row without it.
+  expect(raw).not.toContain(app.sessionId);
+  expect(raw).not.toContain('"sessions"');
 });

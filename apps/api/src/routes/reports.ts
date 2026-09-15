@@ -8,6 +8,7 @@ import { progressStreams } from '../stream.js';
 import { reportOnTheWire, reportsMade } from '../wire.js';
 import { RENDER_REPORT, type RenderReportJob } from '../worker.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /** The reports asked for on a walk, in the order they were asked for. */
 function reportsOn(prisma: PrismaClient, siteVisitId: string) {
@@ -61,6 +62,8 @@ export function reportRoutes(
         // call is a second line, because it is a second report.
         await audit(tx, {
           projectId: walk.projectId,
+          actor: actorOf(request),
+          subject: { type: 'site-visit-report', id: row.id },
           action: 'site visit report asked for',
           detail: `the walk of ${walk.startedAt.toISOString()}`,
           at,

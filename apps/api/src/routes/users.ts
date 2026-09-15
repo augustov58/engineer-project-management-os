@@ -6,6 +6,7 @@ import { NOT_BLANK, isUniqueViolation, type RouteDependencies } from '../http.js
 import { MINIMUM_PASSWORD_LENGTH } from '../passwords.js';
 import { createUser } from '../users.js';
 import { userOnTheWire } from '../wire.js';
+import { actorOf } from '../gate.js';
 
 /**
  * The address is `\S+@\S+` and no more. A pattern that tried to be RFC 5322
@@ -54,7 +55,7 @@ export function userRoutes(
       try {
         const at = timeSource.now();
         const user = await prisma.$transaction((tx) =>
-          createUser(tx, request.body, at),
+          createUser(tx, request.body, at, actorOf(request)),
         );
         return reply.code(201).send(user);
       } catch (error) {
@@ -114,6 +115,8 @@ export function userRoutes(
         });
         await audit(tx, {
           projectId: null,
+          actor: actorOf(request),
+          subject: { type: 'user', id: user.id },
           action: 'user disabled',
           detail: `${user.name} — ${user.email}, and every session of theirs revoked`,
           at,

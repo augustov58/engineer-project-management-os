@@ -21,6 +21,7 @@ import {
   type Refusal,
 } from '../refusals.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * The document types the boundary admits, byte-exact and closed.
@@ -313,6 +314,8 @@ export function documentRoutes(
         // way afterwards.
         await audit(tx, {
           projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'document', id: created.id },
           action: 'document recorded',
           detail: `${created.title}, revision ${version.revision}${referencedFile ? ', a referenced file' : ''}`,
           at: recordedAt,
@@ -352,7 +355,7 @@ export function documentRoutes(
       const at = timeSource.now();
       try {
         await prisma.$transaction(async (tx) => {
-          await tx.documentVersion.create({
+          const added = await tx.documentVersion.create({
             data: {
               documentId: document.id,
               revision: version.revision,
@@ -368,6 +371,8 @@ export function documentRoutes(
           // events rather than inferred from their stamps (ADR-0039).
           await audit(tx, {
             projectId: document.projectId,
+            actor: actorOf(request),
+            subject: { type: 'document-version', id: added.id },
             action: 'document version added',
             detail: `${document.title}, revision ${version.revision}`,
             at,
@@ -506,6 +511,8 @@ export function documentRoutes(
         // "when did this leave extraction's reach" answerable.
         await audit(tx, {
           projectId: document.projectId,
+          actor: actorOf(request),
+          subject: { type: 'document', id: updated.id },
           action: 'document marked a referenced file',
           detail: document.title,
           at,
@@ -599,6 +606,8 @@ export function documentRoutes(
           });
           await audit(tx, {
             projectId: submission.projectId,
+            actor: actorOf(request),
+            subject: { type: 'submission', id: submission.id },
             action: 'document linked to a submission',
             detail: `revision ${submission.revision} — ${await namesVersion(tx, documentVersionId)}`,
             at,
@@ -674,6 +683,8 @@ export function documentRoutes(
           });
           await audit(tx, {
             projectId: entry.register.projectId,
+            actor: actorOf(request),
+            subject: { type: 'register-entry', id: entry.id },
             action: 'document linked to a register entry',
             detail: `${entry.number} — ${await namesVersion(tx, documentVersionId)}`,
             at,

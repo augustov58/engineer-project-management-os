@@ -155,6 +155,60 @@ describe('a forwarded message', () => {
     expect(arrival['arrivedAt']).toBe('2026-09-01T14:30:00.000Z');
   });
 
+  test('writes the one audit line in the product that nobody is answerable for', async () => {
+    const app = await api();
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+
+    expect((await forward(app, envelope(project.ingestAddress!))).status).toBe(
+      201,
+    );
+
+    const response = await app.fetch(
+      `/v1/projects/${project.id}/memory/audit`,
+    );
+    expect(response.status).toBe(200);
+    const trail = (await response.json()) as {
+      action: string;
+      actor: unknown;
+      subject: unknown;
+    }[];
+    const arrival = trail.find(
+      (line) => line.action === 'message arrived at the ingest address',
+    );
+
+    // ADR-0042's exempt route is the one place a *request* has no actor, and
+    // ADR-0055 asks that its line say so rather than invent one. A provider
+    // posts to an address it was given and presents nothing; there is nobody
+    // to record (issue #111).
+    expect(arrival?.actor).toBeNull();
+
+    // The row is still named. Only the person is missing.
+    expect(arrival?.subject).toEqual({
+      type: 'ingested-document',
+      id: (await arrivalsOn(app, project.id))[0]?.['id'],
+    });
+
+    // The engineer's own entry, through the same table, does carry one — so
+    // the null above is this route's property and not this record's.
+    expect(
+      (
+        await app.fetch(`/v1/projects/${project.id}/ingested-documents`, {
+          method: 'POST',
+          headers: json,
+          body: JSON.stringify({ files: [] }),
+        })
+      ).status,
+    ).toBe(201);
+
+    const after = (await (
+      await app.fetch(`/v1/projects/${project.id}/memory/audit`)
+    ).json()) as { action: string; actor: { name: string } | null }[];
+    const byHand = after.find(
+      (line) => line.action === 'arrival entered by hand',
+    );
+    expect(byHand?.actor).toEqual({ id: app.user.id, name: app.user.name });
+  });
+
   test('is dated when it reached us, not when the sender says it was sent', async () => {
     const clock = fakeTimeSource(new Date('2026-09-01T14:30:00.000Z'));
     const app = await api({ timeSource: clock });

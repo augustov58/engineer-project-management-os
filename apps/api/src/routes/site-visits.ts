@@ -24,6 +24,7 @@ import {
   withLocation,
 } from '../wire.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * A site visit: one dated observation event against a building (issue #9).
@@ -218,6 +219,8 @@ export function siteVisitRoutes(
         // from the start, so the line quotes the start).
         await audit(tx, {
           projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'site-visit', id: walk.id },
           action: 'site visit recorded',
           detail: `started ${walk.startedAt.toISOString()}`,
           at,
@@ -343,6 +346,8 @@ export function siteVisitRoutes(
         });
         await audit(tx, {
           projectId: walk.projectId,
+          actor: actorOf(request),
+          subject: { type: 'site-visit', id: stamped.id },
           action: 'site visit ended',
           detail: `ended ${ended.toISOString()}`,
           at,
@@ -387,6 +392,8 @@ export function siteVisitRoutes(
           // is the same split the report prints under.
           await audit(tx, {
             projectId: walk.projectId,
+            actor: actorOf(request),
+            subject: { type: 'site-visit-floor', id: row.id },
             action: 'floor started',
             detail: `Floor ${row.floor}, at ${row.startedAt.toISOString()}`,
             at,
@@ -453,6 +460,8 @@ export function siteVisitRoutes(
         });
         await audit(tx, {
           projectId: floor.siteVisit.projectId,
+          actor: actorOf(request),
+          subject: { type: 'site-visit-floor', id: stamped.id },
           action: 'floor completed',
           detail: `Floor ${floor.floor}, at ${completed.toISOString()}`,
           at,
@@ -500,6 +509,8 @@ export function siteVisitRoutes(
         // (ADR-0030), so the line reads the way the screen does.
         await audit(tx, {
           projectId: walk.projectId,
+          actor: actorOf(request),
+          subject: { type: 'observation', id: observation.id },
           action: 'observation recorded',
           detail: `${withLocation(observation).location} — ${observation.observed}`,
           at,

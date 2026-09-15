@@ -7,6 +7,8 @@
  * that the line's instant is the injected `TimeSource`'s.
  */
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
 import {
   addDocument,
@@ -23,7 +25,9 @@ import {
   handoffBody,
   listRegisters,
   reissueSubmission,
+  requestMemoryRun,
   startTestApi,
+  until,
   type AuditEntryResponse,
   type TestApi,
 } from './harness.js';
@@ -193,6 +197,205 @@ test('the helper route is the only mutating route exempt from the audit, and it 
   expect([...RECORDS_NOTHING]).toEqual(['POST /v1/tools/:name']);
 });
 
+/**
+ * Every writer of a line, found in the source rather than driven through a
+ * route (issue #111).
+ *
+ * The sweep above is exhaustive over *routes* and cannot be exhaustive over
+ * *writers*: `POST /v1/projects/:id/submissions` and `POST /v1/submissions/
+ * :id/reissue` share one call site inside `writeIssuance`, and `user reset`
+ * and `user enable` are commands on the machine that no `routes()` walk will
+ * ever see. Widening the line to carry a subject is a claim about all
+ * sixty-seven writers, so this reads them off the disk — the shape
+ * `apps/web`'s `session.test.ts` gives the rule that only one module reaches
+ * the API, and for its reason: a call site that omits something paints
+ * nothing and answers nothing.
+ *
+ * `process.cwd()` is `apps/api`: Vitest's root is the package directory
+ * whether the run started here or at the repo root.
+ */
+const apiRoot = resolve(process.cwd());
+
+/**
+ * One `audit(tx, { … })` call, captured up to the line that closes it.
+ *
+ * Every one of the sixty-seven is spelled this way — there is no aliased
+ * import and nothing writes `auditEntry.create` directly, both checked. The
+ * closing pattern is a line carrying nothing but `});`, so a nested object or
+ * a template literal spanning lines inside the call is not mistaken for its
+ * end.
+ */
+const AUDIT_CALL = /await audit\(tx, \{([\s\S]*?)\n\s*\}\);/g;
+
+interface CallSite {
+  /** Relative to `apps/api`, e.g. `src/routes/issues.ts`. */
+  path: string;
+  /** The argument object's body, between the braces. */
+  body: string;
+}
+
+function callSites(directory = join(apiRoot, 'src'), into: CallSite[] = []) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const full = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      callSites(full, into);
+      continue;
+    }
+    if (!entry.name.endsWith('.ts')) {
+      continue;
+    }
+    const text = readFileSync(full, 'utf8');
+    for (const match of text.matchAll(AUDIT_CALL)) {
+      into.push({ path: relative(apiRoot, full), body: match[1] ?? '' });
+    }
+  }
+  return into;
+}
+
+/**
+ * No writer lacks an actor or a subject — the sweep ADR-0055 part 4 asks for.
+ *
+ * It runs against the source because the columns are nullable in the database:
+ * the lines written before issue #111 touched rows nothing here now knows, and
+ * backfilling them to their project would say "project" where the line was
+ * about an observation, which is a wrong answer rather than a missing one. So
+ * the guarantee is not `NOT NULL` but `AuditLine`, where both fields are
+ * required and `tsc` refuses a caller that omits them — and this is what turns
+ * that into a statement about every writer rather than about the ones a test
+ * happened to drive.
+ *
+ * It also catches what `tsc` cannot: an `audit()` reached through a wrapper
+ * that supplies its own actor, which would typecheck and would quietly take
+ * the answer away from the boundary.
+ */
+test('no writer of an audit line lacks an actor or a subject', () => {
+  const sites = callSites();
+
+  // A guard on the sweep itself, as the route sweep above has: a regular
+  // expression that stopped matching would pass every assertion below it by
+  // finding nothing at all.
+  expect(sites.length).toBeGreaterThan(60);
+
+  expect(
+    sites.filter((site) => !/\n\s*subject:/.test(site.body)).map((s) => s.path),
+  ).toEqual([]);
+  expect(
+    sites.filter((site) => !/\n\s*actor[,:]/.test(site.body)).map((s) => s.path),
+  ).toEqual([]);
+});
+
+/**
+ * The actor is read at the boundary and never taken off a request body
+ * (ADR-0055 part 4). `actorOf` is the one function that builds one from a
+ * request, and a route that spelled `request.body.actor` would typecheck
+ * perfectly.
+ *
+ * `routes/sessions.ts` is the one file that composes an actor itself, and it
+ * has to: signing in is the act of getting a session, so its caller has been
+ * authenticated and has none yet. It reads the account it just verified, which
+ * is what `actorOf` reads everywhere else.
+ */
+test('nothing builds an actor out of a request body', () => {
+  const composing = callSites()
+    .filter((site) => /actor: \{/.test(site.body))
+    .map((site) => site.path);
+
+  expect([...new Set(composing)]).toEqual(['src/routes/sessions.ts']);
+
+  for (const site of callSites()) {
+    expect(site.body).not.toMatch(/actor:.*request\.body/);
+  }
+});
+
+/**
+ * Every place a line goes unattributed, named — one route and three commands.
+ *
+ * `NO_ACTOR` exists so that an actorless line reads as a decision at the call
+ * site rather than as an omission, and this is what makes that decision
+ * reviewable: the constant is greppable, so the set of places that use it is a
+ * fact a test can hold. It was written because the prose got it wrong — three
+ * doc comments in issue #111 said "three places and no more" and missed
+ * `user create`, which is actorless for the plainest reason there is: the
+ * first account is made before anybody exists to record it against.
+ *
+ * `user create` is the one of the four that is not *always* actorless. The
+ * same `createUser` serves `POST /v1/users`, where a signed-in engineer adds
+ * the next account and the actor is a parameter — which is why the constant is
+ * spelled in `user-command.ts` and not in the leaf.
+ */
+test('a line goes unattributed in one route and three commands, and nowhere else', () => {
+  const uses: string[] = [];
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.ts')) {
+        continue;
+      }
+      for (const line of readFileSync(full, 'utf8').split('\n')) {
+        const code = line.trim();
+        // An import, the declaration itself and prose about it are not uses.
+        if (
+          !/\bNO_ACTOR\b/.test(code) ||
+          code.startsWith('import') ||
+          code.startsWith('export const NO_ACTOR') ||
+          code.startsWith('*') ||
+          code.startsWith('//')
+        ) {
+          continue;
+        }
+        uses.push(relative(apiRoot, full));
+      }
+    }
+  };
+  walk(join(apiRoot, 'src'));
+
+  expect(uses.sort()).toEqual([
+    // The one route the gate lets through: a provider posts to an address it
+    // was given and presents nothing (ADR-0042).
+    'src/routes/ingest.ts',
+    // `user create` — the first account, made before anybody exists.
+    'src/user-command.ts',
+    // `user reset` and `user enable`, the floor under a deployment nobody can
+    // sign in to through the interface.
+    'src/users.ts',
+    'src/users.ts',
+  ]);
+});
+
+/**
+ * No model gains a `created_by` (ADR-0055 part 4).
+ *
+ * "Who recorded this" is a read of the audit, which is ADR-0048's rule applied
+ * to authorship: a column on each of thirty-odd models would be that many
+ * copies of a fact one table already holds in the same transaction as the
+ * write it describes, and the copies would be free to disagree with it.
+ *
+ * Read off `schema.prisma` rather than out of `information_schema`, so it
+ * stays clear of ADR-0012's sanctioned exception, which `test/schema.test.ts`
+ * holds to table names and nothing else.
+ */
+test('no model carries an author of its own', () => {
+  const schema = readFileSync(join(apiRoot, 'prisma/schema.prisma'), 'utf8');
+  // Prose stripped first: the rule is about columns, and the documentation on
+  // `audit_entries.actor_id` says the word in order to say why no model
+  // carries it.
+  const columns = schema
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
+
+  expect(columns).not.toMatch(/createdBy|created_by/);
+  expect(columns).not.toMatch(/authorId|author_id/);
+
+  // The one place an author lives, so the assertions above are a rule about
+  // where it is and not a rule that it is nowhere.
+  expect(columns).toMatch(/actorId String\? +@map\("actor_id"\)/);
+});
+
 test('a job records what happened to it, from the first line onwards', async () => {
   const app = await api();
   const project = await createProject(app, 'A-1', 'Riser replacement');
@@ -260,13 +463,111 @@ test('a job records what happened to it, from the first line onwards', async () 
     expect(entry.projectId).toBe(project.id);
     expect(Object.keys(entry).sort()).toEqual([
       'action',
+      'actor',
       'createdAt',
       'detail',
       'id',
       'projectId',
+      'run',
+      'subject',
     ]);
     expect(entry.detail.length).toBeGreaterThan(0);
   }
+});
+
+// ── Who, and which row (issue #111) ──────────────────────────────────────
+
+test('a line says who wrote it, by name and not only by id', async () => {
+  const app = await api();
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+
+  const [recorded] = await trail(app, project.id);
+  expect(recorded).toBeDefined();
+  // The account the harness signed in as, which is whose session every call
+  // above carried. The name and not only the id: "who recorded this" is a
+  // question somebody asks of a screen.
+  expect(recorded?.actor).toEqual({ id: app.user.id, name: app.user.name });
+  // Nobody was acting inside a run, so there is no run to name.
+  expect(recorded?.run).toBeNull();
+});
+
+test('a line names the row it is about, and never a session', async () => {
+  const app = await api();
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+  const walk = await createSiteVisit(app, project.id);
+  const observation = await createObservation(app, walk.id, {
+    observed: 'The duct is not supported at the transition.',
+  });
+  const raised = await createIssue(app, observation.id);
+
+  const lines = await trail(app, project.id);
+  const subjects = lines.map((line) => [line.action, line.subject]);
+
+  expect(subjects).toEqual([
+    ['project recorded', { type: 'project', id: project.id }],
+    ['site visit recorded', { type: 'site-visit', id: walk.id }],
+    ['observation recorded', { type: 'observation', id: observation.id }],
+    ['issue raised', { type: 'issue', id: raised.id }],
+  ]);
+
+  // The whole document, searched: a subject that named a `sessions` row would
+  // put a live credential into an append-only table that is read on a screen
+  // and exported whole (issue #111).
+  expect(JSON.stringify(lines)).not.toContain(app.sessionId);
+});
+
+/**
+ * The run, once the worker has stopped writing — and **not** the audit line
+ * the run wrote.
+ *
+ * The proposal's line is written *during* the run, and two writes follow it:
+ * `underRunSession` revokes the run's session in a `finally`, and only then
+ * does the worker stamp `finishedAt`. A test that returned on the line would
+ * leave both racing its own `afterEach`, which force-closes the worker,
+ * disconnects Prisma and drops the database `WITH (FORCE)` — and the abandoned
+ * writes reconnecting into a database about to go are an unhandled error that
+ * fails the whole run with every test in it passing. That cannot be reproduced
+ * on a developer's machine, where the writes land before the teardown rather
+ * than after; `.claude/rules/api.md` is where the rule lives, written after
+ * issue #106's first CI run did exactly this.
+ */
+async function runFinished(app: TestApi, projectId: string, runId: string) {
+  return until(async () => {
+    const response = await app.fetch(`/v1/projects/${projectId}/memory/runs`);
+    expect(response.status).toBe(200);
+    const runs = (await response.json()) as { id: string; state: string }[];
+    const found = runs.find((run) => run.id === runId);
+    return found?.state === 'finished' ? found : undefined;
+  }, `agent run ${runId} to finish`);
+}
+
+test('a line written during a run carries the person and the run, and the agent is never the actor', async () => {
+  const app = await api({ worker: true });
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+
+  // The harness's agent service calls `POST /v1/memory-runs/:id/proposal`
+  // under the session the route minted for the run — which is what the real
+  // adapter's tool does, over loopback, with no shared secret to present
+  // (issue #105).
+  const run = await requestMemoryRun(app, project.id);
+  await runFinished(app, project.id, run.id);
+
+  const written = (await trail(app, project.id)).find(
+    (line) => line.action === 'proposal written',
+  );
+  expect(written).toBeDefined();
+
+  // Both, with no special case: the session names the person who asked for
+  // the run, and the run is on the row beside them (ADR-0055 part 6).
+  expect(written?.actor).toEqual({ id: app.user.id, name: app.user.name });
+  expect(written?.run).toEqual({ type: 'agent-run', id: run.id });
+
+  // And the line the engineer wrote asking for it carries no run at all.
+  const asked = (await trail(app, project.id)).find(
+    (line) => line.action === 'memory run asked for',
+  );
+  expect(asked?.run).toBeNull();
+  expect(asked?.subject).toEqual({ type: 'agent-run', id: run.id });
 });
 
 test('the line says what happened, not only that something did', async () => {

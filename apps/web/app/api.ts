@@ -983,10 +983,52 @@ export interface MemoryProposal {
   stale: boolean;
 }
 
+/**
+ * Which kind of record a line is about (issue #111). The closed set the API
+ * spells at each of its sixty-seven call sites; `subjectHref` in
+ * `app/subject-link.ts` is what turns one into a screen.
+ */
+export type SubjectType =
+  | 'project'
+  | 'phase'
+  | 'submission'
+  | 'open-item'
+  | 'assumption-record'
+  | 'site-visit'
+  | 'site-visit-floor'
+  | 'observation'
+  | 'issue'
+  | 'photo'
+  | 'voice-capture'
+  | 'site-visit-report'
+  | 'register-entry'
+  | 'document'
+  | 'document-version'
+  | 'ingested-document'
+  | 'extraction'
+  | 'memory-version'
+  | 'memory-proposal'
+  | 'agent-run'
+  | 'user';
+
 /** One line of the append-only audit record, oldest first. */
 export interface AuditEntry {
   id: string;
   projectId: string;
+  /**
+   * Who recorded it, by name (issue #111, ADR-0055). **Null** on the three
+   * lines nobody presented a session for — the ingest webhook and the two
+   * machine commands — and on every line written before the column existed.
+   */
+  actor: { id: string; name: string } | null;
+  /**
+   * The run it was written during. An agent is never an actor: a run acts
+   * under the person who started it, so `actor` is that person and this says
+   * which run they were in. Never the session the run held.
+   */
+  run: { type: 'agent-run' | 'extraction'; id: string } | null;
+  /** Which row it is about. Null only on lines that predate issue #111. */
+  subject: { type: SubjectType; id: string } | null;
   action: string;
   detail: string;
   createdAt: string;

@@ -17,6 +17,7 @@ import {
   withSightings,
 } from '../wire.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * The largest value a Prisma `Int` column holds. An identifier above it is not
@@ -306,6 +307,8 @@ export function photoRoutes(
           // storage key is never named: it never reaches the wire (ADR-0032).
           await audit(tx, {
             projectId: walk.projectId,
+            actor: actorOf(request),
+            subject: { type: 'photo', id: row.id },
             action: 'photograph added',
             detail: `${row.filename} — ${row.floor === null ? 'no floor' : `Floor ${row.floor}`}, ${named === null ? 'no issue named' : `issue ${named} named`}`,
             at,
@@ -393,6 +396,8 @@ export function photoRoutes(
         });
         await audit(tx, {
           projectId: found.siteVisit.projectId,
+          actor: actorOf(request),
+          subject: { type: 'photo', id: row.id },
           action: 'photograph floor corrected',
           detail: `${found.filename} — ${found.floor === null ? 'no floor' : `Floor ${found.floor}`} is now ${row.floor === null ? 'no floor' : `Floor ${row.floor}`}`,
           at,
@@ -459,6 +464,8 @@ export function photoRoutes(
         });
         await audit(tx, {
           projectId: found.siteVisit.projectId,
+          actor: actorOf(request),
+          subject: { type: 'photo', id: row.id },
           action: 'photograph issue corrected',
           detail: `${found.filename} — ${found.issue === null ? 'no issue' : `Issue ${found.issue.number}`} is now ${issueNumber === null ? 'no issue' : `Issue ${issueNumber}`}`,
           at,

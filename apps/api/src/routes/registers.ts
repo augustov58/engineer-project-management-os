@@ -23,6 +23,7 @@ import {
 } from '../refusals.js';
 import { openItemBodySchema } from './open-items.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -533,6 +534,8 @@ export function registerRoutes(
           // the clock is about to read.
           await audit(tx, {
             projectId: register.projectId,
+            actor: actorOf(request),
+            subject: { type: 'register-entry', id: row.id },
             action: `${register.kind === 'RFI' ? 'RFI' : 'submittal'} logged`,
             detail: `${row.number}, with ${ballInCourt.party}${ballInCourt.inOurCourt ? ' — ours' : ''}`,
             at: now,
@@ -593,6 +596,8 @@ export function registerRoutes(
         // clock reads the boolean and the screen shows the name.
         await audit(tx, {
           projectId: entry.register.projectId,
+          actor: actorOf(request),
+          subject: { type: 'register-entry', id: entry.id },
           action: 'ball handed on',
           detail: `${entry.number} — to ${handoff.party}${handoff.inOurCourt ? ', which is ours' : ''}, held since ${handoff.heldSince.toISOString()}`,
           at: handoff.createdAt,
@@ -638,6 +643,8 @@ export function registerRoutes(
         });
         await audit(tx, {
           projectId: entry.register.projectId,
+          actor: actorOf(request),
+          subject: { type: 'register-entry', id: entry.id },
           action: 'RFI answered',
           detail: `${entry.number} — ${request.body.response}`,
           at,
@@ -697,6 +704,8 @@ export function registerRoutes(
         });
         await audit(tx, {
           projectId: entry.register.projectId,
+          actor: actorOf(request),
+          subject: { type: 'register-entry', id: entry.id },
           action: 'entry linked to the issuance that answered it',
           detail: `${entry.number} — revision ${submission.revision}`,
           at,
@@ -743,6 +752,8 @@ export function registerRoutes(
         // this line says days and names no deadline.
         await audit(tx, {
           projectId: entry.register.projectId,
+          actor: actorOf(request),
+          subject: { type: 'register-entry', id: entry.id },
           action: 'turnaround target set',
           detail: `${entry.number} — ${request.body.turnaroundDays} ${
             request.body.turnaroundDays === 1 ? 'day' : 'days'
@@ -817,6 +828,8 @@ export function registerRoutes(
         // so splitting them into two lines would read as two events.
         await audit(tx, {
           projectId: entry.register.projectId,
+          actor: actorOf(request),
+          subject: { type: 'register-entry', id: entry.id },
           action: 'disposition recorded',
           detail: `${entry.number} — ${request.body.disposition}, back to ${handoff.party}, dated ${handoff.heldSince.toISOString()}`,
           at: handoff.createdAt,
@@ -885,6 +898,8 @@ export function registerRoutes(
           // it says so on the successor's, as a reissue's does.
           await audit(tx, {
             projectId: previous.register.projectId,
+            actor: actorOf(request),
+            subject: { type: 'register-entry', id: row.id },
             action: 'next round logged',
             detail: `${row.number}, following ${previous.number}, with ${ballInCourt.party}${ballInCourt.inOurCourt ? ' — ours' : ''}`,
             at: now,
@@ -954,6 +969,8 @@ export function registerRoutes(
         });
         await audit(tx, {
           projectId: entry.register.projectId,
+          actor: actorOf(request),
+          subject: { type: 'open-item', id: created.id },
           action: 'open item raised on a register entry',
           detail: `${entry.number} — ${created.unresolved}`,
           at,
@@ -995,6 +1012,8 @@ export function registerRoutes(
           });
           await audit(tx, {
             projectId: entry.register.projectId,
+            actor: actorOf(request),
+            subject: { type: 'register-entry', id: entry.id },
             action: 'open item attached to a register entry',
             detail: `${entry.number} — ${item.unresolved}`,
             at,

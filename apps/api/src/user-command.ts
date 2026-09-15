@@ -27,6 +27,7 @@ import { createRuntime } from './runtime.js';
 import { MINIMUM_PASSWORD_LENGTH } from './passwords.js';
 import { systemTimeSource } from './time-source.js';
 import { createUser, enableUser, resetPassword } from './users.js';
+import { NO_ACTOR } from './audit.js';
 
 const USAGE = `usage:
   user create "<name>" <email>   add a user
@@ -118,7 +119,7 @@ try {
     }
     const chosen = await password();
     const user = await runtime.prisma.$transaction((tx) =>
-      createUser(tx, { name, email, password: chosen }, at),
+      createUser(tx, { name, email, password: chosen }, at, NO_ACTOR),
     );
     process.stdout.write(`${user.name} <${user.email}> can sign in.\n`);
   } else if (command === 'enable') {
