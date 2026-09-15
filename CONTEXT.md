@@ -1,6 +1,6 @@
 # Project Context: Engineer Project Management OS
 
-*Last updated: 2026-09-13*
+*Last updated: 2026-09-14*
 
 ## What this is
 
@@ -12,153 +12,31 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 
 ```
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
-├── PRD and Architecture.md   ← requirements, architecture, milestones, backlog
+├── PRD and Architecture.md   ← requirements, architecture, the six-step sequence and its status
+├── Post-MVP PRD.md           ← the post-MVP plan, inheriting the above by reference
 ├── docs/
-│   ├── adr/                  ← architecture decisions 0001-0050 (check Status where there is one:
-│   │                            0012-0019 carry no such line)
+│   ├── adr/                  ← architecture decisions, and README.md, the index
 │   └── glossary.md           ← domain terms
 ```
 
 **Update rules:**
-- When a milestone is completed, update the progress section below and mark it in `PRD and Architecture.md`.
-- Any plan adjustment, scope change, or new decision gets documented here AND in the vault (as an ADR if architectural).
+- When a milestone is completed, mark it in `PRD and Architecture.md`, beside the sequence it belongs to.
+- When a slice lands, append a row to [docs/changelog.md](./docs/changelog.md) — one row per slice, and the only per-slice record.
+- Any plan adjustment, scope change, or new decision gets documented in the vault (as an ADR if architectural), and the ADR index updated.
 - Do not treat this file or AGENTS.md as the plan. The vault files are authoritative.
 
-## Key decisions (from vault ADRs)
+## This file is a pointer, and it is not the glossary
 
-Fifty ADRs (0020 was Proposed until 2026-09-01 and is now Accepted, confirmed by the author and built as slice 21; 0021 and 0022 were decided while building slice 1, 0023 while building slice 2, 0024 while building slice 3, 0025 by the author after slice 3, 0026 while building slice 4, 0027 while building slice 5, 0028 while building slice 6, 0029 while building slice 7, 0030 while building slice 8, 0031 while building slice 9, 0032 while building slice 10, 0033 afterwards as its own change, 0034 while building slice 11, 0035 while building slice 12, 0036 while building slice 13, 0037 while building slice 14, 0038 while building slice 15, 0039 while building slice 16, 0040 while building slice 17, 0042 while building slice 18, 0043 while building slice 19, and 0044 while building slice 20; slice 21 wrote no new ADR, confirming 0020 instead and recording what building it settled inside that ADR; issue #42 wrote none either, recording what reviewing slice 17 found inside 0040). The 2026-08-24 grilling session overturned several 2026-08-17 decisions
-that rested on a false premise. Read [[docs/adr/README]] in the vault for current status;
-do not treat 0001-0011 as current without checking.
+It holds the vault pointer and the update rules above, and nothing that is a copy of a record
+kept elsewhere — a decision settled 2026-09-08 by ADR-0051 and built as issue #110. The vault's
+`docs/glossary.md` is the only glossary; a second one in this repo would be a second place a
+binding fact lives, free to disagree, and the vault has produced exactly that failure twice.
 
-**Outcome test:** every deliverable I issue states what it rests on, with nothing sitting
-in my court past its clock as the daily layer under it.
+What this file used to carry, and where each now lives:
 
-| # | Decision |
-|---|----------|
-| 0012 | ~~Single-user personal tool (supersedes 0001 tenancy, 0005 auth)~~ — **superseded 2026-09-12 by 0055**, on the answer it was resting on: the author's became *other engineers at the firm* on 2026-09-08. 0001 and 0005 stay superseded |
-| 0013 | Cloud extraction default, local fallback (qualifies 0008) |
-| 0014 | Open item is the central record |
-| 0015 | Submissions first-class, may be provisional |
-| 0016 | Exposure + clock replace the health score (supersedes 0007) |
-| 0017 | No money model (strikes budget from 0006, 0010) |
-| 0018 | Capture and extraction first, copilot later (narrows 0004) |
-| 0019 | No vector search; retrieval by identity |
-| 0020 | ~~Single shared secret at the edge~~ — **superseded 2026-09-12 by 0055**, on the replacement clause 0020 wrote for itself. Its three properties worth keeping are kept: one exempt route proved by a sweep, one door out of `apps/web`, and nothing between the engineer and a walk |
-| 0002 | Pi SDK behind `AgentRunService` port — required by the author |
-| 0003 | Cloud-managed deployment |
-| 0009 | Email forward-to-ingest |
-| 0011 | Risk register: manual + agent-proposed |
-| 0021 | Fastify, not NestJS — decided by slice 1, not revisited |
-| 0022 | Time source is a port called `TimeSource`; `Clock` stays a domain word |
-| 0023 | API routes carry a `/v1` prefix — settles the spec's "versioned prefix" against slice 1's unversioned routes |
-| 0024 | An open item's `unresolved` column, `resolved_at` + `resolution_note` as the whole of resolution, and `subject_type` as a one-value enum |
-| 0025 | The interface is designed, not incidental — Tailwind + shadcn/ui, owned in-repo; the site visit report is a separate print problem |
-| 0026 | What a submission rests on is a join table, not a second subject on the open item; a phase is a row the submission points at, and renaming it propagates |
-| 0027 | Provisional is two columns and no more; detaching is narrowed to what was attached after the issuance; exposure is a list whose length is the count |
-| 0028 | Superseded is a successor existing, derived and never stored; `supersedes_id` is unique, which is the whole of "at most one successor"; exposure counts only the current issuance |
-| 0029 | A captured block goes in verbatim and a line of it is how an entry is addressed; counterfactuals are rows, one per assumed input; a record is bound to one submission and nothing edits it |
-| 0030 | A location is four components with the grammar rendered on read; exactly one of side or sector, refused at the boundary and by a CHECK; the floor is free text; a walk exists before it is over and its date is derived from its start |
-| 0031 | An issue's identifier is a high-water mark on the project, never reused and never renumbered; an issue owns no content — no summary, no location — and the sightings are its history; an open item on a finding is a join whose subject stays `PROJECT`; the category is text with a CHECK, not an enum |
-| 0032 | The filename grammar is written down at last — a marker and a number, never a bare integer; a binding is stamped when the photograph is added and corrected in one action, not derived; exactly one floor window binds or nothing does; the bytes go to an `ObjectStore` port and are served through the API, not a presigned URL |
-| 0033 | A record type is a file under `apps/api/src/routes/`, named to match the test file that drives it; `http.ts`, `refusals.ts` and `wire.ts` are leaves that import no route module, which is what stops the records that read each other forming a cycle; the route modules are plain functions and not plugins |
-| 0034 | A draft is a record of its own, never a state of an observation; the transcript is verbatim and a correction never rewrites it; the state is four stamps with no status column beside them; transcription is the first thing on the queue; a resend after a signal drop is answered with the row rather than refused |
-| 0035 | A report is a record of a rendering — nothing edits one and generating again is another row, so there is no retry route; its state is four stamps and it owns nothing it prints; an issue's identifier prints as `Issue N` and a report prints this walk's sightings, the two questions ADR-0031 deferred to issue #13 by name; the renderer is deliberately not behind a port, because a port defers a pick and a browser engine is not one |
-| 0036 | Ball-in-court is a history and not a field, because an arithmetic reads it — the entry has no status column and no `ball_in_court` column, and *ball-in-court* is the last handoff derived on every read; whether the ball is ours is a stored boolean beside the party's name and never a reading of it; both registers are written with the project and there is no route that creates one; the register kind is a database enum, reversing 0031's run for the reason 0031 gave; the link to the issuance that responded is a column on the entry, because a column on the submission would need the update route 0026 made impossible |
-| 0037 | The clock is elapsed in-court time summed from the handoff history and stored nowhere — `clock_started` is refused, because the ball reaches us more than once and there is no single moment a clock began; *past its clock* is three facts and one of them is that the ball is ours now, which is how a disposition takes an entry off the list without stopping anything; recording a disposition writes the outcome and hands the ball back in one transaction, and the party is supplied rather than read off the entry's fixed cast; the turnaround target is a duration in whole days, never a date, and is set once; the clock is a list whose length is the count, as exposure is; a next round is a new entry pointing backwards and inherits nothing |
-| 0038 | The morning screen serves **no endpoint**: a payload carrying both counts is the first object a score could be computed from without adding a query, so the screen reads the two lists it already links to and renders their lengths. `/` is the landing view re-headed, not a route of its own, with the project list a section beneath the two counts. Both cards render at zero, unlike the project screen's strips, because here the count *is* the screen |
-| 0039 | A **referenced file** is a column on a document and not the sketch's third table — the glossary calls one *a document*, so a second record would give "is this one?" two answers; it is required with no default, because a default classifies by omission and the omitted answer puts an 86-sheet set in front of extraction. `documents` is the identity and `document_versions` holds the file, departing from 0028's one-table chain because two versions share their whole identity where two links of a supersede chain share nothing; `revision` unique within its document is the whole of "a new version never overwrites a prior one". A submission's sheet list points at a **version** through a join written after the issuance, so the text column stands and 0026's per-sheet migration is still priced rather than taken. Extraction targets are a **read**, so the exclusion is one predicate rather than a `where` clause in a worker that does not exist. Not gated on employer consent: nothing here reads a document's contents |
-| 0040 | Memory is versions on the project with no identity table — a project has exactly one memory, so the project is the identity; the proposal **is** the approval request, with its base snapshotted so the diff cannot drift, and is never edited — accept-with-edit writes the version and keeps the agent's words. A run is a row with four stamps, one proposal at most, and no retry: asking again is another row. The budget (4,000 characters) is surfaced and never enforced. The tools call the internal API over HTTP and never the database, their names take underscores because provider APIs reject dots, and the session's tool list is an allowlist — bash, edit and write are absent, not denied. The default adapter refuses and says so; `AGENT=pi` builds the real one. The audit is scoped to memory and append-only by construction |
-| 0041 | The memory agent gets **no file tools at all**, amending 0040's tool-list section. The allowlist half of 0040 was verified and stands; the claim that `read`, `grep`, `find` and `ls` were "scoped by `cwd`" was wrong — the SDK's `resolvePath` uses `cwd` only as the base for a *relative* path, returns an absolute path as given and expands `~`, and none of the four tools carries a containment check, so a run could have read the SDK's own credential store and put it in a proposal. A containment check was refused as this product re-implementing a guarantee inside a vendor's path resolution; a memory run reads no file, so the tools are removed rather than fenced. The rule it leaves: a sandbox claimed for a vendor's tool is not a sandbox until the vendor's resolver has been read |
-| 0042 | The ingest address is built and the mail provider is **not**: the port has no adapter, the default refuses, so nothing leaves the process and the employer-consent gate moves from a note in the vault to a fact about the code — it now fires on writing the adapter and naming the vendor. 0042 also prices, for the first time anywhere, that an inbound-parse provider holds the **whole message** and is a stronger consent case than the OCR API 0008 and 0013 scope the trade-off to. An arrival is **not a document**: `referenced_file`, `revision` and the title have no answer when a message lands, and inventing them is what 0039 refused. Its content type is free text where a document version's is a closed three, because refusing a `.dwg` loses the record the manual fallback protects — and the served-under-our-origin hole that opens is closed at the read, where the bytes route answers `application/octet-stream` always. `arrived_at` is stamped and the sender's `Date` header is never read. The rate limit is a count of the rows in the trailing hour, not a counter beside them |
-| 0043 | Extraction is **one record** that runs, proposes and resolves — the run's stamps, the proposal's fields and the resolution on `register_entry_extractions`, the state derived and no status column. The source is **exactly one** of an arrival's file or a document version (a CHECK holds it), and the enqueue is **manual and per file**, narrowing story 84's "automatically". The OCR vendor sits behind a port whose default refuses, and the extraction agent's default refuses too — the gate kept a second time, inside the built feature, so a run fails honestly with the vendor's sentence. The agent's one tool is `extraction_propose`; the content reaches it as delimited untrusted data under an explicit directive, and the proposal is constrained to the typed shape. **Confirming is the commit**: one transaction writes the document and version (on the mail path, reusing the arrival's storage key), the register entry, its first handoff and the join. Rejecting keeps the source as it arrived. The review is against the OCR text, not a rendering — the honest version of side-by-side, since arrival bytes are deliberately served as attachments. Referenced sheets are deliberately not extracted, priced for a later ticket |
-| 0044 | The processing-location default is **cloud**, settling the 0013-vs-glossary contradiction in 0013's favour; the written sign-off gates the **switch** and not the state, so "cloud implies a sign-off" is false by design and no CHECK holds it; switching to local requires nothing, because consent can be withdrawn; and whoever writes the OCR adapter must read every existing project's location **before** the first run |
-| 0045 | Fly is the host and one machine runs both halves — the API on loopback, Next on every interface, which is 0020's arrangement made literal; the health check is `/unlock` because 0020 gates `/v1/health` deliberately (**`/sign-in` since 2026-09-12**, when 0055 replaced the unlock flow; the reason is unchanged); the object store is a mounted volume, so the S3 pick stays deferred rather than forced; `NODE_ENV=production` in `fly.toml` is what finally makes `apps/api`'s guard against the committed dev secret fire; and Chrome's sandbox is verified **on the machine that serves**, because Docker's seccomp profile makes a laptop unable to answer that question |
-| 0046 | The statuses were wrong, not the sequence: 0006, 0010 and 0011 read Accepted while appearing in neither the MVP workflows nor the six-step sequence, and the sequence is the half that was executed — all three are deferred with named triggers rather than struck, and 0011 inherits 0031's problem that the `issues` name is taken |
-| 0047 | An export is **a document plus the fetches it names**: every row of every table in one JSON response, not project-scoped; a `storage_key` becomes the path that serves those bytes rather than base64 in the same body; `ingest_token` is dropped because it is a credential and the one value that can be minted again; every table is present even when empty; and both absences are asserted by searching the whole serialised document, so a table added later that carries either one fails without anybody extending the test |
-| 0048 | The **activity feed is a read over the audit and never a second stream**: story 107's two questions get two answers from one record — newest first and bounded against every line oldest first — because a second stream is a second place the same fact lives, with sixty-two writers of its own; the `?limit=` maximum is what keeps the two questions apart; the feed is a list whose length is **not** a count, unlike exposure's and the clock's, because it is bounded; and `audit_entries` gets no `seq`, since nothing derives a value from its order |
-| 0049 | The frontend suite is **component-level** — Vitest under jsdom, on `apps/api`'s pinned runner version, needing no API, database, Redis or browser — and `apps/web` is in the root `pnpm test` at last; the door and the native select are scans of the source rather than renders, because both render correctly when broken; a first paint is asserted by rendering on the server *and* hydrating over it with `console.error` watched, and the stubbed `EventSource` delivers nothing on purpose; ADR-0038's asymmetry is asserted on both sides so making them agree fails; and what it does **not** cover is named at equal length — the edge gate end to end, the loopback API, Next serving anything, hydration in a real browser — with end-to-end deferred under a named trigger |
-| 0050 | ~~**Superseded 2026-09-12 by 0054**, on the trigger it names below.~~ The timezone frame is **recorded, not changed** — a typed wall-clock time is stored as written, the `TimeSource` stamps a real instant, and every screen and the report render the UTC face; that is what the product does and it is now the answer rather than a question three ADRs were carrying. Its whole operational content is the coupling: `asTypedInstant` and `composeInstant` are one frame on purpose and binning compares one against the other, so 0032's "the two helpers change together" becomes **they change together never**, absent a superseding ADR. The trigger that would reopen it is named — a second timezone becoming real |
-| 0052 | **The suite cannot see a comparison whose both sides it supplies**, so CI runs the gates and two test kinds are added. GitHub Actions on every push and pull request — typecheck, the API suite, the web suite, the web build — and it **gates without deploying**: one machine with a mounted volume makes a deploy on every green merge a migration on every green merge, deferred under a named trigger (the first deploy that is late because a person was). Every rule that exists because of a **size** gets one fixture at that size, and every comparison across a **frame boundary** gets one test where the clock is not also the typed side. End-to-end refused again, 0049 unchanged. A check watches the process it is a check on: `/healthz` on Next reaches the API through `apiFetch`, and `GET /v1/health` stays gated. Built as issue #106, closing #94; the on-machine verification 0045 requires is **not yet run** |
-| 0053 | **A helper skill is a route of this product, and the agent still reaches nothing else.** The firm's electrical helpers are their own repository, pinned by commit as a git submodule at `apps/api/tools/`; a directory carrying a **manifest** is registered and one without is not, and `POST /v1/tools/:name` is **one** route driven by the manifests with the agent's tool list generated from the same — so adding a helper is adding a directory. Each runs as a subprocess given its own directory, a scrubbed environment and a ten-second wall clock, and the two blocks come back **verbatim**. The route **records nothing**: asking and recording are two acts, and the recording is still an assumption record against a submission (0029). It amends 0041's allowlist sentence to "this product's routes and nothing else" and reopens nothing 0041 closed, the vendor's resolver never being in the path. Built as issue #107, closing #92 and #93; three helpers registered, the generator admitted the day it prints the two blocks |
-| 0054 | **A project has a timezone and every stored time is a real instant**, superseding 0050 on the trigger 0050 named — the second engineer. `projects.timezone` is an IANA name, required with no default, and it is the building's: a walk happens where the building is. `composeInstant` composes a typed day and time in it and `asTypedInstant` is **deleted**, the two helpers 0050 coupled changing in one commit as 0050 required. Every screen and the report render in it, the report header prints it once, and a visit's date is derived in it. One migration moved every existing row: a typed-capable value iff its seconds and milliseconds are both zero, every `photos.taken_at` unconditionally, no purely stamped column — counts recorded in the ADR. `binToFloor` did not change and became correct. **After the first real walk this answer flips**: a later frame defect is a dated correction, never a rewrite |
-| 0055 | **There are users, and the record has an actor**, superseding 0012 and 0020 and settling the subjects of 0001 and 0005, which stay superseded. One firm per deployment and **no tenancy**; identity is product-owned — a `users` row and a `sessions` row, the cookie an opaque session id revocable per row where the shared secret had no state at all. The gate is **replaced, not extended**: `proxy.ts` checks the cookie, `apiFetch` forwards the id, the API validates it on every request, `POST /v1/ingest/inbound-mail` stays the one exempt route and the sweep proves it unchanged. **No roles**, with a named trigger — the first time one engineer must be *prevented* rather than *recorded*; and the firm's identity provider is deferred as **a second way to obtain a session, never a second gate**. Built as issue #105; the actor on the audit line (part 2) and the person on the record (part 5) are issues #111 and #112 |
-| 0060 | **The OCR vendor is Azure AI Document Intelligence, and the gate stops being an absent adapter.** `prebuilt-read` over REST with no SDK: the document's bytes go up **inline** as `base64Source`, which is the whole reason the pick is possible — there is no object storage here, and that is what disqualified both candidates the vault had weighed since 2026-08-24 (Textract accepts one of the three content types and needs S3 past page one; Google Document AI runs Office only on Layout Parser at 6.7x the rate, stops at 15 pages online, and authenticates with a key file). The analyze result is **deleted** once read rather than left to the vendor's 24-hour expiry, and that delete runs in a `finally` and never throws — a failed clean-up must not become a failed extraction. `unconfiguredOcrProvider` stays the default and **an unrecognised vendor name falls through to it rather than being guessed at**; the credential is two environment strings read only when the vendor is named, so a deployment that names one and forgets its key does not boot. The load-bearing sentence of four narrowings — *no adapter exists* — is **spent**; what carries the gate now is the refusing defaults and the two unchanged processing-location gates. 0044's pre-flight duty was discharged **before any vendor was configured**; what it found is recorded in the vault ADR and **nowhere in this repository**, because #109's first criterion says vault-only and a repository is a tracker. Built as issue #109, closing #51 |
-| 0061 | **The transcription vendor is Azure AI Speech fast transcription, which stores nothing.** Its consent argument is kept **separate** from 0060's, 0042 having priced site audio as the *stronger* case — a recording catches whatever was being said nearby, not only what was pointed at. The near-miss is the record's point: Azure's **batch** speech API reads audio from a blob URL and would have been disqualified on the same ground as Textract, and only the **fast** endpoint takes bytes inline and answers in the same response — one call, no job, nothing to poll, which is the only shape a `transcribe(bytes) -> string` port can hold. It was picked over a vendor with a better delete story because it has nothing to delete: Microsoft names fast transcription under a heading reading *No data trace*. **The honest weakness is that this is a documentation promise and not a DPA clause**, and the named trigger is the employer asking for a contractual guarantee — at which point Deepgram or AssemblyAI is where it goes. Silence transcribes to the empty string and is **not** a failure, and every `combinedPhrases` entry is kept rather than the first — the vendor returns one per channel, and dropping the rest is a rewrite by omission. **Verified on the machine that serves 2026-09-15**: a real browser recording transcribed in 394 ms and committed to an observation, where the same record type and content type had failed with "no transcription vendor is configured" on 2026-09-06 — the before and the after are two rows of one table, which is #85's whole acceptance. The **extraction** half is not met: OCR ran on a real 56,236-character document and the agent correctly declined, the document being a specification and not correspondence, so an extraction that *proposes* is still outstanding. That run also exposed issue #132 — nothing bounds `ocr_text` between the vendor and the model prompt, and the vendor's ceiling is 2,000 pages. Built as issue #109, closing #85 |
-
-## Stack
-
-TypeScript monorepo · Next.js · Node.js API (Fastify, ADR-0021) · PostgreSQL + Prisma · Redis + BullMQ · S3 object storage · `@earendil-works/pi-coding-agent` SDK
-
-## Milestones and progress
-
-The five-phase plan is superseded by the revised sequence in `PRD and Architecture.md`.
-
-| Step | Scope | Status |
-|------|-------|--------|
-| 0 | Walking skeleton and test harness (issue #2) | **Done** 2026-08-24 |
-| 0b | `Project` record: create, list live, view, archive (issue #3) | **Done** 2026-08-25 |
-| 0c | Open items + the pending items view (issue #4) | **Done** 2026-08-25 |
-| 0d | Submissions, per-project phases, sheet list, revision (issue #5) | **Done** 2026-08-25 |
-| 0e | Provisional state and exposure (issue #6) | **Done** 2026-08-25 |
-| 0f | Reissue and supersede (issue #7) | **Done** 2026-08-25 |
-| 0g | Assumption records (issue #8) | **Done** 2026-08-27 |
-| 0h | Site visits and observations (issue #9) | **Done** 2026-08-27 |
-| 0i | Issues with stable per-project identifiers (issue #10) | **Done** 2026-08-27 |
-| 0j | Photo binning by timestamp and filename (issue #11) | **Done** 2026-08-28 |
-| 0k | Voice capture to draft observation (issue #12) | **Done** 2026-08-29 |
-| 0l | The site visit report, rendered to PDF (issue #13) | **Done** 2026-08-29 |
-| 0m | Registers, entries and the ball-in-court history (issue #14) | **Done** 2026-08-31 |
-| 0n | The clock, dispositions and the past-its-clock view (issue #15) | **Done** 2026-08-31 |
-| 0o | The morning screen: exposure and clock as the landing view (issue #16) | **Done** 2026-08-31 |
-| 0p | Referenced files: documents, immutable versions, retrieval by identity (issue #17) | **Done** 2026-09-01 |
-| 0q | Project memory: versions, proposals, agent runs and the audit (issue #18) | **Done** 2026-09-01 |
-| 0r | The ingest address and untrusted inbound mail (issue #19) | **Done** 2026-09-01 |
-| 0s | Extraction to a draft, human-confirmed (issue #20) | **Done** 2026-09-01 |
-| 0s | Processing location per project (issue #21) | **Done** 2026-09-01 |
-| 0t | The edge gate: one secret in front of every route (issue #22) | **Done** 2026-09-01 |
-| 0u | The deployment: Fly, one machine, both halves (issue #56) | **Done** 2026-09-02 |
-| 0v | Full export: every table in one document (issue #60, story 113) | **Done** 2026-09-02 |
-| 1 | Real open items entered on the live job | **Done** 2026-09-05 — on 260001, not T-1; the four items the PRD named were T-1's examples, not a checklist |
-| 2 | Open items + submissions (provisional, supersede) | **Done** — issues #4, #5, #6, #7 |
-| 3 | Site visit capture (voice, photos, stable issue IDs, the report) | **Done** — issues #9, #10, #11, #12 and #13 |
-| 4 | Registers: submittals, RFIs, clock, dispositions | **Done** — issues #14 and #15 |
-| 5 | Ingest: forward-to-email, extraction, human-confirmed | Referenced files (issue #17, outside the gate), the ingest address (issue #19), extraction (issue #20) and the processing location (issue #21) all done inside the gate without lifting it, and the edge gate (issue #22) done; the **OCR adapter and its vendor pick landed 2026-09-13** (issue #109, ADR-0060). **Done** |
-| 6 | Curated project memory | **Done** — issue #18 |
-
-## Open decisions (deferred to implementation)
-
-- ~~Fly vs Render (hosting)~~ — settled 2026-09-02 by ADR-0045: **Fly**, deployed as slice 22
-  (issue #56). One machine runs both halves, the object store is a mounted volume, and the
-  health check is `/unlock` because ADR-0020 gates `/v1/health` deliberately.
-- ~~Textract vs Google Document AI (OCR)~~ — settled 2026-09-13 by ADR-0060: **neither**.
-  Both need object storage this deployment does not have, and the pick is **Azure AI Document
-  Intelligence**, which takes the document's bytes inline. Built as issue #109, closing #51.
-- Object storage (S3 vs R2 vs B2) — added 2026-08-28; it was on no list here or in the vault
-  though the stack has said "S3-compatible" since ADR-0003. Slice 10 put it behind the
-  `ObjectStore` port with a filesystem adapter, so the pick is deferred, not absent.
-- SES vs Postmark vs SendGrid (email ingest)
-- ~~Transcription vendor for voice-to-observation capture (step 3)~~ — added 2026-08-24, none named in the
-  plan; **settled 2026-09-13 by ADR-0061: Azure AI Speech fast transcription**, built as issue #109 and
-  closing #85. Slice 11 had put it behind a `Transcriber` port (ADR-0034) with no adapter, so the default
-  refused and **voice capture could not complete anywhere it was deployed** — met by hand on 2026-09-06.
-  The near-miss worth keeping: Azure's *batch* speech API reads audio from a blob URL and would have failed
-  the same no-object-storage test that ruled out Textract; only the **fast** endpoint takes bytes inline.
-  Its honest weakness is that "no data trace" is a documentation promise, not a DPA clause — the named
-  trigger is the employer asking for a contractual guarantee, and the fallback is Deepgram or AssemblyAI.
-
-~~Clerk vs Auth0 (OIDC provider)~~ — struck 2026-08-24 as dead under ADR-0012, and **reopened
-and deferred again 2026-09-12 by ADR-0055**, which supersedes both 0012 and 0020. Identity is
-product-owned for now: a `users` table, an argon2id password hash and a `sessions` row, with
-the firm's identity provider named as the right end state and deferred with a trigger — the
-second firm, or the first engineer who will not keep a password. It arrives as **a second way
-to obtain a session, never a second gate**.
-
-**No contradiction is open in the vault.** Both are now resolved: the processing-location
-default on 2026-09-01 by ADR-0044, in ADR-0013's favour; and the 0010 / 0011 / 0006 statuses
-on 2026-09-02 by ADR-0046, which found the statuses wrong rather than the sequence and
-deferred all three with named triggers rather than striking them.
-
-## Change log
-
-One row per slice, in [docs/changelog.md](./docs/changelog.md). Append a row there when a slice
-lands; this file records the decision table and the milestone table and nothing else about a slice.
+| Was here | Is now |
+|---|---|
+| The decision table | The vault's `docs/adr/README.md`, which is the index it summarised |
+| The per-slice milestone table | [docs/changelog.md](./docs/changelog.md), one row per slice |
+| The six-step sequence's status | `PRD and Architecture.md`, beside the sequence |
+| The open-decisions list | The vault `docs/adr/README.md`'s `## Open, deliberately` |
