@@ -47,7 +47,9 @@ export function BallInCourtBadge({
     <Badge variant={ballInCourt.inOurCourt ? 'destructive' : 'secondary'}>
       {ballInCourt.party}
       {ballInCourt.inOurCourt &&
-        ` \u00b7 ${ballInCourt.user?.name ?? 'our'} court`}
+        ` \u00b7 our court${
+          ballInCourt.user === null ? '' : `, ${ballInCourt.user.name}`
+        }`}
     </Badge>
   );
 }

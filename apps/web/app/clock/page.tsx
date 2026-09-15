@@ -69,11 +69,9 @@ export default async function Clock({
             ? `Nothing is sitting in ${isMine(scope) ? 'my' : 'our'} court past its turnaround.`
             : `${onTheClock.length} ${
                 onTheClock.length === 1
-                  ? 'entry is past its clock'
-                  : 'entries are past their clock'
-              }${isMine(scope) ? ' in my court' : ''}${
-                project === undefined ? ' across every live project' : ''
-              }`}
+                  ? `entry is${isMine(scope) ? ' in my court and' : ''} past its clock`
+                  : `entries are${isMine(scope) ? ' in my court and' : ''} past their clock`
+              }${project === undefined ? ' across every live project' : ''}`}
         </p>
         <div className="mt-3">
           <ScopeToggle scope={scope} href={here} />

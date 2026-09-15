@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table';
 import { selectClassName } from '../native-select';
 import { listPendingItems } from '../api';
+import { ScopeToggle, isMine, scopeOf } from '../scope';
 import { day } from '../wall-clock';
 
 /** The point of this screen is what is unresolved right now. */
@@ -25,11 +26,31 @@ export const dynamic = 'force-dynamic';
 export default async function PendingItems({
   searchParams,
 }: {
-  searchParams: Promise<{ waitingOn?: string; sort?: string }>;
+  searchParams: Promise<{ waitingOn?: string; sort?: string; scope?: string }>;
 }) {
-  const { waitingOn = '', sort } = await searchParams;
+  const { waitingOn = '', sort, scope: asked } = await searchParams;
   const order = sort === 'newest' ? 'newest' : 'oldest';
-  const items = await listPendingItems({ waitingOn, sort: order });
+  // *Mine* by default (issue #112, ADR-0055 part 5), which is what the
+  // **owner** stopping being free text bought: "the items sitting with me" is
+  // a question no string column could answer.
+  const scope = scopeOf(asked);
+  const items = await listPendingItems({
+    waitingOn,
+    sort: order,
+    mine: isMine(scope),
+  });
+  // The toggle keeps the filter and the sort order, so widening does not
+  // silently drop what the engineer had narrowed to.
+  const here = (next: 'mine' | 'ours') => {
+    const query = new URLSearchParams({ sort: order });
+    if (waitingOn !== '') {
+      query.set('waitingOn', waitingOn);
+    }
+    if (next === 'ours') {
+      query.set('scope', 'ours');
+    }
+    return `/pending?${query.toString()}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -37,15 +58,27 @@ export default async function PendingItems({
         <h1 className="text-2xl font-semibold tracking-tight">Pending items</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           {items.length === 0
-            ? 'Nothing unresolved.'
-            : `${items.length} unresolved across every project`}
+            ? isMine(scope)
+              ? 'Nothing unresolved is sitting with me.'
+              : 'Nothing unresolved.'
+            : `${items.length} unresolved${
+                isMine(scope) ? ' and sitting with me' : ''
+              } across every project`}
         </p>
+        <div className="mt-3">
+          <ScopeToggle scope={scope} href={here} />
+        </div>
       </div>
 
       <form
         method="get"
         className="bg-muted/30 flex flex-wrap items-end gap-3 rounded-lg border p-3"
       >
+        {/*
+          A GET form replaces the whole query string, so the toggle above has
+          to ride along or filtering would silently widen back to *ours*.
+        */}
+        {scope === 'ours' && <input type="hidden" name="scope" value="ours" />}
         <div className="grid gap-1.5">
           <Label htmlFor="waitingOn">Who owes the next move</Label>
           <Input
