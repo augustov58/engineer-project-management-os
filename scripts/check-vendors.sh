@@ -50,9 +50,12 @@ SPEECH_API_VERSION='2025-10-15'
 fail=0
 checked=0
 
-say() { printf '%s\n' "$*"; }
-bad() { printf '  FAIL  %s\n' "$*"; fail=1; }
-ok()  { printf '  ok    %s\n' "$*"; }
+say()  { printf '%s\n' "$*"; }
+bad()  { printf '  FAIL  %s\n' "$*"; fail=1; }
+ok()   { printf '  ok    %s\n' "$*"; }
+# Borrowed from the wizard's vocabulary and then used here before it existed,
+# which is why the first probe run printed "note: command not found" twice.
+note() { printf '  %s\n' "$*"; }
 
 # --- the versions this script checks are the versions the product sends ------
 
@@ -69,6 +72,41 @@ for pair in "apps/api/src/ocr.ts:$OCR_API_VERSION" \
 done
 say ''
 
+# --- which host actually serves these routes --------------------------------
+#
+# The portal is not a reliable guide here. A Foundry resource's "Keys and
+# Endpoint" blade shows an AI Services endpoint on `services.ai.azure.com` and
+# separate Speech endpoints on `stt.speech.microsoft.com`, while the REST docs
+# for both of the routes this product calls use `cognitiveservices.azure.com` —
+# a host the blade does not display at all. Rather than pick one from
+# documentation that disagrees with the portal, try them and report which
+# answers.
+#
+# candidates <endpoint> <kind> — prints one host per line, the supplied one
+# first so an explicit choice always wins.
+candidates() {
+  local given="${1%/}" kind="$2" name='' region="${AZURE_REGION:-eastus}"
+
+  printf '%s\n' "$given"
+
+  # The resource name is the first label of whatever was supplied.
+  name="${given#https://}"
+  name="${name%%.*}"
+  [ -n "$name" ] || return 0
+
+  case "$given" in
+    *cognitiveservices.azure.com*) : ;;
+    *) printf 'https://%s.cognitiveservices.azure.com\n' "$name" ;;
+  esac
+  case "$given" in
+    *services.ai.azure.com*) : ;;
+    *) printf 'https://%s.services.ai.azure.com\n' "$name" ;;
+  esac
+  if [ "$kind" = 'speech' ]; then
+    printf 'https://%s.api.cognitive.microsoft.com\n' "$region"
+  fi
+}
+
 # --- Azure AI Document Intelligence -----------------------------------------
 
 say 'Azure AI Document Intelligence (prebuilt-read)'
@@ -76,7 +114,31 @@ if [ -z "${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:-}" ] || [ -z "${AZURE_DOCUMENT_
   say '  skipped — AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT / _KEY not set'
 else
   checked=$((checked + 1))
-  di_endpoint="${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT%/}"
+
+  # Find a host that answers before doing the real work.
+  di_endpoint=''
+  while read -r candidate; do
+    [ -n "$candidate" ] || continue
+    probe="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
+      -X POST "$candidate/documentintelligence/documentModels/prebuilt-read:analyze?api-version=$OCR_API_VERSION" \
+      -H "Ocp-Apim-Subscription-Key: $AZURE_DOCUMENT_INTELLIGENCE_KEY" \
+      -H 'Content-Type: application/json' \
+      --data '{"base64Source":""}' 2>/dev/null)"
+    # 400 is the right answer to empty bytes: the route exists and the key was
+    # accepted. 202 would mean it somehow took it. Either proves the host.
+    case "$probe" in
+      400|202) ok "host answers: $candidate"; di_endpoint="$candidate"; break ;;
+      401|403) bad "host $candidate rejected the key ($probe)"; di_endpoint="$candidate"; break ;;
+      *)       note "  tried $candidate → $probe" ;;
+    esac
+  done <<EOF
+$(candidates "$AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT" docintel)
+EOF
+
+  if [ -z "$di_endpoint" ]; then
+    bad "no host served the Document Intelligence route. Tried each form built"
+    say '        from the name you gave. Check the key and the resource region.'
+  else
 
   # The smallest valid PDF that carries a word, base64'd. Ours, not a client's.
   pdf_b64='JVBERi0xLjQKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PgplbmRvYmoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PgplbmRvYmoKMyAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL01lZGlhQm94WzAgMCAyMDAgMTAwXS9SZXNvdXJjZXM8PC9Gb250PDwvRjE8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+Pj4+Pj4vQ29udGVudHMgNCAwIFI+PgplbmRvYmoKNCAwIG9iago8PC9MZW5ndGggNDQ+PgpzdHJlYW0KQlQgL0YxIDI0IFRmIDIwIDQwIFRkIChQUkVGTElHSFQpIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKdHJhaWxlcgo8PC9Sb290IDEgMCBSPj4K'
@@ -132,6 +194,7 @@ else
     esac
   fi
   rm -f "$headers"
+  fi
 fi
 say ''
 
@@ -142,7 +205,28 @@ if [ -z "${AZURE_SPEECH_ENDPOINT:-}" ] || [ -z "${AZURE_SPEECH_KEY:-}" ]; then
   say '  skipped — AZURE_SPEECH_ENDPOINT / _KEY not set'
 else
   checked=$((checked + 1))
-  speech_endpoint="${AZURE_SPEECH_ENDPOINT%/}"
+
+  speech_endpoint=''
+  while read -r candidate; do
+    [ -n "$candidate" ] || continue
+    probe="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
+      -X POST "$candidate/speechtotext/transcriptions:transcribe?api-version=$SPEECH_API_VERSION" \
+      -H "Ocp-Apim-Subscription-Key: $AZURE_SPEECH_KEY" 2>/dev/null)"
+    # 400 means the route exists and took the key, and is complaining about the
+    # missing multipart body — which is exactly what we sent.
+    case "$probe" in
+      400|200) ok "host answers: $candidate"; speech_endpoint="$candidate"; break ;;
+      401|403) bad "host $candidate rejected the key ($probe)"; speech_endpoint="$candidate"; break ;;
+      *)       note "  tried $candidate → $probe" ;;
+    esac
+  done <<EOF
+$(candidates "$AZURE_SPEECH_ENDPOINT" speech)
+EOF
+
+  if [ -z "$speech_endpoint" ]; then
+    bad "no host served the fast-transcription route. Tried the resource's own"
+    say '        subdomains and the regional host. Set AZURE_REGION if not eastus.'
+  else
 
   # A quarter-second of silence as a 16 kHz mono WAV. Built here rather than
   # committed, so this script carries no binary.
@@ -191,6 +275,7 @@ PY
     head -c 300 "$out"; say ''
   fi
   rm -f "$out" "$wav"
+  fi
 fi
 
 say ''
@@ -209,4 +294,8 @@ if [ "$checked" -eq 1 ]; then
   exit 0
 fi
 say 'Both vendors answered. The flags are safe to set.'
+say ''
+say 'Use these exact endpoint values:'
+say "  AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=$di_endpoint"
+say "  AZURE_SPEECH_ENDPOINT=$speech_endpoint"
 exit 0
