@@ -9,6 +9,7 @@ import { progressStreams } from '../stream.js';
 import { TRANSCRIBE, type TranscribeJob } from '../worker.js';
 import { voiceCaptureOnTheWire, voiceCapturesMade } from '../wire.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 import {
   type ObservationBody,
   observationBodySchema,
@@ -180,6 +181,8 @@ export function voiceRoutes(
           });
           await audit(tx, {
             projectId: walk.projectId,
+            actor: actorOf(request),
+            subject: { type: 'voice-capture', id: row.id },
             action: 'voice capture recorded',
             detail: `${row.captureKey}, recorded ${row.recordedAt.toISOString()}`,
             at,
@@ -318,6 +321,8 @@ export function voiceRoutes(
         // place the same words live.
         await audit(tx, {
           projectId: capture.siteVisit.projectId,
+          actor: actorOf(request),
+          subject: { type: 'voice-capture', id: capture.id },
           action:
             capture.transcript !== null &&
             capture.transcript === observation.observed
@@ -402,6 +407,8 @@ export function voiceRoutes(
         // here or nowhere — the reason a reopen names the closure it cleared.
         await audit(tx, {
           projectId: capture.siteVisit.projectId,
+          actor: actorOf(request),
+          subject: { type: 'voice-capture', id: cleared.id },
           action: 'transcription asked for again',
           detail:
             capture.failure === null

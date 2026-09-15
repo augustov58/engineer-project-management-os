@@ -14,6 +14,7 @@ import {
 } from '../refusals.js';
 import { projectOnTheWire } from '../wire.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * A phase is per-project free text — "50% CD", "90% CD", "Building Permit
@@ -78,6 +79,8 @@ export function phaseRoutes(
           });
           await audit(tx, {
             projectId: project.id,
+            actor: actorOf(request),
+            subject: { type: 'phase', id: created.id },
             action: 'phase added',
             detail: `${created.name}, at position ${created.position}`,
             at,
@@ -141,6 +144,8 @@ export function phaseRoutes(
           // anywhere else.
           await audit(tx, {
             projectId: phase.projectId,
+            actor: actorOf(request),
+            subject: { type: 'phase', id: renamed.id },
             action: 'phase renamed',
             detail: `${phase.name} is now ${renamed.name}`,
             at,
@@ -205,6 +210,8 @@ export function phaseRoutes(
         // (ADR-0026), so the whole list is what the line says.
         await audit(tx, {
           projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'project', id: project.id },
           action: 'phases reordered',
           detail: phaseIds.map((phaseId) => nameOf.get(phaseId)).join(', '),
           at,
@@ -258,6 +265,8 @@ export function phaseRoutes(
           });
           await audit(tx, {
             projectId: id,
+            actor: actorOf(request),
+            subject: { type: 'project', id: updated.id },
             action: 'current phase set',
             detail: phase.name,
             at,

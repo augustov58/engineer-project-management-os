@@ -13,7 +13,8 @@ import type {
 import { BASE64, isBase64, NOT_BLANK, type RouteDependencies } from '../http.js';
 import type { InboundFile, InboundMessage } from '../inbound-mail.js';
 import { noSuchProject, refuse, type Refusal } from '../refusals.js';
-import { audit } from '../audit.js';
+import { audit, NO_ACTOR } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * Twenty-four mebibytes of file across a whole message, named for the string
@@ -364,6 +365,8 @@ export function ingestRoutes(
         // is what a reader needs.
         await audit(tx, {
           projectId: project.id,
+          actor: NO_ACTOR,
+          subject: { type: 'ingested-document', id: created.id },
           action: 'message arrived at the ingest address',
           detail: `${stored.length} ${stored.length === 1 ? 'file' : 'files'}`,
           at: now,
@@ -418,6 +421,8 @@ export function ingestRoutes(
         // unlike the mail path's sender it may be said here.
         await audit(tx, {
           projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'ingested-document', id: created.id },
           action: 'arrival entered by hand',
           detail: `${stored.length} ${stored.length === 1 ? 'file' : 'files'}${
             created.note === null ? '' : ` — ${created.note}`

@@ -17,6 +17,7 @@ import {
 import { UNRESOLVED_MAX, openItemBodySchema } from './open-items.js';
 import { itemOnSubmission } from './submissions.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * The durable artifact of engineering reasoning (issue #8): two blocks
@@ -216,6 +217,8 @@ export function assumptionRecordRoutes(
         // disagreed with it would be worse than no number.
         await audit(tx, {
           projectId: set.projectId,
+          actor: actorOf(request),
+          subject: { type: 'assumption-record', id: created.id },
           action: 'assumption record captured',
           detail: `revision ${set.revision}, ${created.codeEdition}, calculated ${created.calculatedAt.toISOString()}`,
           at,
@@ -305,6 +308,12 @@ export function assumptionRecordRoutes(
           // number (ADR-0029), so that is what identifies it here too.
           await audit(tx, {
             projectId: record.submission.projectId,
+            actor: actorOf(request),
+            // A counterfactual is keyed by the record and the line it is
+            // about (ADR-0029) and has no id of its own, so the subject is
+            // the record it was written on — a join's rule, applied to the
+            // one other row here with no identity.
+            subject: { type: 'assumption-record', id },
             action: 'counterfactual written',
             detail: `revision ${record.submission.revision}, assumption line ${line} — ${row.counterfactual}`,
             at,
@@ -403,6 +412,8 @@ export function assumptionRecordRoutes(
           // rolls its line back with the open item it did not keep.
           await audit(tx, {
             projectId: record.submission.projectId,
+            actor: actorOf(request),
+            subject: { type: 'open-item', id: created.id },
             action: 'flag raised as an open item',
             detail: `revision ${record.submission.revision}, flag line ${line} — ${created.unresolved}`,
             at,

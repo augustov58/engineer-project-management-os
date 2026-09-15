@@ -21,7 +21,8 @@ import {
 } from '../refusals.js';
 import { openItemBodySchema, resolveBodySchema } from './open-items.js';
 import { issueInclude, withSightings } from '../wire.js';
-import { audit } from '../audit.js';
+import { audit, type Actor } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * The closed set of exactly five, in the words the glossary writes them
@@ -165,6 +166,7 @@ function writeIssue(
   timeSource: TimeSource,
   observation: { id: string; projectId: string },
   category: IssueCategory,
+  actor: Actor,
 ) {
   const at = timeSource.now();
   return prisma.$transaction(async (tx) => {
@@ -194,6 +196,8 @@ function writeIssue(
     // `Issue N` is the identifier's one format (ADR-0035).
     await audit(tx, {
       projectId: observation.projectId,
+      actor,
+      subject: { type: 'issue', id: raised.id },
       action: 'issue raised',
       detail: `Issue ${raised.number}, ${raised.category}`,
       at,
@@ -244,6 +248,7 @@ export function issueRoutes(
           timeSource,
           { id: observation.id, projectId: observation.siteVisit.projectId },
           request.body.category,
+          actorOf(request),
         );
         return reply
           .code(201)
@@ -443,6 +448,8 @@ export function issueRoutes(
           });
           await audit(tx, {
             projectId: found.projectId,
+            actor: actorOf(request),
+            subject: { type: 'issue', id: found.id },
             action: 'issue seen again',
             detail: `Issue ${found.number}, on a later observation`,
             at,
@@ -508,6 +515,8 @@ export function issueRoutes(
         });
         await audit(tx, {
           projectId: found.projectId,
+          actor: actorOf(request),
+          subject: { type: 'issue', id: stamped.id },
           action: 'issue closed',
           detail: `Issue ${found.number} — ${request.body.note}`,
           at,
@@ -557,6 +566,8 @@ export function issueRoutes(
         // so the note that closed it survives here or nowhere.
         await audit(tx, {
           projectId: found.projectId,
+          actor: actorOf(request),
+          subject: { type: 'issue', id: cleared.id },
           action: 'issue reopened',
           detail: `Issue ${found.number} — the closure "${found.closureNote ?? ''}" was cleared`,
           at,
@@ -616,6 +627,8 @@ export function issueRoutes(
         });
         await audit(tx, {
           projectId: found.projectId,
+          actor: actorOf(request),
+          subject: { type: 'open-item', id: created.id },
           action: 'open item raised on an issue',
           detail: `Issue ${found.number} — ${created.unresolved}`,
           at,
@@ -664,6 +677,8 @@ export function issueRoutes(
           });
           await audit(tx, {
             projectId: found.projectId,
+            actor: actorOf(request),
+            subject: { type: 'issue', id: found.id },
             action: 'open item attached to an issue',
             detail: `Issue ${found.number} — ${item.unresolved}`,
             at,

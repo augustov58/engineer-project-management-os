@@ -46,9 +46,12 @@ import type { Prisma } from '../generated/prisma/client.js';
  * screen follows back to the row that changed, and `open-item` reads as the
  * glossary's **Open item** where `open_items` reads as storage.
  *
- * A **register** is deliberately absent: both are written in the transaction
- * that writes the project and there is no route that touches one (ADR-0036),
- * so nothing would ever name it.
+ * Two absences are deliberate. A **register** is written in the transaction
+ * that writes the project and no route touches one (ADR-0036), so nothing
+ * would ever name it. A **counterfactual** is keyed by the record and the
+ * line it is about and has no id of its own (ADR-0029), so the line naming
+ * one names the assumption record — a join's rule, and the only other row
+ * here with no identity.
  */
 export type SubjectType =
   | 'project'
@@ -56,7 +59,6 @@ export type SubjectType =
   | 'submission'
   | 'open-item'
   | 'assumption-record'
-  | 'counterfactual'
   | 'site-visit'
   | 'site-visit-floor'
   | 'observation'

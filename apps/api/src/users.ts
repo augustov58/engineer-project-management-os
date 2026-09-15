@@ -14,7 +14,7 @@
  */
 
 import type { Prisma } from '../generated/prisma/client.js';
-import { audit } from './audit.js';
+import { audit, NO_ACTOR, type Actor } from './audit.js';
 import { hashPassword } from './passwords.js';
 
 /** Everything an account needs, and nothing about what it may do. */
@@ -36,6 +36,7 @@ export async function createUser(
   tx: Prisma.TransactionClient,
   { name, email, password }: NewUser,
   at: Date,
+  actor: Actor,
 ): Promise<{ id: string; name: string; email: string }> {
   // Hashed before the write and not inside it. argon2id is deliberately tens
   // of milliseconds of CPU, and doing it in the `create` argument would hold
@@ -48,6 +49,8 @@ export async function createUser(
   });
   await audit(tx, {
     projectId: null,
+    actor,
+    subject: { type: 'user', id: created.id },
     action: 'user recorded',
     detail: `${created.name} — ${created.email}`,
     at,
@@ -76,21 +79,37 @@ export async function resetPassword(
 ): Promise<boolean> {
   // Outside the write, for `createUser`'s reason.
   const passwordHash = await hashPassword(password);
-  const { count } = await tx.user.updateMany({
+
+  // The command is given an address and the line names the row (issue #111),
+  // so the account is resolved before anything is written to it. This is also
+  // the "no such address" answer, which the count of an `updateMany` on the
+  // address was before.
+  const account = await tx.user.findUnique({
     where: { email },
-    data: { passwordHash },
+    select: { id: true },
   });
-  if (count === 0) {
+  if (account === null) {
     return false;
   }
 
+  await tx.user.update({
+    where: { id: account.id },
+    data: { passwordHash },
+  });
+
   await tx.session.updateMany({
-    where: { user: { email }, revokedAt: null },
+    where: { userId: account.id, revokedAt: null },
     data: { revokedAt: at },
   });
 
+  // No actor: this runs on the machine, where nobody is signed in. The one
+  // route with no actor is the ingest webhook (ADR-0042); the other two
+  // actorless lines are this and `enableUser`, and both are commands rather
+  // than requests.
   await audit(tx, {
     projectId: null,
+    actor: NO_ACTOR,
+    subject: { type: 'user', id: account.id },
     action: 'password reset',
     detail: `${email}, and every session of theirs revoked`,
     at,
@@ -117,8 +136,19 @@ export async function enableUser(
   email: string,
   at: Date,
 ): Promise<boolean> {
+  // Resolved first so the line names the row, as `resetPassword` does. The
+  // `disabled_at` stays in the `where` and the count is still checked: an
+  // account already open is a no-op and writes no line, which is what stops
+  // a second `enable` claiming something happened.
+  const account = await tx.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  if (account === null) {
+    return false;
+  }
   const { count } = await tx.user.updateMany({
-    where: { email, disabledAt: { not: null } },
+    where: { id: account.id, disabledAt: { not: null } },
     data: { disabledAt: null },
   });
   if (count === 0) {
@@ -126,6 +156,8 @@ export async function enableUser(
   }
   await audit(tx, {
     projectId: null,
+    actor: NO_ACTOR,
+    subject: { type: 'user', id: account.id },
     action: 'user enabled',
     detail: email,
     at,

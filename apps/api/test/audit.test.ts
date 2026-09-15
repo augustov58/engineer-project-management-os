@@ -263,7 +263,7 @@ function callSites(directory = join(apiRoot, 'src'), into: CallSite[] = []) {
  * required and `tsc` refuses a caller that omits them; this is what proves
  * that claim is true of every writer rather than of the ones a test drove.
  */
-const STILL_WITHOUT_A_SUBJECT = 67;
+const STILL_WITHOUT_A_SUBJECT = 0;
 
 test('every writer of an audit line is found, and the sweep says how many carry a subject', () => {
   const sites = callSites();

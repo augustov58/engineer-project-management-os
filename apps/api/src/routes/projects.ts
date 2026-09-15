@@ -10,6 +10,7 @@ import {
 import { noSuchProject } from '../refusals.js';
 import { projectOnTheWire } from '../wire.js';
 import { audit } from '../audit.js';
+import { actorOf } from '../gate.js';
 
 /**
  * No format for the project number is written down anywhere — only that it is
@@ -165,6 +166,8 @@ export function projectRoutes(
           // the export).
           await audit(tx, {
             projectId: created.id,
+            actor: actorOf(request),
+            subject: { type: 'project', id: created.id },
             action: 'project recorded',
             detail: `${created.projectNumber} — ${created.name}`,
             at: now,
@@ -239,6 +242,8 @@ export function projectRoutes(
         if (stamped.count === 1) {
           await audit(tx, {
             projectId: id,
+            actor: actorOf(request),
+            subject: { type: 'project', id },
             action: 'project archived',
             detail: `archived on ${at.toISOString()}`,
             at,
@@ -374,6 +379,8 @@ export function projectRoutes(
           }
           await audit(tx, {
             projectId: id,
+            actor: actorOf(request),
+            subject: { type: 'project', id },
             action: change.action,
             detail: change.detail,
             at,

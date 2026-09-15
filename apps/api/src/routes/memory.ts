@@ -15,7 +15,7 @@ import {
   auditEntryInclude,
   auditEntryOnTheWire,
 } from '../audit.js';
-import { callerOf, mintRunSession } from '../gate.js';
+import { actorOf, callerOf, mintRunSession } from '../gate.js';
 
 /**
  * The size budget, in characters (story 101).
@@ -254,11 +254,13 @@ export function memoryRoutes(
       const at = timeSource.now();
       const content = request.body.content;
       await prisma.$transaction(async (tx) => {
-        await tx.projectMemoryVersion.create({
+        const version = await tx.projectMemoryVersion.create({
           data: { projectId: project.id, content, createdAt: at },
         });
         await audit(tx, {
           projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'memory-version', id: version.id },
           action: 'memory written',
           detail: `${content.length} characters written directly`,
           at,
@@ -351,6 +353,8 @@ export function memoryRoutes(
         );
         await audit(tx, {
           projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'agent-run', id: created.id },
           action: 'memory run asked for',
           detail: 'the agent was asked for a proposal',
           at,
@@ -426,6 +430,8 @@ export function memoryRoutes(
           });
           await audit(tx, {
             projectId: run.projectId,
+            actor: actorOf(request),
+            subject: { type: 'memory-proposal', id: written.id },
             action: 'proposal written',
             detail: `the agent proposed ${content.length} characters`,
             at,
@@ -539,6 +545,8 @@ export function memoryRoutes(
           });
           await audit(tx, {
             projectId: proposal.projectId,
+            actor: actorOf(request),
+            subject: { type: 'memory-proposal', id: proposal.id },
             action:
               edited === undefined || edited === proposal.proposed
                 ? 'proposal accepted'
@@ -601,6 +609,8 @@ export function memoryRoutes(
           }
           await audit(tx, {
             projectId: proposal.projectId,
+            actor: actorOf(request),
+            subject: { type: 'memory-proposal', id: proposal.id },
             action: 'proposal rejected',
             detail: `${proposal.proposed.length} characters declined`,
             at,
