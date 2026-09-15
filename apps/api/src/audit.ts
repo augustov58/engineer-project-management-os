@@ -115,18 +115,22 @@ export interface Actor {
 }
 
 /**
- * Nobody presented a session, which is **three places and no more**.
+ * Nobody presented a session, which is **one route and three commands**.
  *
  * `POST /v1/ingest/inbound-mail` is the one route the gate lets through
  * (ADR-0042), and its line saying so is what ADR-0055 means by "the one place
- * a request has no actor". The other two are `user reset` and `user enable`,
- * which are commands on the machine and not requests at all — the floor under
- * a deployment nobody can sign in to, which by definition has nobody to
- * record.
+ * a **request** has no actor". The other three are not requests at all:
+ * `user create`, `user reset` and `user enable` run on the machine, which is
+ * the floor under a deployment nobody can sign in to — and the first account
+ * has, by definition, nobody to be recorded against.
+ *
+ * `user create` is the one of the four that is not always actorless: the same
+ * `createUser` serves `POST /v1/users`, where a signed-in engineer adds the
+ * next account, so the actor is a parameter there rather than a constant.
  *
  * A named constant rather than three nulls spelled out, so that an actorless
  * line reads as a decision at the call site and `grep` finds every one of
- * them.
+ * them — which is what `test/audit.test.ts` does, asserting the exact four.
  */
 export const NO_ACTOR: Actor = {
   userId: null,

@@ -505,11 +505,11 @@ export function submissionRoutes(
 
       try {
         const reissued = await writeIssuance(
-        prisma,
-        timeSource,
-        toIssue,
-        actorOf(request),
-      );
+          prisma,
+          timeSource,
+          toIssue,
+          actorOf(request),
+        );
         return reply.code(201).send(asRecorded(reissued));
       } catch (error) {
         // Narrowed to the supersede column: anything else colliding here

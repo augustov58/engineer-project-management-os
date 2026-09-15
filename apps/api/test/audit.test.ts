@@ -308,6 +308,65 @@ test('nothing builds an actor out of a request body', () => {
 });
 
 /**
+ * Every place a line goes unattributed, named — one route and three commands.
+ *
+ * `NO_ACTOR` exists so that an actorless line reads as a decision at the call
+ * site rather than as an omission, and this is what makes that decision
+ * reviewable: the constant is greppable, so the set of places that use it is a
+ * fact a test can hold. It was written because the prose got it wrong — three
+ * doc comments in issue #111 said "three places and no more" and missed
+ * `user create`, which is actorless for the plainest reason there is: the
+ * first account is made before anybody exists to record it against.
+ *
+ * `user create` is the one of the four that is not *always* actorless. The
+ * same `createUser` serves `POST /v1/users`, where a signed-in engineer adds
+ * the next account and the actor is a parameter — which is why the constant is
+ * spelled in `user-command.ts` and not in the leaf.
+ */
+test('a line goes unattributed in one route and three commands, and nowhere else', () => {
+  const uses: string[] = [];
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.ts')) {
+        continue;
+      }
+      for (const line of readFileSync(full, 'utf8').split('\n')) {
+        const code = line.trim();
+        // An import, the declaration itself and prose about it are not uses.
+        if (
+          !/\bNO_ACTOR\b/.test(code) ||
+          code.startsWith('import') ||
+          code.startsWith('export const NO_ACTOR') ||
+          code.startsWith('*') ||
+          code.startsWith('//')
+        ) {
+          continue;
+        }
+        uses.push(relative(apiRoot, full));
+      }
+    }
+  };
+  walk(join(apiRoot, 'src'));
+
+  expect(uses.sort()).toEqual([
+    // The one route the gate lets through: a provider posts to an address it
+    // was given and presents nothing (ADR-0042).
+    'src/routes/ingest.ts',
+    // `user create` — the first account, made before anybody exists.
+    'src/user-command.ts',
+    // `user reset` and `user enable`, the floor under a deployment nobody can
+    // sign in to through the interface.
+    'src/users.ts',
+    'src/users.ts',
+  ]);
+});
+
+/**
  * No model gains a `created_by` (ADR-0055 part 4).
  *
  * "Who recorded this" is a read of the audit, which is ADR-0048's rule applied

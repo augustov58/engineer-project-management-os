@@ -113,12 +113,15 @@ apply to every path stay in `AGENTS.md`.
   in. **No roles**; the named trigger that
   would add one is the first time an engineer must be *prevented* from doing something
   rather than *recorded* doing it. The password is never an argument: argv is in the
-  shell's history and in `ps`. `user reset` and `user enable` write **actorless** audit lines
-  (`NO_ACTOR`), which with the ingest webhook are the only three in the product: a command on
-  the machine is not a request and there is nobody signed in to record. Both resolve the
-  account by address before writing, so the line still names the row; `enableUser` keeps its
-  compare-and-set on `disabled_at`, so a second enable writes no line. **Neither has a test**
-  — they are reachable only from the terminal — so change them by hand and verify by hand.
+  shell's history and in `ps`. All three commands write **actorless** audit lines
+  (`NO_ACTOR`), which with the ingest webhook are the only four in the product: a command on
+  the machine is not a request and there is nobody signed in to record. `user create` is the
+  one that is not always actorless — the same `createUser` serves `POST /v1/users`, where the
+  actor is a parameter — and `audit.test.ts` asserts the exact four. `reset` and `enable`
+  resolve the account by address before writing, so the line still names the row;
+  `enableUser` keeps its compare-and-set on `disabled_at`, so a second enable writes no line.
+  **Neither of those two has a test** — they are reachable only from the terminal — so change
+  them by hand and verify by hand.
 - `POST /v1/users/:id/disable` stamps `disabled_at` and revokes every live session of that
   account in one transaction, so "cannot sign in" is true of the phone in somebody's pocket
   and not only of the sign-in screen. It is **not a one-way door**: anybody may close any
