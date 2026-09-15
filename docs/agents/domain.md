@@ -9,12 +9,13 @@ Reading only the repo root will find nothing and silently proceed — read the v
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root — the entry pointer, plus the update rules and the
-  current decision table. It is not the glossary.
+- **`CONTEXT.md`** at the repo root — the entry pointer and the update rules, and since
+  ADR-0051 nothing that is a copy of a record kept elsewhere. It is not the glossary, and it
+  no longer carries a decision table: the vault's `docs/adr/README.md` is the index.
 - **`<vault>/docs/glossary.md`** — the glossary. This is the file the "use the glossary's
   vocabulary" rule below refers to.
 - **`<vault>/docs/adr/`** — read ADRs that touch the area you're about to work in. Start
-  from `<vault>/docs/adr/README.md`, which carries the status of all 28.
+  from `<vault>/docs/adr/README.md`, which carries the status of every one.
 - **`<vault>/PRD and Architecture.md`** — problem, goals, non-goals, MVP workflows,
   architecture, and the current build sequence.
 
@@ -31,7 +32,7 @@ changes with it.
 
 ```
 /                                          ← this repo (code workspace)
-├── CONTEXT.md                             ← entry pointer + decision table
+├── CONTEXT.md                             ← entry pointer + update rules (ADR-0051)
 ├── AGENTS.md                              ← CLAUDE.md is a symlink to this
 ├── .claude/rules/                         ← ground rules per path family, loaded when a matching file is read
 ├── docs/changelog.md                      ← one row per slice, moved out of CONTEXT.md
@@ -40,7 +41,7 @@ changes with it.
 <vault>/                                   ← source of truth (docs)
 ├── PRD and Architecture.md
 └── docs/
-    ├── adr/                               ← 0001-0028 + README.md index
+    ├── adr/                               ← the decision records + README.md index
     └── glossary.md
 ```
 

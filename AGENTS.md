@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it, and what is planned beyond the MVP is one sentence, the five items deferred with named triggers.
-- `docs/adr/` - architecture decision records 0001-0050. Check the status where there is one: 0001-0011 carry a `- Status:` bullet and 0020-0050 a bare `Status:`, but **0012-0019 carry none at all**, so there is no line to check on those eight. Six are superseded (0001, 0005, 0007, and 0050 by 0054, 0012 and 0020 by 0055) and **five** are Accepted with a qualifier (0004, 0006, 0008, 0010, 0011); **none is Proposed** — 0020 was the last one and was accepted 2026-09-01.
+- `docs/adr/` - decision records 0001-0061. `docs/adr/README.md` indexes them with a status for every one; in the files, 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, but **0012-0019 carry none**, so those eight have only the index. Six are superseded (0001 and 0005 by 0012, 0007 by 0016, 0012 and 0020 by 0055, 0050 by 0054) and **six** are Accepted with a qualifier (0004, 0006, 0008, 0010, 0011, 0013); **none is Proposed**, none since 0020 was accepted 2026-09-01.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -47,8 +47,8 @@ stored document and every ask lands on the confirmation screen — and **the ven
 transcription. Both refuse by default; no key in source. The platform health check is now `/healthz`, a Next route
 that reaches the API, **verified on the machine that serves** on 2026-09-13 as ADR-0045
 requires: with the API process frozen and Next still serving, it answered 503 where `/sign-in`
-read green. The readings are in ADR-0045. The per-slice record is the milestone table in
-[CONTEXT.md](./CONTEXT.md) and the change log in [docs/changelog.md](./docs/changelog.md).
+read green. The readings are in ADR-0045. The per-slice record is the change log in
+[docs/changelog.md](./docs/changelog.md), and nothing else since ADR-0051.
 Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` each run from the repo root
@@ -62,7 +62,7 @@ gates what this repository *pinned* where the others gate what it wrote. See [RE
 ## Ground rules for agents
 
 - Plan changes, scope adjustments, and vendor decisions get recorded in the vault, not only in code or commits.
-- Milestone completion updates the vault progress section in the same session.
+- Milestone completion is marked in `PRD and Architecture.md` in the same session.
 - Follow the ADRs; if an ADR must change, write a new/superseding ADR in the vault first.
 - Stack: TypeScript monorepo (pnpm), Next.js frontend, Fastify API (ADR-0021), PostgreSQL + Prisma, Redis + BullMQ, S3 docs, Pi SDK via `@earendil-works/pi-coding-agent`.
 - The product implements no calculation logic anywhere. Helper skills produce inputs to the
