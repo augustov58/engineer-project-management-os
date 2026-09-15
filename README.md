@@ -97,6 +97,8 @@ break that, and would only fail on the second device.
 | `pnpm services:up` / `services:down` | The Docker containers on their own |
 | `pnpm --filter api migrate:dev` | Create a migration after editing `schema.prisma` |
 | `./scripts/helper-tests.sh` | Each helper skill's own test command, from its own directory — the fifth CI gate |
+| `./scripts/azure-setup.sh` | Walks a first run through provisioning the one Azure resource both vendor adapters use, and ends by proving the credentials work. Not a gate; run it once (ADR-0060, ADR-0061) |
+| `./scripts/check-vendors.sh` | One real call to each vendor. **CI cannot run this and no test replaces it**: both adapters compose an `api-version` into every URL and `vendors.test.ts` asserts that URL against the same literal the adapter builds, so a wrong version passes the whole suite and then 404s every real call. Run it whenever a credential or an api-version changes |
 
 ## Layout
 
