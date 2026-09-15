@@ -22,8 +22,9 @@ Never let the vault docs drift from reality. Update them as work happens (see CO
 
 ## Current status
 
-Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with the three correctness gaps found
-reviewing project memory closed as issue #42 and the root typecheck repaired as issue #49.
+Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with the
+three correctness gaps found reviewing project memory closed as issue #42 and the root
+typecheck repaired as #49.
 That is every step of the six-step **Revised MVP sequence** in `PRD and Architecture.md`
 including step 1, which was done 2026-09-05 on job **260001** — the four items the PRD names
 are T-1's *examples* of an open item's shape, not a checklist, and reading them as one is what
@@ -31,23 +32,24 @@ kept the step open; do not re-raise it. **Step 5 is done since #109**: consent l
 2026-09-08 and both adapters are written, so "no adapter exists" is
 spent. The **inbound mail provider stays unwritten**, the last vendor pick.
 
-**Post-MVP has started** (issue #103). Six tickets have landed: the timezone frame (#104,
+**Post-MVP has started** (issue #103). Seven tickets have landed: the timezone frame (#104,
 ADR-0054), **users and sessions replacing the edge gate** (#105, ADR-0055) — there is a
-`users` table at last, a deployment's first account is a command on the machine, and no
-shared secret is configured anywhere in either app — and **the gates** (#106, ADR-0052):
+`users` table, a deployment's first account is a command on the machine, and no
+shared secret is configured anywhere — and **the gates** (#106, ADR-0052):
 `.github/workflows/ci.yml` runs typecheck, both suites and the web build on every push and
 pull request, and does not deploy — and **the helper skills** (#107, ADR-0053): `apps/api/tools/` is a
 git submodule pinned by commit at the helpers' own repository, three of its four helpers
 carry a manifest and are reachable as `POST /v1/tools/:name`, and the route **records
-nothing** — recording is still confirming an assumption record against a submission. It is
-the one mutating-method route exempt from the audit sweep, and the first non-TypeScript code
-here — and **extraction reachable** (#108, no ADR): the register screen asks for one over a
+nothing** — recording is still confirming an assumption record against a submission, and it
+is the one mutating-method route exempt from the audit sweep — and **extraction reachable** (#108, no ADR): the register screen asks for one over a
 stored document and every ask lands on the confirmation screen — and **the vendor picks** (#109, ADR-0060/0061):
 `OCR=azure` is Azure AI Document Intelligence, `TRANSCRIBER=azure` Azure AI Speech **fast**
-transcription. Both refuse by default; no key in source. The platform health check is now `/healthz`, a Next route
-that reaches the API, **verified on the machine that serves** on 2026-09-13 as ADR-0045
-requires: with the API process frozen and Next still serving, it answered 503 where `/sign-in`
-read green. The readings are in ADR-0045. The per-slice record is the change log in
+transcription. Both refuse by default; no key in source — and **the actor and the subject**
+(#111, ADR-0055 part 2): every audit line says **who**, **which row** it touched and the run
+it was written during, the actor coming from the session and never a request body, and **no
+model carries a `created_by`**. The platform health check is `/healthz`, a Next route that reaches the API,
+**verified on the machine that serves**; the readings are in ADR-0045. The
+per-slice record is the change log in
 [docs/changelog.md](./docs/changelog.md), and nothing else since ADR-0051.
 Work one ticket at a time, and only when asked.
 
@@ -78,9 +80,8 @@ gates what this repository *pinned* where the others gate what it wrote. See [RE
 The rules for one record live in `.claude/rules/`, one file per path family, and Claude Code
 loads a file the moment a path in its frontmatter is read through the Read tool. A file
 opened through the shell loads nothing, so before editing anything in the left column, read
-the file on the right. Every rule there was a bullet in this file until 2026-09-01, and none
-was rewritten — except `helpers.md`, written for issue #107 against a path family that did
-not exist before it.
+the file on the right. Every rule there was a bullet in this file until 2026-09-01 and none
+was rewritten; only `helpers.md` was written fresh, for issue #107.
 
 | Before editing | Read |
 |---|---|
@@ -98,7 +99,7 @@ not exist before it.
 | helper skills, the manifests, `POST /v1/tools/:name`, the pinned `apps/api/tools/` | [helpers.md](./.claude/rules/helpers.md) |
 
 `prisma/schema.prisma`, `worker.ts` and the project page are listed in every file whose
-record they touch, so reading one of them loads all of those, on purpose. A rule about one
+record they touch, so reading one loads all of those, on purpose. A rule about one
 record goes in that record's file and never here: this file carries only what applies to
 every path, and stays under 8 KB.
 

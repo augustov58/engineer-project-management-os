@@ -94,6 +94,17 @@ apply to every path stay in `AGENTS.md`.
   columns and a CHECK that at most one is set. `underRunSession` in `gate.ts` is the one
   place the lookup and the revoke live, with the revoke in a `finally` — "expiring when the
   run ends" is a fact about that function rather than about two handlers both remembering.
+  Since issue #111 the audit line written during a run carries **both** the person and the
+  run, straight off that session and with no special case anywhere: `actorOf(request)` in
+  `gate.ts` reads `userId`, `agentRunId` and `extractionId` from the row the gate validated.
+  The agent is never the actor.
+- **`actorOf` is the one way an actor is built from a request**, and it reads the session and
+  nothing the caller sent: a body that could name the actor could name somebody else. A test
+  in `apps/api/test/audit.test.ts` asserts that `routes/sessions.ts` is the only file that
+  composes one itself — signing in is the act of getting a session, so its caller has been
+  authenticated and has none yet. Both session lines name the **user** as their subject and
+  never the session: a session id is the credential, and `audit_entries` is append-only,
+  read on a screen and exported whole.
 - The first account is a **command on the machine** (`pnpm --filter api user create`,
   `scripts/user.sh` on Fly) and every one after it is `POST /v1/users` by somebody already
   signed in — an audited mutation like any other. `user reset <email>` sets any password and
@@ -102,7 +113,12 @@ apply to every path stay in `AGENTS.md`.
   in. **No roles**; the named trigger that
   would add one is the first time an engineer must be *prevented* from doing something
   rather than *recorded* doing it. The password is never an argument: argv is in the
-  shell's history and in `ps`.
+  shell's history and in `ps`. `user reset` and `user enable` write **actorless** audit lines
+  (`NO_ACTOR`), which with the ingest webhook are the only three in the product: a command on
+  the machine is not a request and there is nobody signed in to record. Both resolve the
+  account by address before writing, so the line still names the row; `enableUser` keeps its
+  compare-and-set on `disabled_at`, so a second enable writes no line. **Neither has a test**
+  — they are reachable only from the terminal — so change them by hand and verify by hand.
 - `POST /v1/users/:id/disable` stamps `disabled_at` and revokes every live session of that
   account in one transaction, so "cannot sign in" is true of the phone in somebody's pocket
   and not only of the sign-in screen. It is **not a one-way door**: anybody may close any
