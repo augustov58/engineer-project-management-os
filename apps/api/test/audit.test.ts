@@ -457,6 +457,31 @@ test('a line names the row it is about, and never a session', async () => {
   expect(JSON.stringify(lines)).not.toContain(app.sessionId);
 });
 
+/**
+ * The run, once the worker has stopped writing — and **not** the audit line
+ * the run wrote.
+ *
+ * The proposal's line is written *during* the run, and two writes follow it:
+ * `underRunSession` revokes the run's session in a `finally`, and only then
+ * does the worker stamp `finishedAt`. A test that returned on the line would
+ * leave both racing its own `afterEach`, which force-closes the worker,
+ * disconnects Prisma and drops the database `WITH (FORCE)` — and the abandoned
+ * writes reconnecting into a database about to go are an unhandled error that
+ * fails the whole run with every test in it passing. That cannot be reproduced
+ * on a developer's machine, where the writes land before the teardown rather
+ * than after; `.claude/rules/api.md` is where the rule lives, written after
+ * issue #106's first CI run did exactly this.
+ */
+async function runFinished(app: TestApi, projectId: string, runId: string) {
+  return until(async () => {
+    const response = await app.fetch(`/v1/projects/${projectId}/memory/runs`);
+    expect(response.status).toBe(200);
+    const runs = (await response.json()) as { id: string; state: string }[];
+    const found = runs.find((run) => run.id === runId);
+    return found?.state === 'finished' ? found : undefined;
+  }, `agent run ${runId} to finish`);
+}
+
 test('a line written during a run carries the person and the run, and the agent is never the actor', async () => {
   const app = await api({ worker: true });
   const project = await createProject(app, 'A-1', 'Riser replacement');
@@ -466,18 +491,17 @@ test('a line written during a run carries the person and the run, and the agent 
   // adapter's tool does, over loopback, with no shared secret to present
   // (issue #105).
   const run = await requestMemoryRun(app, project.id);
-  const written = await until(
-    async () =>
-      (await trail(app, project.id)).find(
-        (line) => line.action === 'proposal written',
-      ),
-    'the run to write its proposal',
+  await runFinished(app, project.id, run.id);
+
+  const written = (await trail(app, project.id)).find(
+    (line) => line.action === 'proposal written',
   );
+  expect(written).toBeDefined();
 
   // Both, with no special case: the session names the person who asked for
   // the run, and the run is on the row beside them (ADR-0055 part 6).
-  expect(written.actor).toEqual({ id: app.user.id, name: app.user.name });
-  expect(written.run).toEqual({ type: 'agent-run', id: run.id });
+  expect(written?.actor).toEqual({ id: app.user.id, name: app.user.name });
+  expect(written?.run).toEqual({ type: 'agent-run', id: run.id });
 
   // And the line the engineer wrote asking for it carries no run at all.
   const asked = (await trail(app, project.id)).find(
