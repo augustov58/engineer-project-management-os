@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { listClock, listExposure, listProjects, type Project } from './api';
 import { NewProjectForm } from './new-project-form';
+import { ScopeToggle, isMine, scopeHref, scopeOf } from './scope';
 
 /**
  * Read on every request. Both counts are computed queries over the records
@@ -42,13 +43,25 @@ function ProjectList({
   );
 }
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ scope?: string }>;
+}) {
+  // *Mine* unless the engineer asked to widen (issue #112, ADR-0055 part 5).
+  // "Nothing sitting in **my** court past its clock" is the outcome test, and
+  // "my" is a user now rather than the only person there was.
+  const scope = scopeOf((await searchParams).scope);
+  const mine = isMine(scope);
   const [live, archived, exposure, onTheClock] = await Promise.all([
     listProjects(),
     listProjects(true),
-    listExposure(),
-    listClock(),
+    listExposure(undefined, mine),
+    listClock(undefined, mine),
   ]);
+  // The two cards drill through carrying the same toggle, so a count and the
+  // list it lands on cannot be answering different questions.
+  const drill = (path: string) => scopeHref(path, scope);
 
   return (
     <div className="space-y-8">
@@ -66,6 +79,8 @@ export default async function Home() {
         </p>
       </div>
 
+      <ScopeToggle scope={scope} href={(next) => scopeHref('/', next)} />
+
       {/*
         The two counts, side by side and never combined (ADR-0016). Each is a
         count you can act on where a percentage is not, and each links to
@@ -76,7 +91,7 @@ export default async function Home() {
       */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Link
-          href="/exposure"
+          href={drill('/exposure')}
           className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
         >
           <span className="text-2xl font-semibold tabular-nums">
@@ -85,11 +100,12 @@ export default async function Home() {
           <span className="text-muted-foreground text-sm">
             issued {exposure.length === 1 ? 'submission' : 'submissions'}{' '}
             currently standing on an unresolved open item
+            {mine ? ' of mine' : ''}
           </span>
         </Link>
 
         <Link
-          href="/clock"
+          href={drill('/clock')}
           className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
         >
           <span className="text-2xl font-semibold tabular-nums">
@@ -97,8 +113,8 @@ export default async function Home() {
           </span>
           <span className="text-muted-foreground text-sm">
             {onTheClock.length === 1
-              ? 'register entry sitting in our court past its turnaround'
-              : 'register entries sitting in our court past their turnaround'}
+              ? `register entry sitting in ${mine ? 'my' : 'our'} court past its turnaround`
+              : `register entries sitting in ${mine ? 'my' : 'our'} court past their turnaround`}
           </span>
         </Link>
       </div>

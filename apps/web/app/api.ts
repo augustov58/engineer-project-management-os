@@ -172,7 +172,11 @@ export interface OpenItem {
   waitingSince: string;
   invalidationTrigger: string | null;
   counterfactual: string;
-  owner: string | null;
+  /**
+   * The person it sits with, and what *mine* means on the pending items view
+   * (issue #112, ADR-0055 part 5). Free text until then; never the raw id.
+   */
+  owner: User;
   resolvedAt: string | null;
   resolutionNote: string | null;
 }
@@ -203,10 +207,14 @@ export async function listOpenItems(
 export async function listPendingItems(options: {
   waitingOn?: string;
   sort?: 'oldest' | 'newest';
+  mine?: boolean;
 }): Promise<PendingItem[]> {
   const query = new URLSearchParams({ sort: options.sort ?? 'oldest' });
   if (options.waitingOn !== undefined && options.waitingOn !== '') {
     query.set('waitingOn', options.waitingOn);
+  }
+  if (options.mine === true) {
+    query.set('mine', 'true');
   }
 
   const path = `/open-items?${query.toString()}`;
@@ -302,6 +310,25 @@ async function read<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * The path one of the two daily lists is read at (issue #112).
+ *
+ * `mine` is the screens' default and the routes' — both of them — is *ours*:
+ * what each route means is every job's, and which rows an engineer is shown
+ * first is the screen's decision, which is ADR-0038's rule about the morning
+ * screen applied to its filter rather than to a payload.
+ */
+function daily(path: string, projectId?: string, mine = false): string {
+  const query = new URLSearchParams();
+  if (projectId !== undefined) {
+    query.set('projectId', projectId);
+  }
+  if (mine) {
+    query.set('mine', 'true');
+  }
+  return query.size === 0 ? path : `${path}?${query.toString()}`;
+}
+
 /** A project's phases, in the order the engineer put them in. */
 export function listPhases(projectId: string): Promise<Phase[]> {
   return read<Phase[]>(`/projects/${projectId}/phases`);
@@ -319,10 +346,11 @@ export function listSubmissions(projectId: string): Promise<Submission[]> {
  * The count is `.length`. There is no separate count call, so the number on a
  * screen and the rows it links to cannot disagree.
  */
-export function listExposure(projectId?: string): Promise<ExposureRow[]> {
-  return read<ExposureRow[]>(
-    projectId === undefined ? '/exposure' : `/exposure?projectId=${projectId}`,
-  );
+export function listExposure(
+  projectId?: string,
+  mine = false,
+): Promise<ExposureRow[]> {
+  return read<ExposureRow[]>(daily('/exposure', projectId, mine));
 }
 
 /** Undefined rather than throwing, so the page can render a 404. */
@@ -403,6 +431,11 @@ export interface SiteVisit {
    * visit cannot be dated one day and started on another.
    */
   visitedOn: string;
+  /**
+   * Who walked the building, and whose name the report prints (issue #112).
+   * Not who typed the row — that is an audit fact.
+   */
+  conductedBy: User;
 }
 
 /**
@@ -716,6 +749,11 @@ export interface BallInCourt {
   inOurCourt: boolean;
   heldSince: string;
   createdAt: string;
+  /**
+   * The person it came to, where it came to us, and null where it went out to
+   * another party (issue #112). A party is not a user.
+   */
+  user: User | null;
 }
 
 export interface RegisterEntry {
@@ -814,10 +852,11 @@ export const REGISTER_NAMES: Record<RegisterKind, string> = {
  * screen and the rows it links to cannot disagree — and there is nothing in
  * the payload to combine with exposure into a score.
  */
-export function listClock(projectId?: string): Promise<ClockRow[]> {
-  return read<ClockRow[]>(
-    projectId === undefined ? '/clock' : `/clock?projectId=${projectId}`,
-  );
+export function listClock(
+  projectId?: string,
+  mine = false,
+): Promise<ClockRow[]> {
+  return read<ClockRow[]>(daily('/clock', projectId, mine));
 }
 
 /** Both logs for a job, submittals first. There are always exactly two. */

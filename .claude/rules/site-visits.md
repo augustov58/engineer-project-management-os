@@ -26,6 +26,18 @@ Ground rules moved out of `AGENTS.md` on 2026-09-01, none rewritten. Claude Code
 path in the frontmatter is read through the Read tool; from the shell, read it yourself. The rules that
 apply to every path stay in `AGENTS.md`.
 
+- A site visit's `conducted_by` is the **user who walked the building** (issue #112,
+  ADR-0055 part 5) — the acting user at creation and correctable by
+  `POST /v1/site-visits/:id/conducted-by`, which is `POST /v1/photos/:id/floor`'s shape and
+  not a PATCH, this API having none. **Repeatable**, unlike ending a walk: the wrong name is
+  a typing mistake and the right one may be arrived at twice, and the line carries both.
+  It is **not a `created_by`** — no model has one — and the start, the end and the schedule
+  under them are still write-once. The **report prints that name**, read through the relation
+  at the moment of rendering, so a correction reaches the next rendering and the one already
+  issued keeps saying what it said; who *asked* for a rendering is an audit fact and is not
+  on the page. On the wire it is `conductedBy`, a projected person and never the raw column:
+  `namedUser` is the include and `userOnTheWire` the projection, and a test asserts the
+  visit's exact key set, which it had none of before this slice.
 - A **site visit** produces observations and does not own their content (ADR-0030). Its end
   is nullable, because the per-floor schedule is recorded *during* the walk and a visit has
   to exist before it is over; `POST /v1/site-visits/:id/end` stamps it once. The visit's

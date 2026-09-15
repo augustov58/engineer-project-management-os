@@ -16,8 +16,9 @@ import {
 } from '../refusals.js';
 import { UNRESOLVED_MAX, openItemBodySchema } from './open-items.js';
 import { itemOnSubmission } from './submissions.js';
+import { namedUser, openItemOnTheWire } from '../wire.js';
 import { audit } from '../audit.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 /**
  * The durable artifact of engineering reasoning (issue #8): two blocks
@@ -124,7 +125,12 @@ function entryAt(
 /** The entries pointing into a record's blocks. */
 const recordInclude = {
   counterfactuals: { select: { line: true, counterfactual: true } },
-  raisedFlags: { select: { line: true, openItem: true } },
+  // The item, with the person it sits with: every read of an open item goes
+  // through `openItemOnTheWire`, so a bare `owner_id` reaches no screen
+  // (issue #112).
+  raisedFlags: {
+    select: { line: true, openItem: { include: { owner: namedUser } } },
+  },
 } as const;
 
 type CapturedRecord = Prisma.AssumptionRecordGetPayload<{
@@ -145,7 +151,9 @@ function withLines(found: CapturedRecord) {
   const written = new Map(
     counterfactuals.map((row) => [row.line, row.counterfactual]),
   );
-  const raised = new Map(raisedFlags.map((row) => [row.line, row.openItem]));
+  const raised = new Map(
+    raisedFlags.map((row) => [row.line, openItemOnTheWire(row.openItem)]),
+  );
 
   return {
     ...record,
@@ -355,7 +363,6 @@ export function assumptionRecordRoutes(
       waitingSince?: string;
       invalidationTrigger?: string;
       counterfactual: string;
-      owner?: string;
     };
   }>(
     '/assumption-records/:id/flags/:line/open-item',
@@ -403,7 +410,9 @@ export function assumptionRecordRoutes(
               record.submission,
               wording,
               timeSource,
+              callerOf(request).userId,
             ),
+            include: { owner: namedUser },
           });
           await tx.raisedFlag.create({
             data: { assumptionRecordId: id, line, openItemId: created.id },
@@ -420,7 +429,7 @@ export function assumptionRecordRoutes(
           });
           return created;
         });
-        return reply.code(201).send(item);
+        return reply.code(201).send(openItemOnTheWire(item));
       } catch (error) {
         // Unqualified, and safe to be: every other row this transaction
         // writes carries a freshly generated id, so `raised_flags` is the

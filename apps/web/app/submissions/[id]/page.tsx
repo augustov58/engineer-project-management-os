@@ -18,6 +18,7 @@ import {
   listOpenItems,
   listPhases,
   listSubmissionDocuments,
+  listUsers,
 } from '../../api';
 import { AssumptionRecordEntry } from '../../assumption-record';
 import { AssumptionRecordForm } from '../../assumption-record-form';
@@ -44,7 +45,7 @@ export default async function SubmissionRecord({
 
   const projectId = submission.project.id;
   const attached = new Set(submission.openItems.map((item) => item.id));
-  const [onTheProject, phases, assumptionRecords, onTheSet, documents] =
+  const [onTheProject, phases, assumptionRecords, onTheSet, documents, users] =
     await Promise.all([
       listOpenItems(projectId),
       listPhases(projectId),
@@ -53,6 +54,8 @@ export default async function SubmissionRecord({
       // on the job it could point at.
       listSubmissionDocuments(id),
       listDocuments(projectId),
+      // Everyone at the firm, so an open item can be handed on (issue #112).
+      listUsers(),
     ]);
   // Only what is still unresolved is worth offering: attaching an answered
   // item to a set going out is not the thing this control is for.
@@ -271,7 +274,7 @@ export default async function SubmissionRecord({
               const wasIssuedOn = item.unresolvedAtIssuance !== null;
               const raised = raisedFromFlag.has(item.id);
               return (
-                <OpenItemEntry timeZone={submission.project.timezone}
+                <OpenItemEntry users={users} timeZone={submission.project.timezone}
                   key={item.id}
                   item={item}
                   projectId={projectId}

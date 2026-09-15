@@ -166,10 +166,20 @@ model ProjectPhase {
 
   name String
 
-  /// Contiguous from zero. Reordering rewrites the whole list in one
-  /// transaction, so the route is the only writer and positions cannot drift
-  /// into gaps or duplicates. Deliberately not a unique constraint: a
-  /// non-deferrable one would reject the reorder mid-flight (ADR-0026).
+  /// Contiguous from zero. Deliberately not a unique constraint: a
+  /// non-deferrable one would reject the reorder mid-flight, since the
+  /// positions are rewritten a row at a time and a swap passes through a
+  /// duplicate, and a deferrable one is a constraint Prisma cannot express
+  /// (ADR-0026).
+  ///
+  /// There are **two** writers, not the one this said until issue #112 — the
+  /// reorder rewrites the whole list and the create appends to it — and both
+  /// take the same advisory lock on the job for the length of their
+  /// transaction (`lockPhases` in `routes/phases.ts`). Without it the create
+  /// counted the rows before inserting, outside any transaction, and six
+  /// phases added at once all landed on the same position; ADR-0026 named
+  /// that race and left it open "because this is a single-user tool", which
+  /// ADR-0055 stopped being true.
   position Int
 
   submissions Submission[]
@@ -347,10 +357,17 @@ model OpenItem {
   /// calls it the field that carries the engineering value.
   counterfactual String
 
-  /// The internal person the item sits with — the author, or an E1 on the
-  /// occasional delegated task. Plain text: there is no `users` table
-  /// (ADR-0012), and this is a different person from `waitingOn`.
-  owner String?
+  /// The **user** the item sits with, set to the acting user when it is
+  /// raised and changed through `POST /v1/open-items/:id/owner` (issue #112,
+  /// ADR-0055 part 5; glossary: **Owner**).
+  ///
+  /// Free text until then, on ADR-0012's reason — "there is no `users` table"
+  /// — which ADR-0055 ended by making one. It is what *mine* means on the
+  /// pending items view, which free text could not answer. Still a different
+  /// person from `waitingOn`: that one is whoever owes the next move and is
+  /// usually outside the firm, and this one is our side of the line.
+  ownerId String @map("owner_id")
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
 
   /// Resolution is these two together: both null while unresolved, both set
   /// once resolved, and reopening clears both. Exposure and provisional state
@@ -518,6 +535,18 @@ model SiteVisit {
 
   /// Entry order, so two visits started the same day do not list at random.
   createdAt DateTime @map("created_at")
+
+  /// Who walked the building (issue #112, ADR-0055 part 5; glossary:
+  /// **Conducted by**). The acting user at creation, and editable afterwards
+  /// through `POST /v1/site-visits/:id/conducted-by`, because the walk that
+  /// gets typed up in the evening is often not typed up by whoever made it.
+  ///
+  /// **Not a `created_by`**, which no model here carries. This is a fact about
+  /// the building visit — the name the **report** prints, and the one a
+  /// signature would go under — where who entered the row, and who asked for
+  /// the report to be rendered, are audit facts and stay on the audit line.
+  conductedById String @map("conducted_by")
+  conductedBy   User   @relation(fields: [conductedById], references: [id], onDelete: Restrict)
 
   floors        SiteVisitFloor[]
   observations  Observation[]
@@ -1228,6 +1257,21 @@ model BallInCourtEvent {
   /// firm's name still accrues.
   inOurCourt Boolean @map("in_our_court")
 
+  /// **Who** it came to, where it came to us (issue #112, ADR-0055 part 5).
+  ///
+  /// Set exactly when `inOurCourt` is true, held by a CHECK in the migration
+  /// and refused at the boundary as well: a ball in our court is in some
+  /// person's court, and a contractor is not a user — `party`, `from_party`
+  /// and `to_party` stay free text for that reason.
+  ///
+  /// **Supplied in the body and never read off the session.** The party beside
+  /// it is supplied too, and for ADR-0037's reason: an entry's cast is fixed
+  /// and a route that guessed whose move it is would write a handoff nobody
+  /// asked for into the record a dispute is settled from. Whoever *typed* the
+  /// handoff is the audit line's actor, which is a different question.
+  userId String? @map("user_id")
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
   /// From when. Settable, because handoffs are entered from a transmittal log
   /// after the fact; otherwise the injected TimeSource, and never a database
   /// default (ADR-0022 names this slice).
@@ -1301,7 +1345,7 @@ model Document {
   /// Not unique on a project. Two sets really can be called the same thing,
   /// and a constraint here would refuse the second rather than the mistake.
   /// Capped at the project name's 200.
-  title String
+  title          String
   /// Whether this is stored and linked but **deliberately not parsed** — a
   /// drawing set, a spec book. An 86-sheet 48"x36" set is not an extraction
   /// target ([[glossary]]), and pretending otherwise is how a document
@@ -1912,20 +1956,20 @@ model RegisterEntryExtraction {
   /// the two fields ADR-0042 named as extraction's to propose. All null
   /// until proposed; a run that finished without proposing is the honest
   /// "the agent found no correspondence here".
-  proposedKind            RegisterKind? @map("proposed_kind")
-  proposedAt              DateTime?     @map("proposed_at")
-  proposedNumber          String?       @map("proposed_number")
-  proposedSubject         String?       @map("proposed_subject")
-  proposedFromParty       String?       @map("proposed_from_party")
-  proposedToParty         String?       @map("proposed_to_party")
-  proposedQuestion        String?       @map("proposed_question")
-  proposedResponse        String?       @map("proposed_response")
-  proposedTurnaroundDays  Int?          @map("proposed_turnaround_days")
-  proposedParty           String?       @map("proposed_party")
-  proposedInOurCourt      Boolean?      @map("proposed_in_our_court")
-  proposedHeldSince       DateTime?     @map("proposed_held_since")
-  proposedTitle           String?       @map("proposed_title")
-  proposedRevision        String?       @map("proposed_revision")
+  proposedKind           RegisterKind? @map("proposed_kind")
+  proposedAt             DateTime?     @map("proposed_at")
+  proposedNumber         String?       @map("proposed_number")
+  proposedSubject        String?       @map("proposed_subject")
+  proposedFromParty      String?       @map("proposed_from_party")
+  proposedToParty        String?       @map("proposed_to_party")
+  proposedQuestion       String?       @map("proposed_question")
+  proposedResponse       String?       @map("proposed_response")
+  proposedTurnaroundDays Int?          @map("proposed_turnaround_days")
+  proposedParty          String?       @map("proposed_party")
+  proposedInOurCourt     Boolean?      @map("proposed_in_our_court")
+  proposedHeldSince      DateTime?     @map("proposed_held_since")
+  proposedTitle          String?       @map("proposed_title")
+  proposedRevision       String?       @map("proposed_revision")
 
   /// The resolution. Confirming writes the document (arrival path), the
   /// register entry with its first handoff, and the link between them in one
@@ -1994,8 +2038,17 @@ model User {
   sessions Session[]
 
   /// Everything this person has done, which is the only place the product
-  /// answers "who recorded this" (issue #111, ADR-0055 part 4).
+  /// answers "who **recorded** this" (issue #111, ADR-0055 part 4). No model
+  /// carries a `created_by`, and a test reads this file and says so.
   auditEntries AuditEntry[]
+
+  /// The three records that are *about* a person, which is a different
+  /// question and the one ADR-0055 part 5 answers (issue #112): the walks this
+  /// person made, the open items sitting with them, and the handoffs that
+  /// brought a ball to them. Each is editable and none says who typed it.
+  siteVisits SiteVisit[]
+  openItems  OpenItem[]
+  handoffs   BallInCourtEvent[]
 
   @@map("users")
 }

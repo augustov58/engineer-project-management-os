@@ -1,6 +1,7 @@
 /** A project's own phases, their order, and which one it is in (issue #5). */
 
 import type { FastifyInstance } from 'fastify';
+import type { Prisma } from '../../generated/prisma/client.js';
 import {
   NOT_BLANK,
   type RouteDependencies,
@@ -47,6 +48,39 @@ const currentPhaseBodySchema = {
   properties: { phaseId: { type: 'string' } },
 } as const;
 
+/**
+ * Hold this project's phase order for the rest of the transaction (issue
+ * #112, ADR-0055 part 5).
+ *
+ * ADR-0026 named this race and left it: "a phase's `position` is computed by
+ * counting the existing rows before the insert, outside a transaction. Two
+ * concurrent creates would collide; this is a single-user tool." The tool is
+ * not one any more, so the collision is a defect — and it is the identical
+ * count-then-insert shape `routes/ingest.ts` already locks for, where the
+ * comment says why: counting and then inserting is two statements, so without
+ * this every caller arriving in the same instant reads the same count and
+ * every one of them passes.
+ *
+ * Both writers of `position` take it, which is what makes the create and the
+ * reorder serialise against *each other* rather than only against themselves.
+ * A lock per project, so one job's phases cannot delay another's.
+ *
+ * Not a `@@unique([projectId, position])` instead: a non-deferrable one would
+ * reject the reorder mid-flight, since the positions are rewritten a row at a
+ * time and a swap passes through a duplicate; and a deferrable one is a
+ * constraint Prisma cannot express, so `schema.prisma` and the database would
+ * disagree about what exists. The lock leaves both callers succeeding, where
+ * a constraint would leave the second one failing.
+ *
+ * The key is prefixed where `ingest.ts`'s is the bare project id, so the two
+ * are different locks: they guard different things on the same job, and a
+ * phase waiting behind a piece of inbound mail would be a coupling nobody
+ * asked for.
+ */
+function lockPhases(tx: Prisma.TransactionClient, projectId: string) {
+  return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`phase-order:${projectId}`}))`;
+}
+
 export function phaseRoutes(
   v1: FastifyInstance,
   { prisma, timeSource, ingestDomain }: RouteDependencies,
@@ -70,10 +104,11 @@ export function phaseRoutes(
 
       const at = timeSource.now();
       try {
-        const position = await prisma.projectPhase.count({
-          where: { projectId: project.id },
-        });
         const phase = await prisma.$transaction(async (tx) => {
+          await lockPhases(tx, project.id);
+          const position = await tx.projectPhase.count({
+            where: { projectId: project.id },
+          });
           const created = await tx.projectPhase.create({
             data: { projectId: project.id, name: request.body.name, position },
           });
@@ -181,25 +216,29 @@ export function phaseRoutes(
       }
 
       const { phaseIds } = request.body;
-      const existing = await prisma.projectPhase.findMany({
-        where: { projectId: project.id },
-        select: { id: true, name: true },
-      });
-      const known = new Set(existing.map((phase) => phase.id));
-      const named = new Set(phaseIds);
-      if (
-        named.size !== phaseIds.length ||
-        named.size !== known.size ||
-        phaseIds.some((phaseId) => !known.has(phaseId))
-      ) {
-        return reply.code(409).send({
-          message: "an order must name exactly this project's phases, once each",
-        });
-      }
-
       const at = timeSource.now();
-      const nameOf = new Map(existing.map((phase) => [phase.id, phase.name]));
-      await prisma.$transaction(async (tx) => {
+      const refusal = await prisma.$transaction(async (tx) => {
+        // Before the set is read, not after it: the list a caller submits is
+        // checked against the phases there are, and a phase added between the
+        // check and the writes would be left at a position the order it was
+        // just measured against does not mention.
+        await lockPhases(tx, project.id);
+
+        const existing = await tx.projectPhase.findMany({
+          where: { projectId: project.id },
+          select: { id: true, name: true },
+        });
+        const known = new Set(existing.map((phase) => phase.id));
+        const named = new Set(phaseIds);
+        if (
+          named.size !== phaseIds.length ||
+          named.size !== known.size ||
+          phaseIds.some((phaseId) => !known.has(phaseId))
+        ) {
+          return "an order must name exactly this project's phases, once each";
+        }
+
+        const nameOf = new Map(existing.map((phase) => [phase.id, phase.name]));
         for (const [position, phaseId] of phaseIds.entries()) {
           await tx.projectPhase.update({
             where: { id: phaseId },
@@ -216,7 +255,12 @@ export function phaseRoutes(
           detail: phaseIds.map((phaseId) => nameOf.get(phaseId)).join(', '),
           at,
         });
+        return null;
       });
+
+      if (refusal !== null) {
+        return reply.code(409).send({ message: refusal });
+      }
 
       return prisma.projectPhase.findMany({
         where: { projectId: project.id },

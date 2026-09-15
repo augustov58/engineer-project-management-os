@@ -8,6 +8,7 @@ import {
   fakeTimeSource,
   handoffBody,
   listRegisters,
+  ours,
   startTestApi,
   type ClockRow,
   type ExposureRow,
@@ -84,11 +85,6 @@ async function clock(app: TestApi, projectId?: string): Promise<ClockRow[]> {
   return (await response.json()) as ClockRow[];
 }
 
-/** A handoff that puts the ball in our court, which is what the clock reads. */
-function ours() {
-  return handoffBody({ party: 'Us', inOurCourt: true });
-}
-
 /**
  * A job carrying exactly one of each: an issuance standing on an unresolved
  * open item, and a submittal in our court against a three-day turnaround.
@@ -109,7 +105,7 @@ async function job(app: TestApi, number: string, name: string) {
   const entry = await createRegisterEntry(app, submittals!.id, {
     number: `${number}-SUB-001`,
     turnaroundDays: 3,
-    ballInCourt: ours(),
+    ballInCourt: ours(app),
   });
   return { project, item, issued, entry };
 }
@@ -180,7 +176,7 @@ test('an entry handed back to us returns to the clock while its disposition stan
   const back = await post(
     app,
     `/v1/register-entries/${entry.id}/handoffs`,
-    ours(),
+    ours(app),
   );
   expect(back.status).toBe(201);
 

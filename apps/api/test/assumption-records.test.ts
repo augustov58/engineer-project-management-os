@@ -366,6 +366,15 @@ test('raising a flag takes its wording verbatim and puts the item on the project
   const [stored] = await records(app, set.id);
   expect(stored?.flagLines[2]?.openItem?.id).toBe(item.id);
   expect(stored?.flagLines[1]?.openItem).toBeNull();
+
+  // The item carries the person it sits with here too, and never a bare
+  // `owner_id`: every read of an open item goes through one projection, and
+  // this is the fourth record that names the items it is chased for
+  // (issue #112). It had no assertion, and shipped the raw column once.
+  expect(stored?.flagLines[2]?.openItem?.owner).toEqual(app.user);
+  expect(Object.keys(stored?.flagLines[2]?.openItem ?? {})).not.toContain(
+    'ownerId',
+  );
 });
 
 test('the raised item is attached to the submission the record justified', async () => {

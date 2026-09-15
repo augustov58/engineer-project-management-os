@@ -9,7 +9,7 @@
  * The sixteen 404s are here as a **set** rather than by the count rule ADR-0033
  * otherwise applies — most are used by one record, but a route naming the
  * record it could not find is the thing that must not drift into sixteen
- * differently worded bodies. Below them are the two async checks a record
+ * differently worded bodies. Below them are the three async checks a record
  * makes before writing that another record makes too.
  *
  * The 4xx bodies a single record sends inline stay with that record; there are
@@ -183,6 +183,38 @@ export async function openItemRefusal(
   }
   if (item.subjectType !== 'PROJECT' || item.subjectId !== projectId) {
     return { code: 409, message: 'that open item is on another project' };
+  }
+  return null;
+}
+
+/**
+ * The person a record is about to be put on (issue #112, ADR-0055 part 5).
+ *
+ * The third async check here, and here for the reason the other two are:
+ * three records name a user now — a walk's **conducted by**, an open item's
+ * **owner**, and the handoff that brings a ball to us — and without this the
+ * foreign key would refuse an unknown id with the driver's own sentence and a
+ * 500, where every refusal in this product is a code and a sentence a reader
+ * can act on.
+ *
+ * A **disabled** account is refused too, and that is not the same as taking
+ * its rows away: what somebody already holds stays theirs, which is what the
+ * stamp on the account is for, and what this refuses is putting something
+ * *new* on a person who can no longer sign in to see it.
+ */
+export async function userRefusal(
+  prisma: PrismaClient,
+  userId: string,
+): Promise<Refusal | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { disabledAt: true },
+  });
+  if (user === null) {
+    return { code: 404, message: 'no user with that id' };
+  }
+  if (user.disabledAt !== null) {
+    return { code: 409, message: 'that account is disabled' };
   }
   return null;
 }

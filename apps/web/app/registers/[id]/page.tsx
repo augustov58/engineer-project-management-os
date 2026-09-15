@@ -7,9 +7,11 @@ import {
   requestExtractionFromChosenDocument,
 } from '../../actions';
 import {
+  currentUser,
   getProject,
   getRegister,
   listExtractionTargets,
+  listUsers,
   REGISTER_NAMES,
 } from '../../api';
 import { ExtractFromDocumentForm } from '../../extract-button';
@@ -31,12 +33,16 @@ export default async function RegisterLog({
     notFound();
   }
 
-  const [project, targets] = await Promise.all([
+  const [project, targets, users, me] = await Promise.all([
     getProject(register.projectId),
     // What extraction may be pointed at on this job (issue #108). Read from
     // the API's own predicate rather than filtered out of the document list
     // here, so this screen and the route that refuses cannot disagree.
     listExtractionTargets(register.projectId),
+    // Who a handoff into our court may name, and who it defaults to
+    // (issue #112). Everyone at the firm: there are no roles.
+    listUsers(),
+    currentUser(),
   ]);
   if (project === undefined) {
     notFound();
@@ -145,6 +151,8 @@ export default async function RegisterLog({
             />
           )}
           <NewRegisterEntryForm
+            users={users}
+            me={me?.id ?? ''}
             submit={createRegisterEntry.bind(null, register.id, project.id)}
             kind={register.kind}
           />

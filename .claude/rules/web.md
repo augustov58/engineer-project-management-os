@@ -24,3 +24,16 @@ apply to every path stay in `AGENTS.md`.
   are gated on being non-empty (ADR-0038). Different questions: on a project screen an empty
   count is noise, and on the morning screen the count *is* the screen, so a card that
   vanished would read as one that had not loaded. This asymmetry is intended.
+- The morning screen, the two lists it drills through to and the pending items view default
+  to **mine**, with `app/scope.tsx`'s one toggle to *ours* (issue #112, ADR-0055 part 5).
+  **The default lives here and not in the API**: each of the three routes means every job's
+  and each takes `?mine=true`, and which rows an engineer is shown first is a question about
+  a screen — ADR-0038's no-endpoint rule applied to a filter, not to a payload. Both cards
+  drill through carrying the toggle, so a count and the list it lands on cannot answer
+  different questions, and the pending screen's GET form carries it in a hidden field,
+  because a GET form replaces the whole query string and filtering would otherwise widen
+  back to *ours*. Two `<Link>`s and not a control: each half is a URL to bookmark or send.
+- Every select added for a person is the **native** element (ADR-0025), for the reason every
+  other one here is: the walk's conducted-by, the open item's hand-on, the handoff fieldset's
+  "if it is ours, whose", and the extraction confirmation's — which is the one field on that
+  screen with nothing proposed behind it, since an extraction proposes a party.

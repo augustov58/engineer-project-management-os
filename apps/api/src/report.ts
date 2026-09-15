@@ -175,6 +175,12 @@ const visitInclude = {
   project: {
     select: { projectNumber: true, name: true, timezone: true },
   },
+  // Whose name the page prints (issue #112, ADR-0055 part 5). Read through
+  // the relation at the moment of rendering and copied into no column, so a
+  // report cannot come to disagree with the record it is a rendering of —
+  // the same trade this file already makes for the project's name and number.
+  // Who asked for the rendering is an audit fact and is not printed.
+  conductedBy: { select: { name: true } },
   floors: { orderBy: { startedAt: 'asc' } },
   observations: {
     orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
@@ -328,6 +334,7 @@ export async function composeReport(
   <p class="job">${escape(project.projectNumber)} · ${escape(project.name)}</p>
   <h1>Site visit report</h1>
   <p class="when">${escape(when)} · ${escape(project.timezone)}</p>
+  <p class="when">Conducted by ${escape(visit.conductedBy.name)}</p>
 </header>
 
 <section>

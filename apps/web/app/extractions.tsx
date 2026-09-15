@@ -9,7 +9,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { confirmExtraction, rejectExtraction } from './actions';
 import type { AddState } from './actions';
-import type { Extraction, ExtractionActivity, ExtractionDetail } from './api';
+import type {
+  Extraction,
+  ExtractionActivity,
+  ExtractionDetail,
+  User,
+} from './api';
 import { useLiveList } from './live-list';
 import { selectClassName } from './native-select';
 import { day } from './wall-clock';
@@ -174,11 +179,23 @@ export function ExtractionConfirmForm({
   projectId,
   extraction,
   timeZone,
+  users,
+  me,
 }: {
   projectId: string;
   extraction: ExtractionDetail;
   /** The zone of the job this record is on (ADR-0054). */
   timeZone: string;
+  /**
+   * Everyone at the firm, and whoever is signed in (issue #112).
+   *
+   * The proposal names a **party** and never a person — the agent has read a
+   * piece of correspondence, and which engineer here the ball comes to is not
+   * in it — so this is the one field on this screen with nothing proposed
+   * behind it, and the API refuses a proposal that tried.
+   */
+  users: User[];
+  me: string;
 }) {
   const arrivalPath = extraction.ingestedDocumentFileId !== null;
   const [state, action, pending] = useActionState(
@@ -364,6 +381,27 @@ export function ExtractionConfirmForm({
           />
           It is in our court
         </label>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="extract-userId">If it is ours, whose</Label>
+          {/* Native, for the reason every other select here is (ADR-0025). */}
+          <select
+            id="extract-userId"
+            name="userId"
+            defaultValue={me}
+            className={selectClassName}
+          >
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted-foreground text-xs">
+            The extraction proposes a party; who on our side it comes to is
+            yours to say.
+          </p>
+        </div>
       </fieldset>
 
       <div className="flex items-center gap-3">
