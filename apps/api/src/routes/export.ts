@@ -104,6 +104,7 @@ export function exportRoutes(
       ingestedDocuments,
       ingestedDocumentFiles,
       registerEntryExtractions,
+      users,
     ] = await Promise.all([
       prisma.project.findMany(by),
       prisma.projectPhase.findMany(by),
@@ -137,6 +138,7 @@ export function exportRoutes(
       prisma.ingestedDocument.findMany(by),
       prisma.ingestedDocumentFile.findMany(by),
       prisma.registerEntryExtraction.findMany(by),
+      prisma.user.findMany(by),
     ]);
 
     return {
@@ -203,6 +205,29 @@ export function exportRoutes(
           withBytes(row, BYTES_PATH.ingestedDocumentFile),
         ),
         registerEntryExtractions,
+        /**
+         * The people, because since issue #111 every audit line names one and
+         * a document full of uuids answers "who recorded this" with nothing.
+         * The export is the **firm's** (ADR-0055), which is what makes this
+         * table part of the record rather than infrastructure.
+         *
+         * `passwordHash` is dropped exactly as `ingestToken` is, and for the
+         * same rule: it is a credential, and ADR-0047 keeps credentials out of
+         * a file that will sit in cloud storage somewhere. Unlike the ingest
+         * token it cannot simply be minted again — an argon2id hash is a
+         * standing offline-cracking target for whoever picks the file up — so
+         * the case for dropping it is the stronger one. `test/export.test.ts`
+         * searches the whole serialised document for it rather than checking
+         * the field, so a table added later that carries one fails without
+         * anybody remembering.
+         *
+         * **`sessions` is not here, and that is not an oversight.** A session
+         * id *is* the credential; there is no hash to drop and nothing left
+         * of the row once it is gone. A session is also not a record of the
+         * work — the audit is, and it names the run rather than the session
+         * for this reason.
+         */
+        users: users.map(({ passwordHash: _dropped, ...rest }) => rest),
       },
     };
   });
