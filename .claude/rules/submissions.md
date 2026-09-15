@@ -49,6 +49,20 @@ apply to every path stay in `AGENTS.md`.
   on and **supplied** is exactly that list, so `[]` is a deliberate drop (ADR-0028). The
   successor stamps its own `unresolved_at_issuance` and `issued_provisional` at its own
   moment of issuance; the ancestor's are never rewritten.
+- A phase's `position` has **two writers**, not one, and both take the same
+  `pg_advisory_xact_lock` on the job for the length of their transaction (`lockPhases`,
+  issue #112): the reorder rewrites the whole list and the create appends to it, and the
+  create's `count()` is inside that transaction. Without it six phases posted at once all
+  landed on position 1 — the race ADR-0026 named and left "because this is a single-user
+  tool". Not a `@@unique([projectId, position])`: a non-deferrable one rejects the reorder
+  mid-flight, since a swap passes through a duplicate, and a deferrable one is a constraint
+  Prisma cannot express. The reorder's read of the phases there are is inside the lock too,
+  so a phase added between the check and the writes cannot be left at a position the
+  submitted order was never measured against.
+- `GET /v1/exposure?mine=true` narrows to the sets standing on an unresolved item the caller
+  **owns** (issue #112) — read off the session, never a supplied id, and a `where` clause
+  because the owner is on the item. It defaults to **false**: *mine* is the screen's default,
+  not the route's (ADR-0038's rule applied to a filter).
 - Exposure is a **list**, not a number (ADR-0027). `GET /v1/exposure` returns the
   submissions; every count is that list's length, so a count and the screen it links to
   cannot disagree, and there is no figure to combine into a score (ADR-0016). Archived

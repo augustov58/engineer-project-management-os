@@ -19,6 +19,23 @@ path in the frontmatter is read through the Read tool; from the shell, read it y
 apply to every path stay in `AGENTS.md`.
 
 - An open item is unresolved exactly when `resolved_at` is null (ADR-0024). Exposure, provisional state and the pending items view all read that one column — do not add a status field beside it.
+- An item's **owner is a user** since issue #112 (ADR-0055 part 5): `owner_id`, **required**,
+  set from the session when the item is raised. The create body carries no owner at all —
+  there is nothing for it to say — so `openItemBodySchema` names none, and a client still
+  sending one gets a 400 rather than a stripped key. Handing it on is
+  `POST /v1/open-items/:id/owner`, allowed on a resolved item too: whose the work was is not
+  a fact about whether it is finished. Do not restore a free-text owner and do not make the
+  column nullable: *nobody* is a real answer on **waiting on** and never was on this one.
+- The owner goes out **named** through `openItemOnTheWire`, and every read of an item goes
+  through it — the five on this record, the four other records that name what they are being
+  chased for (`chasedItems` in `wire.ts`), and nothing else. A bare `owner_id` reaching a
+  screen is the defect that projection exists to prevent; the **export** is the exception and
+  dumps the column raw, as it dumps `audit_entries.actor_id`.
+- `GET /v1/open-items?mine=true` narrows the pending view to the caller's own, **read off the
+  session and never a supplied id**: asking about somebody else is a different question and
+  this one has no answer but *me*. It defaults to **false** here and to true on the screen —
+  what this route means is every unresolved item across every job, and which of them an
+  engineer is shown first is the screen's decision (ADR-0038's rule applied to a filter).
 - An **assumption record** captures the `ASSUMPTIONS` and `FLAGS / VERIFY` blocks *verbatim*
   as two text columns — nothing trims, normalises or re-wraps them, and no route edits or
   deletes one (ADR-0029). A rerun of the calculation is another record against the same
