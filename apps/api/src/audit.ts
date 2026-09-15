@@ -149,17 +149,16 @@ export interface AuditLine {
   /**
    * Who, and the run they were acting during (issue #111).
    *
-   * Optional **for one step only**: the expand half of the
-   * expand-migrate-contract this ticket takes inside itself, so that the
-   * suite is green while the sixty-seven call sites are being visited one at
-   * a time rather than in one unreviewable commit. It becomes required in the
-   * contract step and the sweep in `test/audit.test.ts` counts what is left.
+   * **Required**, which is what makes "every line says who" a fact `tsc`
+   * holds rather than a habit. A line nobody presented a session for says so
+   * with `NO_ACTOR` and is a decision at the call site, not an omission.
    */
-  actor?: Actor;
+  actor: Actor;
   /**
-   * Which row. Optional for the same one step, and for the same reason.
+   * Which row the mutation touched. Required, for the same reason: `detail`
+   * is prose and names nothing a screen can follow.
    */
-  subject?: Subject;
+  subject: Subject;
   /**
    * What happened — "submission recorded", "issue closed". Text and not an
    * enum, and phrased as a sentence for a reader: the set is closed by what
@@ -185,11 +184,11 @@ export async function audit(
   await tx.auditEntry.create({
     data: {
       projectId,
-      actorId: actor?.userId ?? null,
-      agentRunId: actor?.agentRunId ?? null,
-      extractionId: actor?.extractionId ?? null,
-      subjectType: subject?.type ?? null,
-      subjectId: subject?.id ?? null,
+      actorId: actor.userId,
+      agentRunId: actor.agentRunId,
+      extractionId: actor.extractionId,
+      subjectType: subject.type,
+      subjectId: subject.id,
       action,
       detail,
       createdAt: at,

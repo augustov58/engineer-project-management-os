@@ -25,7 +25,9 @@ import {
   handoffBody,
   listRegisters,
   reissueSubmission,
+  requestMemoryRun,
   startTestApi,
+  until,
   type AuditEntryResponse,
   type TestApi,
 } from './harness.js';
@@ -251,21 +253,22 @@ function callSites(directory = join(apiRoot, 'src'), into: CallSite[] = []) {
 }
 
 /**
- * How many writers still pass no subject, which is what makes the expand step
- * a measurement rather than an intention.
+ * No writer lacks an actor or a subject — the sweep ADR-0055 part 4 asks for.
  *
- * ADR-0055 part 4 asks for the subject at every call site "with a sweep test
- * that no line lacks one", and this is that sweep. It runs against the source
- * because the columns are nullable in the database — the lines written before
- * issue #111 touched rows nothing here now knows, and backfilling them to
- * their project would say "project" where the line was about an observation.
- * What stops a *new* line lacking one is `AuditLine`, where both fields are
- * required and `tsc` refuses a caller that omits them; this is what proves
- * that claim is true of every writer rather than of the ones a test drove.
+ * It runs against the source because the columns are nullable in the database:
+ * the lines written before issue #111 touched rows nothing here now knows, and
+ * backfilling them to their project would say "project" where the line was
+ * about an observation, which is a wrong answer rather than a missing one. So
+ * the guarantee is not `NOT NULL` but `AuditLine`, where both fields are
+ * required and `tsc` refuses a caller that omits them — and this is what turns
+ * that into a statement about every writer rather than about the ones a test
+ * happened to drive.
+ *
+ * It also catches what `tsc` cannot: an `audit()` reached through a wrapper
+ * that supplies its own actor, which would typecheck and would quietly take
+ * the answer away from the boundary.
  */
-const STILL_WITHOUT_A_SUBJECT = 0;
-
-test('every writer of an audit line is found, and the sweep says how many carry a subject', () => {
+test('no writer of an audit line lacks an actor or a subject', () => {
   const sites = callSites();
 
   // A guard on the sweep itself, as the route sweep above has: a regular
@@ -273,8 +276,65 @@ test('every writer of an audit line is found, and the sweep says how many carry 
   // finding nothing at all.
   expect(sites.length).toBeGreaterThan(60);
 
-  const without = sites.filter((site) => !/\n\s*subject:/.test(site.body));
-  expect(without.length).toBe(STILL_WITHOUT_A_SUBJECT);
+  expect(
+    sites.filter((site) => !/\n\s*subject:/.test(site.body)).map((s) => s.path),
+  ).toEqual([]);
+  expect(
+    sites.filter((site) => !/\n\s*actor[,:]/.test(site.body)).map((s) => s.path),
+  ).toEqual([]);
+});
+
+/**
+ * The actor is read at the boundary and never taken off a request body
+ * (ADR-0055 part 4). `actorOf` is the one function that builds one from a
+ * request, and a route that spelled `request.body.actor` would typecheck
+ * perfectly.
+ *
+ * `routes/sessions.ts` is the one file that composes an actor itself, and it
+ * has to: signing in is the act of getting a session, so its caller has been
+ * authenticated and has none yet. It reads the account it just verified, which
+ * is what `actorOf` reads everywhere else.
+ */
+test('nothing builds an actor out of a request body', () => {
+  const composing = callSites()
+    .filter((site) => /actor: \{/.test(site.body))
+    .map((site) => site.path);
+
+  expect([...new Set(composing)]).toEqual(['src/routes/sessions.ts']);
+
+  for (const site of callSites()) {
+    expect(site.body).not.toMatch(/actor:.*request\.body/);
+  }
+});
+
+/**
+ * No model gains a `created_by` (ADR-0055 part 4).
+ *
+ * "Who recorded this" is a read of the audit, which is ADR-0048's rule applied
+ * to authorship: a column on each of thirty-odd models would be that many
+ * copies of a fact one table already holds in the same transaction as the
+ * write it describes, and the copies would be free to disagree with it.
+ *
+ * Read off `schema.prisma` rather than out of `information_schema`, so it
+ * stays clear of ADR-0012's sanctioned exception, which `test/schema.test.ts`
+ * holds to table names and nothing else.
+ */
+test('no model carries an author of its own', () => {
+  const schema = readFileSync(join(apiRoot, 'prisma/schema.prisma'), 'utf8');
+  // Prose stripped first: the rule is about columns, and the documentation on
+  // `audit_entries.actor_id` says the word in order to say why no model
+  // carries it.
+  const columns = schema
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
+
+  expect(columns).not.toMatch(/createdBy|created_by/);
+  expect(columns).not.toMatch(/authorId|author_id/);
+
+  // The one place an author lives, so the assertions above are a rule about
+  // where it is and not a rule that it is nowhere.
+  expect(columns).toMatch(/actorId String\? +@map\("actor_id"\)/);
 });
 
 test('a job records what happened to it, from the first line onwards', async () => {
@@ -354,6 +414,77 @@ test('a job records what happened to it, from the first line onwards', async () 
     ]);
     expect(entry.detail.length).toBeGreaterThan(0);
   }
+});
+
+// ── Who, and which row (issue #111) ──────────────────────────────────────
+
+test('a line says who wrote it, by name and not only by id', async () => {
+  const app = await api();
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+
+  const [recorded] = await trail(app, project.id);
+  expect(recorded).toBeDefined();
+  // The account the harness signed in as, which is whose session every call
+  // above carried. The name and not only the id: "who recorded this" is a
+  // question somebody asks of a screen.
+  expect(recorded?.actor).toEqual({ id: app.user.id, name: app.user.name });
+  // Nobody was acting inside a run, so there is no run to name.
+  expect(recorded?.run).toBeNull();
+});
+
+test('a line names the row it is about, and never a session', async () => {
+  const app = await api();
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+  const walk = await createSiteVisit(app, project.id);
+  const observation = await createObservation(app, walk.id, {
+    observed: 'The duct is not supported at the transition.',
+  });
+  const raised = await createIssue(app, observation.id);
+
+  const lines = await trail(app, project.id);
+  const subjects = lines.map((line) => [line.action, line.subject]);
+
+  expect(subjects).toEqual([
+    ['project recorded', { type: 'project', id: project.id }],
+    ['site visit recorded', { type: 'site-visit', id: walk.id }],
+    ['observation recorded', { type: 'observation', id: observation.id }],
+    ['issue raised', { type: 'issue', id: raised.id }],
+  ]);
+
+  // The whole document, searched: a subject that named a `sessions` row would
+  // put a live credential into an append-only table that is read on a screen
+  // and exported whole (issue #111).
+  expect(JSON.stringify(lines)).not.toContain(app.sessionId);
+});
+
+test('a line written during a run carries the person and the run, and the agent is never the actor', async () => {
+  const app = await api({ worker: true });
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+
+  // The harness's agent service calls `POST /v1/memory-runs/:id/proposal`
+  // under the session the route minted for the run — which is what the real
+  // adapter's tool does, over loopback, with no shared secret to present
+  // (issue #105).
+  const run = await requestMemoryRun(app, project.id);
+  const written = await until(
+    async () =>
+      (await trail(app, project.id)).find(
+        (line) => line.action === 'proposal written',
+      ),
+    'the run to write its proposal',
+  );
+
+  // Both, with no special case: the session names the person who asked for
+  // the run, and the run is on the row beside them (ADR-0055 part 6).
+  expect(written.actor).toEqual({ id: app.user.id, name: app.user.name });
+  expect(written.run).toEqual({ type: 'agent-run', id: run.id });
+
+  // And the line the engineer wrote asking for it carries no run at all.
+  const asked = (await trail(app, project.id)).find(
+    (line) => line.action === 'memory run asked for',
+  );
+  expect(asked?.run).toBeNull();
+  expect(asked?.subject).toEqual({ type: 'agent-run', id: run.id });
 });
 
 test('the line says what happened, not only that something did', async () => {
