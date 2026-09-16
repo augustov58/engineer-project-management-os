@@ -100,6 +100,7 @@ const AUDITED = [
   'POST /v1/memory-proposals/:id/reject',
   'POST /v1/memory-runs/:id/proposal',
   'POST /v1/observations/:id/issue',
+  'POST /v1/open-items/:id/owner',
   'POST /v1/open-items/:id/reopen',
   'POST /v1/open-items/:id/resolve',
   'POST /v1/phases/:id/rename',
@@ -130,6 +131,7 @@ const AUDITED = [
   'POST /v1/registers/:id/entries',
   'POST /v1/sessions',
   'POST /v1/site-visit-floors/:id/complete',
+  'POST /v1/site-visits/:id/conducted-by',
   'POST /v1/site-visits/:id/end',
   'POST /v1/site-visits/:id/floors',
   'POST /v1/site-visits/:id/observations',
@@ -205,8 +207,8 @@ test('the helper route is the only mutating route exempt from the audit, and it 
  * *writers*: `POST /v1/projects/:id/submissions` and `POST /v1/submissions/
  * :id/reissue` share one call site inside `writeIssuance`, and `user reset`
  * and `user enable` are commands on the machine that no `routes()` walk will
- * ever see. Widening the line to carry a subject is a claim about all
- * sixty-seven writers, so this reads them off the disk — the shape
+ * ever see. Widening the line to carry a subject is a claim about **every**
+ * writer, so this reads them off the disk — the shape
  * `apps/web`'s `session.test.ts` gives the rule that only one module reaches
  * the API, and for its reason: a call site that omits something paints
  * nothing and answers nothing.
@@ -219,8 +221,8 @@ const apiRoot = resolve(process.cwd());
 /**
  * One `audit(tx, { … })` call, captured up to the line that closes it.
  *
- * Every one of the sixty-seven is spelled this way — there is no aliased
- * import and nothing writes `auditEntry.create` directly, both checked. The
+ * Every one of them is spelled this way — there is no aliased import and
+ * nothing writes `auditEntry.create` directly, both checked. The
  * closing pattern is a line carrying nothing but `});`, so a nested object or
  * a template literal spanning lines inside the call is not mistaken for its
  * end.

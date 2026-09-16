@@ -20,9 +20,14 @@ import {
   refuse,
 } from '../refusals.js';
 import { openItemBodySchema, resolveBodySchema } from './open-items.js';
-import { issueInclude, withSightings } from '../wire.js';
+import {
+  issueInclude,
+  namedUser,
+  openItemOnTheWire,
+  withSightings,
+} from '../wire.js';
 import { audit, type Actor } from '../audit.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 /**
  * The closed set of exactly five, in the words the glossary writes them
@@ -599,7 +604,6 @@ export function issueRoutes(
       waitingSince?: string;
       invalidationTrigger?: string;
       counterfactual: string;
-      owner?: string;
     };
   }>(
     '/issues/:id/open-items',
@@ -622,8 +626,10 @@ export function issueRoutes(
             subjectType: 'PROJECT',
             subjectId: found.projectId,
             waitingSince: instant(waitingSince, timeSource),
+            ownerId: callerOf(request).userId,
             issues: { create: { issueId: found.id } },
           },
+          include: { owner: namedUser },
         });
         await audit(tx, {
           projectId: found.projectId,
@@ -635,7 +641,7 @@ export function issueRoutes(
         });
         return created;
       });
-      return reply.code(201).send(item);
+      return reply.code(201).send(openItemOnTheWire(item));
     },
   );
 

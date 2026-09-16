@@ -12,19 +12,22 @@ import {
   noSuchFloor,
   noSuchProject,
   noSuchSiteVisit,
+  refuse,
+  userRefusal,
 } from '../refusals.js';
 import {
+  namedUser,
   photoOnTheWire,
   photosTaken,
   reportOnTheWire,
   reportsMade,
+  visitOnTheWire,
   voiceCaptureOnTheWire,
   voiceCapturesMade,
-  withDate,
   withLocation,
 } from '../wire.js';
 import { audit } from '../audit.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 /**
  * A site visit: one dated observation event against a building (issue #9).
@@ -52,6 +55,14 @@ const endVisitBodySchema = {
   type: 'object',
   additionalProperties: false,
   properties: { endedAt: { type: 'string', format: 'date-time' } },
+} as const;
+
+/** Correcting who walked it. The person only; nothing else about a visit. */
+const conductedByBodySchema = {
+  type: 'object',
+  required: ['conductedById'],
+  additionalProperties: false,
+  properties: { conductedById: { type: 'string' } },
 } as const;
 
 /** Arriving on a floor. Leaving it is the complete route. */
@@ -212,7 +223,13 @@ export function siteVisitRoutes(
             startedAt: started,
             endedAt: ended,
             createdAt: at,
+            // The acting user, and never a field of the body: whoever is
+            // signed in is the one on the walk, and a visit recorded for
+            // somebody else is a correction — `conducted-by` below — rather
+            // than the entry path (ADR-0055 part 5).
+            conductedById: callerOf(request).userId,
           },
+          include: { conductedBy: namedUser },
         });
         // The walk's own date and not the clock's: a visit typed up in the
         // evening is a visit made in the afternoon (ADR-0030 derives the date
@@ -227,7 +244,7 @@ export function siteVisitRoutes(
         });
         return walk;
       });
-      return reply.code(201).send(withDate(created, project.timezone));
+      return reply.code(201).send(visitOnTheWire(created, project.timezone));
     },
   );
 
@@ -246,8 +263,9 @@ export function siteVisitRoutes(
       const listed = await prisma.siteVisit.findMany({
         where: { projectId: project.id },
         orderBy: [{ startedAt: 'asc' }, { createdAt: 'asc' }],
+        include: { conductedBy: namedUser },
       });
-      return listed.map((visit) => withDate(visit, project.timezone));
+      return listed.map((visit) => visitOnTheWire(visit, project.timezone));
     },
   );
 
@@ -273,6 +291,7 @@ export function siteVisitRoutes(
               timezone: true,
             },
           },
+          conductedBy: namedUser,
           floors: { orderBy: { startedAt: 'asc' } },
           observations: {
             orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
@@ -295,7 +314,7 @@ export function siteVisitRoutes(
 
       const { observations, photos, voiceCaptures, reports, ...visit } = found;
       return {
-        ...withDate(visit, visit.project.timezone),
+        ...visitOnTheWire(visit, visit.project.timezone),
         observations: observations.map(withLocation),
         photos: photos.map(photoOnTheWire),
         voiceCaptures: voiceCaptures.map(voiceCaptureOnTheWire),
@@ -343,6 +362,7 @@ export function siteVisitRoutes(
         const stamped = await tx.siteVisit.update({
           where: { id: walk.id },
           data: { endedAt: ended },
+          include: { conductedBy: namedUser },
         });
         await audit(tx, {
           projectId: walk.projectId,
@@ -354,7 +374,65 @@ export function siteVisitRoutes(
         });
         return stamped;
       });
-      return withDate(updated, walk.project.timezone);
+      return visitOnTheWire(updated, walk.project.timezone);
+    },
+  );
+
+  /**
+   * Who walked it, corrected (issue #112, ADR-0055 part 5).
+   *
+   * A named POST and not a PATCH, which this API has none of: it is the shape
+   * `POST /v1/photos/:id/floor` gave a correction, and it says what is being
+   * changed rather than offering the record for editing. Only this one field
+   * of a visit is correctable — the start, the end and the schedule under them
+   * are still write-once, for the reasons they were.
+   *
+   * Repeatable, unlike ending a walk: the wrong name is a typing mistake and
+   * the right one may be arrived at twice. Nothing is lost by that, because
+   * the audit line carries the name it moved from.
+   */
+  v1.post<{ Params: { id: string }; Body: { conductedById: string } }>(
+    '/site-visits/:id/conducted-by',
+    { schema: { body: conductedByBodySchema } },
+    async (request, reply) => {
+      const walk = await prisma.siteVisit.findUnique({
+        where: { id: request.params.id },
+        select: {
+          id: true,
+          projectId: true,
+          conductedBy: { select: { name: true } },
+          project: { select: { timezone: true } },
+        },
+      });
+      if (walk === null) {
+        return noSuchSiteVisit(reply);
+      }
+
+      const badUser = await userRefusal(prisma, request.body.conductedById);
+      if (badUser !== null) {
+        return refuse(reply, badUser);
+      }
+
+      const at = timeSource.now();
+      const updated = await prisma.$transaction(async (tx) => {
+        const moved = await tx.siteVisit.update({
+          where: { id: walk.id },
+          data: { conductedById: request.body.conductedById },
+          include: { conductedBy: namedUser },
+        });
+        // Both names, the way a phase's rename carries both: the one it moved
+        // from survives nowhere else once the column is overwritten.
+        await audit(tx, {
+          projectId: walk.projectId,
+          actor: actorOf(request),
+          subject: { type: 'site-visit', id: moved.id },
+          action: 'site visit conducted by',
+          detail: `${walk.conductedBy.name} is now ${moved.conductedBy.name}`,
+          at,
+        });
+        return moved;
+      });
+      return visitOnTheWire(updated, walk.project.timezone);
     },
   );
 

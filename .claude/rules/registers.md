@@ -23,6 +23,21 @@ apply to every path stay in `AGENTS.md`.
   become the transition log ADR-0031 refused — it is here because an arithmetic reads it
   (issue #15 sums the intervals where the ball was ours), which a current value cannot produce
   at all. Do not add either column.
+- A handoff that brings the ball **to us** carries the `user_id` it comes to, set exactly
+  when `in_our_court` is true and refused in both directions — at the boundary by
+  `handoffRefusal` and underneath by a CHECK, which is ADR-0030's one-axis rule arriving for
+  a second record (issue #112, ADR-0055 part 5). **Supplied in the body and never read off
+  the session**, for ADR-0037's reason the party is: a transmittal log written up on Friday
+  brings Monday's ball to whoever it came to, who is often not the person typing — and that
+  person is the audit line's actor, which is the other question. All five writers of the
+  table go through `handoffData` *and* `handoffRefusal`; on the wire it is `user`, projected
+  and never the raw column, and the exact-key-set test says so. `party`, `from_party` and
+  `to_party` stay free text: a contractor is not a user.
+- An **extraction proposes a party and never a person**, and is refused one: there is no
+  `proposed_user_id`, the agent has read correspondence and which engineer here the ball
+  comes to is not in it. The refusal is on the propose **route** and not in the schema —
+  `fieldsBodySchema` stays one shape for the agent and the engineer alike, which is the split
+  "which kind carries a question" already has.
 - A handoff carries `party` **and** `in_our_court`, and neither derives from the other
   (ADR-0036). The clock reads the boolean; the screen shows the name. Do not read "ours" off
   the name the way ADR-0024 reserved `nobody` on `waiting_on`: nothing computes from `nobody`,
@@ -93,6 +108,12 @@ apply to every path stay in `AGENTS.md`.
   Set once and a second is refused: moving a target moves which entries *were* past their
   clock, backwards through every day the number was different, and the daily layer is only
   worth trusting if it cannot be made to have said something else.
+- `GET /v1/clock?mine=true` narrows to the entries whose **current** handoff names the
+  caller (issue #112): an entry that was mine last month and is a colleague's this morning is
+  sitting in their court, which is *past its clock*'s own first fact one person further in.
+  `inCourtMs` is untouched and still sums every interval that was ours whoever held it —
+  what the firm spent stays on the record. The filter runs in the application beside
+  `pastClock`, and defaults to **false**: *mine* is the screen's default, not the route's.
 - `GET /v1/clock` returns the **entries and not a number**, with `?projectId=` for one job —
   exposure's shape exactly, including the 404 on an unknown project and archived projects
   leaving the across-every-project list while keeping their own (ADR-0037). Sorted **longest

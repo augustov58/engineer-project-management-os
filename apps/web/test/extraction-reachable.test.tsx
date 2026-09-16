@@ -59,8 +59,18 @@ vi.mock('../app/api', async (importOriginal) => {
     getProject: vi.fn(),
     getRegister: vi.fn(),
     listExtractionTargets: vi.fn(),
+    // Who a handoff into our court may name, and who it defaults to
+    // (issue #112). Both screens under test carry a handoff.
+    listUsers: vi.fn(),
+    currentUser: vi.fn(),
   };
 });
+
+const engineer: api.User = {
+  id: 'user-1',
+  name: 'Ada Lovelace',
+  email: 'ada@example.test',
+};
 
 const project: api.Project = {
   id: 'project-1',
@@ -128,6 +138,8 @@ beforeEach(() => {
   vi.mocked(api.getProject).mockResolvedValue(project);
   vi.mocked(api.getRegister).mockResolvedValue(register);
   vi.mocked(api.listExtractionTargets).mockResolvedValue([document]);
+  vi.mocked(api.listUsers).mockResolvedValue([engineer]);
+  vi.mocked(api.currentUser).mockResolvedValue(engineer);
 });
 
 afterEach(() => {

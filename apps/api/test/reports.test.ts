@@ -19,6 +19,7 @@ import {
   createObservation,
   createProject,
   createSiteVisit,
+  createUser,
   fakeTimeSource,
   generateReport,
   startFloor,
@@ -344,6 +345,40 @@ test('the document carries the visit metadata and the per-floor schedule', async
   // walk knows which afternoon these are.
   expect(text).toContain('America/New_York');
   expect(text.match(/America\/New_York/g)).toHaveLength(1);
+});
+
+test('the report prints who conducted the walk, and follows a correction', async () => {
+  const app = await api();
+  const project = await createProject(app, 'R-7', 'Riverside clinic');
+  const walk = await createSiteVisit(app, project.id);
+
+  const first = await generateReport(app, walk.id);
+  await reaches(app, walk.id, first.id, 'rendered');
+  expect(await documentText(await pdfOf(app, first.id))).toContain(
+    'Conducted by Ada Lovelace',
+  );
+
+  // A report owns nothing it prints: the name is read through the relation at
+  // the moment of rendering, so a correction reaches the next rendering and
+  // the one already issued keeps saying what it said.
+  const second = await createUser(app, 'Grace Hopper', 'grace@example.test');
+  const moved = await app.fetch(`/v1/site-visits/${walk.id}/conducted-by`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ conductedById: second.id }),
+  });
+  expect(moved.status).toBe(200);
+
+  const again = await generateReport(app, walk.id);
+  await reaches(app, walk.id, again.id, 'rendered');
+  expect(await documentText(await pdfOf(app, again.id))).toContain(
+    'Conducted by Grace Hopper',
+  );
+
+  // Who asked for either rendering is an audit fact and is on neither page.
+  expect(await documentText(await pdfOf(app, again.id))).not.toContain(
+    'Ada Lovelace',
+  );
 });
 
 test('non-issue observations are their own table, and come first', async () => {

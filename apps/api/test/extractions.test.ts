@@ -137,8 +137,11 @@ const EXTRACTION_KEYS = [
   'state',
 ];
 
-/** A valid confirm body, matching the fake agent's proposal. */
-function confirmBody(patch: Record<string, unknown> = {}): Record<string, unknown> {
+/**
+ * The typed fields, as the agent proposes them and the engineer confirms them
+ * — one shape for both, as `fieldsBodySchema` is one schema for both.
+ */
+function fieldsBody(patch: Record<string, unknown> = {}): Record<string, unknown> {
   const body: Record<string, unknown> = {
     kind: 'RFI',
     number: 'RFI-001',
@@ -161,6 +164,27 @@ function confirmBody(patch: Record<string, unknown> = {}): Record<string, unknow
     }
   }
   return body;
+}
+
+/**
+ * The same fields, plus the person the ball comes to — which only a
+ * **confirmation** carries (issue #112).
+ *
+ * The agent proposes a party and never a person: it has read a piece of
+ * correspondence, and which engineer here the ball comes to is not in it. So
+ * the propose route refuses a `userId` and the confirm route requires one
+ * wherever the proposal said the ball was ours, which is the same split
+ * `question` already has between the schema and the route.
+ */
+function confirmBody(
+  app: TestApi,
+  patch: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const body = fieldsBody(patch);
+  const ball = body.ballInCourt as Record<string, unknown>;
+  return ball.inOurCourt === true
+    ? { ...body, ballInCourt: { ...ball, userId: app.user.id } }
+    : body;
 }
 
 async function extractionsOn(app: TestApi, projectId: string) {
@@ -527,21 +551,21 @@ describe('the proposal route', () => {
 
     // An extra field is a 400, not a stripped key.
     const extra = await post(app, `/v1/extractions/${extraction.id}/proposal`, {
-      ...confirmBody(),
+      ...fieldsBody(),
       ignorePreviousInstructions: true,
     });
     expect(extra.status).toBe(400);
 
     // A kind outside the register's two is a 400.
     const kind = await post(app, `/v1/extractions/${extraction.id}/proposal`, {
-      ...confirmBody(),
+      ...fieldsBody(),
       kind: 'CHANGE ORDER',
     });
     expect(kind.status).toBe(400);
 
     // The first handoff is required, as it is at the entries boundary.
     const noBall = await post(app, `/v1/extractions/${extraction.id}/proposal`, {
-      ...confirmBody(),
+      ...fieldsBody(),
       ballInCourt: undefined,
     });
     expect(noBall.status).toBe(400);
@@ -552,7 +576,7 @@ describe('the proposal route', () => {
     const parked = await api({ worker: false });
     const parkedProject = await createProject(parked, 'T-1', 'Office fit-out');
     const { extraction: waiting } = await arrivalExtraction(parked, parkedProject.id);
-    const early = await post(parked, `/v1/extractions/${waiting.id}/proposal`, confirmBody());
+    const early = await post(parked, `/v1/extractions/${waiting.id}/proposal`, fieldsBody());
     expect(early.status).toBe(409);
     expect(await early.json()).toEqual({ message: 'that extraction is not running' });
 
@@ -563,10 +587,10 @@ describe('the proposal route', () => {
     const { extraction: running } = await arrivalExtraction(app, project.id);
 
     await held.reached;
-    const lands = await post(app, `/v1/extractions/${running.id}/proposal`, confirmBody());
+    const lands = await post(app, `/v1/extractions/${running.id}/proposal`, fieldsBody());
     expect(lands.status).toBe(201);
 
-    const twice = await post(app, `/v1/extractions/${running.id}/proposal`, confirmBody());
+    const twice = await post(app, `/v1/extractions/${running.id}/proposal`, fieldsBody());
     expect(twice.status).toBe(409);
     expect(await twice.json()).toEqual({
       message: 'that extraction has already proposed',
@@ -584,7 +608,7 @@ describe('the proposal route', () => {
     const fromDocument = await post(app, `/v1/documents/${document.id}/extractions`);
     const documentRun = (await fromDocument.json()) as ExtractionResponse;
     await held.reached;
-    const withTitle = await post(app, `/v1/extractions/${documentRun.id}/proposal`, confirmBody());
+    const withTitle = await post(app, `/v1/extractions/${documentRun.id}/proposal`, fieldsBody());
     expect(withTitle.status).toBe(409);
     expect(await withTitle.json()).toEqual({
       message: 'a stored document already has a title and a revision',
@@ -601,7 +625,7 @@ describe('the proposal route', () => {
     const noTitle = await post(
       app2,
       `/v1/extractions/${arrivalRun.id}/proposal`,
-      confirmBody({ title: undefined, revision: undefined }),
+      fieldsBody({ title: undefined, revision: undefined }),
     );
     expect(noTitle.status).toBe(409);
     expect(await noTitle.json()).toEqual({
@@ -613,7 +637,7 @@ describe('the proposal route', () => {
 
   test('of an unknown extraction is a 404', async () => {
     const app = await api();
-    const response = await post(app, `/v1/extractions/${NO_SUCH}/proposal`, confirmBody());
+    const response = await post(app, `/v1/extractions/${NO_SUCH}/proposal`, fieldsBody());
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ message: 'no extraction with that id' });
   });
@@ -628,7 +652,7 @@ describe('confirming an extraction', () => {
     const { extraction: queued } = await arrivalExtraction(app, project.id);
     const pending = await reaches(app, queued.id, 'pending');
 
-    const confirmed = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody());
+    const confirmed = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody(app));
     expect(confirmed.status).toBe(201);
     const resolved = (await confirmed.json()) as ExtractionResponse;
     expect(resolved.state).toBe('confirmed');
@@ -685,7 +709,7 @@ describe('confirming an extraction', () => {
     const confirmed = await post(
       app,
       `/v1/extractions/${pending.id}/confirm`,
-      confirmBody({
+      confirmBody(app, {
         turnaroundDays: 7,
         ballInCourt: {
           party: 'the engineer',
@@ -720,7 +744,10 @@ describe('confirming an extraction', () => {
     const confirmed = await post(
       app,
       `/v1/extractions/${pending.id}/confirm`,
-      confirmBody({ number: 'RFI-014', subject: 'Panel schedule clarification' }),
+      confirmBody(app, {
+        number: 'RFI-014',
+        subject: 'Panel schedule clarification',
+      }),
     );
     expect(confirmed.status).toBe(201);
 
@@ -790,7 +817,7 @@ describe('confirming an extraction', () => {
     const noQuestion = await post(
       app,
       `/v1/extractions/${pending.id}/confirm`,
-      confirmBody({ question: undefined }),
+      fieldsBody({ question: undefined }),
     );
     expect(noQuestion.status).toBe(409);
     expect(await noQuestion.json()).toEqual({ message: 'an RFI needs a question' });
@@ -798,7 +825,7 @@ describe('confirming an extraction', () => {
     const submittalWithQuestion = await post(
       app,
       `/v1/extractions/${pending.id}/confirm`,
-      confirmBody({ kind: 'SUBMITTAL' }),
+      fieldsBody({ kind: 'SUBMITTAL' }),
     );
     expect(submittalWithQuestion.status).toBe(409);
     expect(await submittalWithQuestion.json()).toEqual({
@@ -825,7 +852,7 @@ describe('confirming an extraction', () => {
     const { extraction: queued } = await arrivalExtraction(app, project.id);
     const pending = await reaches(app, queued.id, 'pending');
 
-    const collision = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody());
+    const collision = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody(app));
     expect(collision.status).toBe(409);
     expect(await collision.json()).toEqual({
       message: 'that number is already in this register',
@@ -836,7 +863,7 @@ describe('confirming an extraction', () => {
     const retry = await post(
       app,
       `/v1/extractions/${pending.id}/confirm`,
-      confirmBody({ number: 'RFI-002' }),
+      confirmBody(app, { number: 'RFI-002' }),
     );
     expect(retry.status).toBe(201);
   });
@@ -849,7 +876,7 @@ describe('confirming an extraction', () => {
     });
     const pending = await reaches(app, queued.id, 'pending');
 
-    const confirmed = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody());
+    const confirmed = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody(app));
     expect(confirmed.status).toBe(409);
     expect(await confirmed.json()).toEqual({
       message: "that file's type is not one a document version carries",
@@ -873,7 +900,7 @@ describe('confirming an extraction', () => {
     const project = await createProject(app, 'T-1', 'Office fit-out');
     const { extraction: queued } = await arrivalExtraction(app, project.id);
 
-    const early = await post(app, `/v1/extractions/${queued.id}/confirm`, confirmBody());
+    const early = await post(app, `/v1/extractions/${queued.id}/confirm`, confirmBody(app));
     expect(early.status).toBe(409);
     expect(await early.json()).toEqual({
       message: 'that extraction has not proposed',
@@ -883,8 +910,8 @@ describe('confirming an extraction', () => {
     const project2 = await createProject(running, 'T-2', 'Clinic');
     const { extraction: second } = await arrivalExtraction(running, project2.id);
     const pending = await reaches(running, second.id, 'pending');
-    await post(running, `/v1/extractions/${pending.id}/confirm`, confirmBody());
-    const again = await post(running, `/v1/extractions/${pending.id}/confirm`, confirmBody());
+    await post(running, `/v1/extractions/${pending.id}/confirm`, confirmBody(running));
+    const again = await post(running, `/v1/extractions/${pending.id}/confirm`, confirmBody(running));
     expect(again.status).toBe(409);
     expect(await again.json()).toEqual({
       message: 'that extraction is already resolved',
@@ -933,7 +960,7 @@ describe('rejecting an extraction', () => {
     await post(app, `/v1/extractions/${pending.id}/reject`);
     const again = await post(app, `/v1/extractions/${pending.id}/reject`);
     expect(again.status).toBe(409);
-    const confirm = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody());
+    const confirm = await post(app, `/v1/extractions/${pending.id}/confirm`, confirmBody(app));
     expect(confirm.status).toBe(409);
   });
 });

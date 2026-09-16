@@ -2,9 +2,15 @@
 
 import type { FastifyInstance } from 'fastify';
 import { NOT_BLANK, type RouteDependencies, instant } from '../http.js';
-import { noSuchOpenItem, noSuchProject } from '../refusals.js';
+import {
+  noSuchOpenItem,
+  noSuchProject,
+  refuse,
+  userRefusal,
+} from '../refusals.js';
+import { namedUser, openItemOnTheWire } from '../wire.js';
 import { audit } from '../audit.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 /**
  * Caps are chosen the way the project name's 200 was: the plan states none,
@@ -27,8 +33,19 @@ export const openItemBodySchema = {
     waitingSince: { type: 'string', format: 'date-time' },
     invalidationTrigger: { type: 'string', pattern: NOT_BLANK, maxLength: 500 },
     counterfactual: { type: 'string', pattern: NOT_BLANK, maxLength: 1000 },
-    owner: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
+    // No `owner` here since issue #112: an item is raised by whoever is
+    // signed in and sits with them from that moment, so there is nothing for
+    // the body to say. Handing it on is `POST /v1/open-items/:id/owner`, the
+    // correction rather than the entry path (ADR-0055 part 5).
   },
+} as const;
+
+/** Handing an item on. The person only; nothing else about an item. */
+export const ownerBodySchema = {
+  type: 'object',
+  required: ['ownerId'],
+  additionalProperties: false,
+  properties: { ownerId: { type: 'string' } },
 } as const;
 
 /**
@@ -66,6 +83,13 @@ const pendingQuerySchema = {
   properties: {
     waitingOn: { type: 'string', pattern: NOT_BLANK, maxLength: 120 },
     sort: { type: 'string', enum: ['oldest', 'newest'], default: 'oldest' },
+    // *Mine* (issue #112, ADR-0055 part 5). It defaults to **false** here and
+    // to true on the screen, which is not a contradiction: what this route
+    // means is what the glossary says — every unresolved item across every
+    // job — and which of them an engineer is shown first is the screen's
+    // decision, the way ADR-0038 kept the morning screen's two counts a
+    // matter for the screen and not a payload.
+    mine: { type: 'boolean', default: false },
   },
 } as const;
 
@@ -100,7 +124,6 @@ export function openItemRoutes(
       waitingSince?: string;
       invalidationTrigger?: string;
       counterfactual: string;
-      owner?: string;
     };
   }>(
     '/projects/:id/open-items',
@@ -123,7 +146,9 @@ export function openItemRoutes(
             subjectType: 'PROJECT',
             subjectId: project.id,
             waitingSince: instant(waitingSince, timeSource),
+            ownerId: callerOf(request).userId,
           },
+          include: { owner: namedUser },
         });
         await audit(tx, {
           projectId: project.id,
@@ -135,7 +160,7 @@ export function openItemRoutes(
         });
         return created;
       });
-      return reply.code(201).send(item);
+      return reply.code(201).send(openItemOnTheWire(item));
     },
   );
 
@@ -156,14 +181,16 @@ export function openItemRoutes(
         return noSuchProject(reply);
       }
 
-      return prisma.openItem.findMany({
+      const listed = await prisma.openItem.findMany({
         where: {
           subjectType: 'PROJECT',
           subjectId: project.id,
           resolvedAt: request.query.resolved ? { not: null } : null,
         },
         orderBy: { waitingSince: 'asc' },
+        include: { owner: namedUser },
       });
+      return listed.map(openItemOnTheWire);
     },
   );
 
@@ -176,11 +203,13 @@ export function openItemRoutes(
    * and an unresolved item on a finished job is exactly the thing that
    * would otherwise be lost.
    */
-  v1.get<{ Querystring: { waitingOn?: string; sort: 'oldest' | 'newest' } }>(
+  v1.get<{
+    Querystring: { waitingOn?: string; sort: 'oldest' | 'newest'; mine: boolean };
+  }>(
     '/open-items',
     { schema: { querystring: pendingQuerySchema } },
     async (request) => {
-      const { waitingOn, sort } = request.query;
+      const { waitingOn, sort, mine } = request.query;
 
       const items = await prisma.openItem.findMany({
         where: {
@@ -188,8 +217,14 @@ export function openItemRoutes(
           ...(waitingOn === undefined
             ? {}
             : { waitingOn: meansNobody(waitingOn) ? null : waitingOn }),
+          // *Mine* is the default on the screen and the reason the column
+          // stopped being free text (ADR-0055 part 5). The caller's own id
+          // and never a supplied one: asking about somebody else is a
+          // different question, and this one has no answer but *me*.
+          ...(mine ? { ownerId: callerOf(request).userId } : {}),
         },
         orderBy: { waitingSince: sort === 'newest' ? 'desc' : 'asc' },
+        include: { owner: namedUser },
       });
 
       // A polymorphic subject cannot be joined, and the view is unusable
@@ -207,7 +242,7 @@ export function openItemRoutes(
       const byId = new Map(projects.map((p) => [p.id, p]));
 
       return items.map((item) => ({
-        ...item,
+        ...openItemOnTheWire(item),
         project: byId.get(item.subjectId) ?? null,
       }));
     },
@@ -242,6 +277,7 @@ export function openItemRoutes(
         const resolved = await tx.openItem.update({
           where: { id },
           data: { resolutionNote: request.body.note, resolvedAt },
+          include: { owner: namedUser },
         });
         await audit(tx, {
           projectId: item.subjectId,
@@ -251,7 +287,7 @@ export function openItemRoutes(
           detail: `${item.unresolved} — ${request.body.note}`,
           at,
         });
-        return resolved;
+        return openItemOnTheWire(resolved);
       });
     },
   );
@@ -278,6 +314,7 @@ export function openItemRoutes(
         const reopened = await tx.openItem.update({
           where: { id },
           data: { resolvedAt: null, resolutionNote: null },
+          include: { owner: namedUser },
         });
         await audit(tx, {
           projectId: item.subjectId,
@@ -290,7 +327,56 @@ export function openItemRoutes(
               : `${item.unresolved} — the resolution "${item.resolutionNote}" was cleared`,
           at,
         });
-        return reopened;
+        return openItemOnTheWire(reopened);
+      });
+    },
+  );
+
+  /**
+   * Handing an item on (issue #112, ADR-0055 part 5).
+   *
+   * The one thing about an open item that changes outside resolving it, and a
+   * named POST rather than a PATCH for the reason a walk's **conducted by**
+   * is one: nothing else here is editable, and a route that took the record
+   * would say otherwise. A resolved item may still be handed on — whose it
+   * was is a fact about the work, not about whether the work is finished.
+   */
+  v1.post<{ Params: { id: string }; Body: { ownerId: string } }>(
+    '/open-items/:id/owner',
+    { schema: { body: ownerBodySchema } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const item = await prisma.openItem.findUnique({
+        where: { id },
+        include: { owner: namedUser },
+      });
+      if (item === null) {
+        return noSuchOpenItem(reply);
+      }
+
+      const badUser = await userRefusal(prisma, request.body.ownerId);
+      if (badUser !== null) {
+        return refuse(reply, badUser);
+      }
+
+      const at = timeSource.now();
+      return prisma.$transaction(async (tx) => {
+        const moved = await tx.openItem.update({
+          where: { id },
+          data: { ownerId: request.body.ownerId },
+          include: { owner: namedUser },
+        });
+        // Both names, because the column it moved from is overwritten and the
+        // line is the only place the handover survives.
+        await audit(tx, {
+          projectId: item.subjectId,
+          actor: actorOf(request),
+          subject: { type: 'open-item', id: moved.id },
+          action: 'open item handed on',
+          detail: `${item.unresolved} — ${item.owner.name} handed it to ${moved.owner.name}`,
+          at,
+        });
+        return openItemOnTheWire(moved);
       });
     },
   );

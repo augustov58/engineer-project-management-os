@@ -12,6 +12,8 @@ import {
   createSubmission,
 } from '../../actions';
 import {
+  REGISTER_NAMES,
+  getMemory,
   getProject,
   listClock,
   listDocuments,
@@ -26,8 +28,7 @@ import {
   listRegisters,
   listSiteVisits,
   listSubmissions,
-  getMemory,
-  REGISTER_NAMES,
+  listUsers,
 } from '../../api';
 import { DocumentForm } from '../../document-form';
 import { DocumentList } from '../../documents';
@@ -74,6 +75,7 @@ export default async function ProjectRecord({
     memoryProposals,
     arrivals,
     extractions,
+    users,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -102,6 +104,8 @@ export default async function ProjectRecord({
     listIngestedDocuments(id),
     // The extractions asked for on this job and their states (issue #20).
     listExtractions(id),
+    // Everyone at the firm, so an open item can be handed on (issue #112).
+    listUsers(),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
@@ -173,7 +177,13 @@ export default async function ProjectRecord({
         ) : (
           <ul className="space-y-3">
             {unresolved.map((item) => (
-              <OpenItemEntry timeZone={project.timezone} key={item.id} item={item} projectId={id} />
+              <OpenItemEntry
+                timeZone={project.timezone}
+                key={item.id}
+                item={item}
+                projectId={id}
+                users={users}
+              />
             ))}
           </ul>
         )}
@@ -618,7 +628,13 @@ export default async function ProjectRecord({
           </h2>
           <ul className="space-y-3">
             {resolved.map((item) => (
-              <OpenItemEntry timeZone={project.timezone} key={item.id} item={item} projectId={id} />
+              <OpenItemEntry
+                timeZone={project.timezone}
+                key={item.id}
+                item={item}
+                projectId={id}
+                users={users}
+              />
             ))}
           </ul>
         </section>

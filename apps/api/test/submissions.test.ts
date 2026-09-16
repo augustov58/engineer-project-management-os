@@ -169,6 +169,59 @@ test("a reorder that does not name exactly the project's phases is refused", asy
   expect((await phases(app, project.id)).map((p) => p.position)).toEqual([0, 1]);
 });
 
+test('phases added at the same moment take different positions', async () => {
+  const app = await api();
+  const project = await createProject(app, 'S-1', 'Riverside clinic');
+
+  // ADR-0026 left this open — "two concurrent creates would collide; this is
+  // a single-user tool" — and ADR-0055 made it a defect, because the tool is
+  // not one any more. A position is read and then inserted, so every request
+  // that counts before any of them commits reads the same number and lands on
+  // the same place. Six at once rather than two, so a run that happened to
+  // serialise is not mistaken for a fix.
+  const wanted = ['50% CD', '90% CD', 'Permit Set', '100% CD', 'IFC', 'Record'];
+  const logged = await Promise.all(
+    wanted.map((name) =>
+      post(app, `/v1/projects/${project.id}/phases`, { name }),
+    ),
+  );
+  expect(logged.map((response) => response.status)).toEqual(
+    wanted.map(() => 201),
+  );
+
+  // Contiguous from zero is what the column promises, and what the reorder
+  // route's "name exactly this project's phases, once each" rests on.
+  const defined = await phases(app, project.id);
+  expect(defined.map((phase) => phase.position)).toEqual([0, 1, 2, 3, 4, 5]);
+  expect(names(defined).sort()).toEqual([...wanted].sort());
+});
+
+test('concurrent reorders leave one whole order standing, not a mixture', async () => {
+  const app = await api();
+  const project = await createProject(app, 'S-1', 'Riverside clinic');
+  const first = await createPhase(app, project.id, '50% CD');
+  const second = await createPhase(app, project.id, '90% CD');
+  const third = await createPhase(app, project.id, 'Building Permit Set');
+
+  // The screen binds the ordered list at render time, so two quick taps on
+  // the arrows post two whole lists derived from the same paint. Each is a
+  // legitimate order; what must not happen is half of each, and neither may
+  // fail — row locks taken in two different orders are a deadlock, which is a
+  // 500 on a double tap.
+  const path = `/v1/projects/${project.id}/phases/order`;
+  const forwards = [third.id, first.id, second.id];
+  const backwards = [second.id, third.id, first.id];
+  const answered = await Promise.all([
+    post(app, path, { phaseIds: forwards }),
+    post(app, path, { phaseIds: backwards }),
+  ]);
+  expect(answered.map((response) => response.status)).toEqual([200, 200]);
+
+  const after = await phases(app, project.id);
+  expect(after.map((phase) => phase.position)).toEqual([0, 1, 2]);
+  expect([forwards, backwards]).toContainEqual(after.map((phase) => phase.id));
+});
+
 // ── The current phase ─────────────────────────────────────────────────────
 
 test('a project carries a current phase, and a new submission defaults to it', async () => {

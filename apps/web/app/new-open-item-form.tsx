@@ -128,13 +128,6 @@ function Fields({
           </Label>
           <Input id="invalidationTrigger" name="invalidationTrigger" />
         </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="owner">
-            Owner{' '}
-            <span className="text-muted-foreground font-normal">optional</span>
-          </Label>
-          <Input id="owner" name="owner" />
-        </div>
       </div>
 
       <div className="flex items-center gap-3">

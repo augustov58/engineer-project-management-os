@@ -339,6 +339,44 @@ export async function createProject(
   return (await response.json()) as ProjectResponse;
 }
 
+/**
+ * A person, as every record that names one returns them (issues #105, #112).
+ *
+ * Three records name one on the wire — a walk's **conducted by**, an open
+ * item's **owner**, a handoff's **user** — and all three come back in this
+ * shape, because one projection composes all of them. The hash is not on it
+ * and neither is `disabledAt`.
+ */
+export interface UserResponse {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/**
+ * A second account, made through the route (issues #105, #112).
+ *
+ * Through `POST /v1/users` and not by writing a row: the harness's own
+ * bootstrap is the one direct write there is, and a *second* person is an
+ * ordinary audited mutation by somebody already signed in.
+ */
+export async function createUser(
+  api: TestApi,
+  name: string,
+  email: string,
+  password = 'a-second-analytical-engine',
+): Promise<UserResponse> {
+  const response = await api.fetch('/v1/users', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, email, password }),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST /v1/users returned ${response.status}`);
+  }
+  return (await response.json()) as UserResponse;
+}
+
 /** An open item as the API returns it. */
 export interface OpenItemResponse {
   id: string;
@@ -350,7 +388,8 @@ export interface OpenItemResponse {
   waitingSince: string;
   invalidationTrigger: string | null;
   counterfactual: string;
-  owner: string | null;
+  /** The person it sits with (issue #112). Never the raw `owner_id`. */
+  owner: UserResponse;
   resolvedAt: string | null;
   resolutionNote: string | null;
 }
@@ -362,7 +401,6 @@ export interface OpenItemBody {
   counterfactual: string;
   waitingSince?: string;
   invalidationTrigger?: string;
-  owner?: string;
 }
 
 /**
@@ -371,9 +409,13 @@ export interface OpenItemBody {
  *
  * Patching a field to `undefined` leaves it off the wire entirely rather than
  * sending a null, which is how a test says "this field was not supplied".
+ *
+ * The patch is untyped rather than `Partial<OpenItemBody>`, as `handoffBody`'s
+ * is and for its reason: one case sends an `owner`, which stopped being a
+ * field in issue #112 and is exactly the body the boundary exists to refuse.
  */
 export function openItemBody(
-  patch: Partial<OpenItemBody> = {},
+  patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     unresolved: 'Ceiling height at the north stair',
@@ -679,6 +721,8 @@ export interface SiteVisitResponse {
    * is "one dated observation event", and this is that date.
    */
   visitedOn: string;
+  /** Who walked it (issue #112). Never the raw `conducted_by`. */
+  conductedBy: UserResponse;
 }
 
 /** One floor's window in time, as the API returns it. */
@@ -1105,6 +1149,11 @@ export interface BallInCourtResponse {
   /** From when. The start of an interval the next handoff ends. */
   heldSince: string;
   createdAt: string;
+  /**
+   * The person it came to, where it came to us, and null where it went out
+   * to another party (issue #112). Never the raw `user_id`.
+   */
+  user: UserResponse | null;
 }
 
 /** A register entry as the API returns it. */
@@ -1164,6 +1213,7 @@ export interface HandoffBody {
   party: string;
   inOurCourt: boolean;
   heldSince?: string;
+  userId?: string;
 }
 
 export interface RegisterEntryBody {
@@ -1200,6 +1250,18 @@ export function handoffBody(patch: Record<string, unknown> = {}): HandoffBody {
     }
   }
   return body as unknown as HandoffBody;
+}
+
+/**
+ * Whoever is signed in, on a handoff that brings the ball to us (issue #112).
+ *
+ * The fixture supplies the person the way it supplies the session: a handoff
+ * in our court names one, and restating `api.user.id` at every call site would
+ * say nothing about a test whose subject is something else. A test that *is*
+ * about the rule posts its own body and sends none, or sends another account's.
+ */
+export function ours(api: TestApi, patch: Record<string, unknown> = {}) {
+  return handoffBody({ party: 'Us', inOurCourt: true, userId: api.user.id, ...patch });
 }
 
 export function registerEntryBody(
@@ -1245,7 +1307,7 @@ export async function createRegisterEntry(
   const response = await api.fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(registerEntryBody(patch)),
+    body: JSON.stringify(registerEntryBody({ ballInCourt: ours(api), ...patch })),
   });
   if (response.status !== 201) {
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);

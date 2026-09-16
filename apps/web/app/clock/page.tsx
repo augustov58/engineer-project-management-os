@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { inCourtDays } from '../ball-in-court';
 import { getProject, listClock, REGISTER_NAMES } from '../api';
+import { ScopeToggle, isMine, scopeHref, scopeOf } from '../scope';
 
 /** The point of this screen is what is sitting in our court right now. */
 export const dynamic = 'force-dynamic';
@@ -21,9 +22,13 @@ export const dynamic = 'force-dynamic';
 export default async function Clock({
   searchParams,
 }: {
-  searchParams: Promise<{ projectId?: string }>;
+  searchParams: Promise<{ projectId?: string; scope?: string }>;
 }) {
-  const { projectId } = await searchParams;
+  const { projectId, scope: asked } = await searchParams;
+  // *Mine* by default, as the count that linked here is (issue #112): read
+  // off the **current** handoff, so an entry handed to a colleague this
+  // morning is sitting in their court and not in mine.
+  const scope = scopeOf(asked);
 
   // The job is looked up first rather than alongside. `listClock` throws on
   // the API's 404, so fetching both together would turn an unknown id into a
@@ -35,7 +40,9 @@ export default async function Clock({
     notFound();
   }
 
-  const onTheClock = await listClock(projectId);
+  const onTheClock = await listClock(projectId, isMine(scope));
+  const here = (next: 'mine' | 'ours') =>
+    scopeHref('/clock', next, { projectId });
 
   return (
     <div className="space-y-6">
@@ -51,13 +58,16 @@ export default async function Clock({
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Clock</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           {onTheClock.length === 0
-            ? 'Nothing is sitting in our court past its turnaround.'
+            ? `Nothing is sitting in ${isMine(scope) ? 'my' : 'our'} court past its turnaround.`
             : `${onTheClock.length} ${
                 onTheClock.length === 1
-                  ? 'entry is past its clock'
-                  : 'entries are past their clock'
+                  ? `entry is${isMine(scope) ? ' in my court and' : ''} past its clock`
+                  : `entries are${isMine(scope) ? ' in my court and' : ''} past their clock`
               }${project === undefined ? ' across every live project' : ''}`}
         </p>
+        <div className="mt-3">
+          <ScopeToggle scope={scope} href={here} />
+        </div>
       </div>
 
       {onTheClock.length > 0 && (

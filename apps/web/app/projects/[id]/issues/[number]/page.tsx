@@ -10,7 +10,12 @@ import {
   createOpenItemOnIssue,
   reopenIssue,
 } from '../../../../actions';
-import { getIssue, getProject, listOpenItems } from '../../../../api';
+import {
+  getIssue,
+  getProject,
+  listOpenItems,
+  listUsers,
+} from '../../../../api';
 import { selectClassName } from '../../../../native-select';
 import { NewOpenItemForm } from '../../../../new-open-item-form';
 import { OpenItemEntry } from '../../../../open-item';
@@ -38,9 +43,11 @@ export default async function IssueRecord({
     notFound();
   }
 
-  const [found, project] = await Promise.all([
+  const [found, project, users] = await Promise.all([
     getIssue(id, wanted),
     getProject(id),
+    // Everyone at the firm, so an open item can be handed on (issue #112).
+    listUsers(),
   ]);
   if (found === undefined || project === undefined) {
     notFound();
@@ -250,7 +257,13 @@ export default async function IssueRecord({
         ) : (
           <ul className="space-y-3">
             {found.openItems.map((item) => (
-              <OpenItemEntry timeZone={project.timezone} key={item.id} item={item} projectId={id} />
+              <OpenItemEntry
+                timeZone={project.timezone}
+                key={item.id}
+                item={item}
+                projectId={id}
+                users={users}
+              />
             ))}
           </ul>
         )}
