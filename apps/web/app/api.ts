@@ -520,30 +520,80 @@ export interface Photo {
 }
 
 /**
- * A recording made on a walk, and the draft observation it becomes (issue #12).
+ * One turn of a walk's conversation: what the engineer captured, or what the
+ * agent proposed back (issue #12, widened by issue #114).
  *
  * The audio is not here and neither is the key it is under: the bytes come
- * back through `/voice-captures/:id/audio`, proxied by this app so the browser
- * never calls the API directly.
+ * back through `/turns/:id/audio`, proxied by this app so the browser never
+ * calls the API directly.
  */
-export interface VoiceCapture {
+export interface Proposal {
+  observed: string;
+  floor: string;
+  qualifier: string;
+  side: string | null;
+  sector: string | null;
+  /** The grammar, composed by the API — never spelled a second time here. */
+  location: string;
+  /** The finding the agent read this as another sighting of, if it read one. */
+  issueId: string | null;
+}
+
+export interface Turn {
   id: string;
-  siteVisitId: string;
-  captureKey: string;
-  recordedAt: string;
-  contentType: string;
-  byteSize: number;
+  conversationId: string;
+  /** Whose turn it is. */
+  speaker: 'ENGINEER' | 'AGENT';
+  /** Where it sits in the conversation, from 1. */
+  position: number;
+  /** Which kind of capture the engineer made. Null on the agent's turn. */
+  kind: 'VOICE' | 'TYPED' | null;
+  captureKey: string | null;
+  recordedAt: string | null;
+  contentType: string | null;
+  byteSize: number | null;
   transcribingSince: string | null;
-  /** What the vendor heard, verbatim. A correction never rewrites it. */
+  /** What was said, verbatim. A correction never rewrites it. */
   transcript: string | null;
   transcribedAt: string | null;
   failedAt: string | null;
   failure: string | null;
   createdAt: string;
+  /** The run this turn is, on the agent's turn and nowhere else. */
+  agentRunId: string | null;
   /** Derived from the four stamps on every read, and stored nowhere. */
   state: 'queued' | 'transcribing' | 'transcribed' | 'failed';
+  /** The draft the agent proposed, or null on every other turn. */
+  proposal: Proposal | null;
   /** The observation it became, or null while it is still a draft. */
   observation: Observation | null;
+}
+
+/**
+ * One proposal run held on a conversation (issue #114).
+ *
+ * The state and not the stamps: a screen has nothing to do with when a run
+ * started, only with whether it is still going — and `failure` is the sentence
+ * it shows when it is not. What the run *proposed* is not here at all: that is
+ * on its turn, on the conversation, and the run carries no transcript
+ * (ADR-0040, kept by ADR-0058).
+ */
+export interface CaptureRun {
+  id: string;
+  createdAt: string;
+  failure: string | null;
+  state: 'queued' | 'running' | 'finished' | 'failed';
+}
+
+/** A walk's conversation, with its turns in order (issue #114, ADR-0058). */
+export interface Conversation {
+  id: string;
+  projectId: string;
+  siteVisitId: string | null;
+  createdAt: string;
+  turns: Turn[];
+  /** The proposal runs asked for on it, oldest first. */
+  runs: CaptureRun[];
 }
 
 /**
@@ -556,17 +606,22 @@ export interface VoiceCapture {
  * server component, and Next turns every export of a client module into a
  * client reference it cannot call.
  */
-export function isWorking(capture: VoiceCapture): boolean {
-  return capture.state === 'queued' || capture.state === 'transcribing';
+export function isWorking(turn: Turn): boolean {
+  return turn.state === 'queued' || turn.state === 'transcribing';
 }
 
 /**
- * The engineer's move: a transcript to correct, or a failure to type from.
- * Both are drafts, and a failed one is still committable — that is what makes
- * a dead vendor unable to stop the walk being written up.
+ * The engineer's move: a capture to correct, or a failure to type from. Both
+ * are drafts, and a failed one is still committable — that is what makes a
+ * dead vendor unable to stop the walk being written up.
+ *
+ * Never the agent's turn: a proposal is read beside the capture it answers and
+ * is not itself a draft anybody confirms (issue #114).
  */
-export function awaitsReview(capture: VoiceCapture): boolean {
-  return capture.observation === null && !isWorking(capture);
+export function awaitsReview(turn: Turn): boolean {
+  return (
+    turn.speaker === 'ENGINEER' && turn.observation === null && !isWorking(turn)
+  );
 }
 
 /**
@@ -604,8 +659,8 @@ export interface SiteVisitDetail extends SiteVisit {
   observations: Observation[];
   /** In the order they were taken, which is the order the walk happened in. */
   photos: Photo[];
-  /** What was spoken on this walk, in the order it was said. */
-  voiceCaptures: VoiceCapture[];
+  /** The walk's conversation, with its turns in order (issue #114). */
+  conversation: Conversation;
   /** The write-ups asked for of this walk, oldest first. */
   reports: SiteVisitReport[];
 }
@@ -1048,7 +1103,7 @@ export type SubjectType =
   | 'observation'
   | 'issue'
   | 'photo'
-  | 'voice-capture'
+  | 'turn'
   | 'site-visit-report'
   | 'register-entry'
   | 'document'

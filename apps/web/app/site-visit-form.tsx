@@ -155,20 +155,36 @@ export function ObservationFields({
   pending,
   error,
   defaultObserved,
+  defaultFloor,
+  defaultQualifier,
+  defaultAxis = 'side',
+  defaultAxisValue,
   submitLabel = 'Record the observation',
   timeHint = 'Blank means now.',
 }: {
   action: (formData: FormData) => void;
   pending: boolean;
   error: string | undefined;
-  /** What the vendor heard, for the engineer to correct. */
+  /** What was captured, or what the agent proposed, for the engineer to correct. */
   defaultObserved?: string;
+  /**
+   * The rest of the draft, where something proposed one (issue #114).
+   *
+   * Seeds and never values: every field stays the engineer's to change, which
+   * is what makes the submit a confirmation rather than an acceptance. The
+   * form is otherwise **unchanged** — the ticket says the forms stay exactly as
+   * they are, and a default nobody passes renders what it always rendered.
+   */
+  defaultFloor?: string;
+  defaultQualifier?: string;
+  defaultAxis?: 'side' | 'sector';
+  defaultAxisValue?: string;
   submitLabel?: string;
   timeHint?: string;
 }) {
   // Native, because the action reads this out of FormData and the axis and
   // its value have to arrive together (ADR-0025).
-  const [axis, setAxis] = useState<'side' | 'sector'>('side');
+  const [axis, setAxis] = useState<'side' | 'sector'>(defaultAxis);
 
   // One per instance. A walk with three drafts awaiting review renders four of
   // these at once, and a fixed `id` would give every label on the page the
@@ -198,7 +214,13 @@ export function ObservationFields({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label htmlFor={`${field}-floor`}>Floor</Label>
-          <Input id={`${field}-floor`} name="floor" required placeholder="3" />
+          <Input
+            id={`${field}-floor`}
+            name="floor"
+            required
+            placeholder="3"
+            defaultValue={defaultFloor}
+          />
           <p className="text-muted-foreground text-sm">3, B1, M, PH.</p>
         </div>
         <div className="grid gap-1.5">
@@ -208,6 +230,7 @@ export function ObservationFields({
             name="qualifier"
             required
             placeholder="Stair B"
+            defaultValue={defaultQualifier}
           />
           <p className="text-muted-foreground text-sm">
             A landmark, a room number with a type gloss, a circulation element,
@@ -236,6 +259,7 @@ export function ObservationFields({
             name="axisValue"
             required
             placeholder={axis === 'side' ? 'A' : '4'}
+            defaultValue={defaultAxisValue}
             className="min-w-32 flex-1"
           />
         </div>

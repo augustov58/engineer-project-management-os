@@ -17,7 +17,7 @@ import type { RouteDependencies } from '../http.js';
  */
 const BYTES_PATH = {
   photo: (id: string) => `/v1/photos/${id}/bytes`,
-  voiceCapture: (id: string) => `/v1/voice-captures/${id}/audio`,
+  turn: (id: string) => `/v1/turns/${id}/audio`,
   siteVisitReport: (id: string) => `/v1/site-visit-reports/${id}/pdf`,
   documentVersion: (id: string) => `/v1/document-versions/${id}/bytes`,
   ingestedDocumentFile: (id: string) =>
@@ -87,7 +87,8 @@ export function exportRoutes(
       issueObservations,
       issueOpenItems,
       photos,
-      voiceCaptures,
+      conversations,
+      turns,
       siteVisitReports,
       registers,
       registerEntries,
@@ -121,7 +122,8 @@ export function exportRoutes(
       prisma.issueObservation.findMany({ orderBy: [{ issueId: 'asc' }, { observationId: 'asc' }] }),
       prisma.issueOpenItem.findMany({ orderBy: [{ issueId: 'asc' }, { openItemId: 'asc' }] }),
       prisma.photo.findMany(by),
-      prisma.voiceCapture.findMany(by),
+      prisma.conversation.findMany(by),
+      prisma.turn.findMany(by),
       prisma.siteVisitReport.findMany(by),
       prisma.register.findMany(by),
       prisma.registerEntry.findMany(by),
@@ -180,9 +182,8 @@ export function exportRoutes(
         issueObservations,
         issueOpenItems,
         photos: photos.map((row) => withBytes(row, BYTES_PATH.photo)),
-        voiceCaptures: voiceCaptures.map((row) =>
-          withBytes(row, BYTES_PATH.voiceCapture),
-        ),
+        conversations,
+        turns: turns.map((row) => withBytes(row, BYTES_PATH.turn)),
         siteVisitReports: siteVisitReports.map((row) =>
           withBytes(row, BYTES_PATH.siteVisitReport),
         ),

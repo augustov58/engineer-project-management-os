@@ -1,5 +1,6 @@
 'use server';
 
+import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { apiFetch, apiPath, getProject } from './api';
@@ -1122,14 +1123,15 @@ export interface CaptureRefusal {
   permanent: boolean;
 }
 
-export async function addVoiceCapture(
+export async function addRecording(
   siteVisitId: string,
   projectId: string,
   captureKey: string,
   recordedAt: string,
   audio: File,
 ): Promise<CaptureRefusal | undefined> {
-  const response = await send(`/site-visits/${siteVisitId}/voice-captures`, {
+  const response = await send(`/site-visits/${siteVisitId}/turns`, {
+    kind: 'VOICE',
     captureKey,
     recordedAt,
     contentType: audio.type,
@@ -1151,6 +1153,47 @@ export async function addVoiceCapture(
 }
 
 /**
+ * Typing into the walk's conversation (issue #114, ADR-0057).
+ *
+ * The other half of `addRecording` above and the same record: one route, one
+ * resend rule, one key minted by the client. What differs is what happens
+ * next — words that are already here queue a **proposal run** instead of a
+ * transcription, and the agent's reply arrives on the conversation.
+ *
+ * A `useActionState` action like every other form here, and deliberately not
+ * the recorder's loop: there is one turn per submit and nothing held on the
+ * device, because a tap that did not land leaves the words in the box.
+ */
+export async function typeATurn(
+  siteVisitId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const text = String(formData.get('text') ?? '');
+  const error = await refusal(
+    await send(`/site-visits/${siteVisitId}/turns`, {
+      kind: 'TYPED',
+      // Minted here rather than on the client, because a server action is one
+      // request: there is no held-and-resent path to reconcile, and the resend
+      // rule this satisfies is the record's rather than the phone's.
+      captureKey: randomUUID(),
+      // The engineer's own wall clock, which is what the observation is dated
+      // from — the browser is the only side that knows it (ADR-0054).
+      recordedAt: String(formData.get('recordedAt') ?? new Date().toISOString()),
+      text,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidateSiteVisit(siteVisitId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/**
  * The draft, corrected, becoming an observation (story 52).
  *
  * The same fields the typed form sends, read the same way — the axis and its
@@ -1160,8 +1203,8 @@ export async function addVoiceCapture(
  * observation from the moment the recording was made rather than from the
  * evening it was reviewed.
  */
-export async function commitVoiceCapture(
-  voiceCaptureId: string,
+export async function commitTurn(
+  turnId: string,
   siteVisitId: string,
   visitedOn: string,
   projectId: string,
@@ -1173,7 +1216,7 @@ export async function commitVoiceCapture(
   const zone = await zoneOf(projectId);
 
   const error = await refusal(
-    await send(`/voice-captures/${voiceCaptureId}/observation`, {
+    await send(`/turns/${turnId}/observation`, {
       observed: formData.get('observed'),
       observedAt: composeInstant(
         withDay(formData, visitedOn),
@@ -1197,12 +1240,12 @@ export async function commitVoiceCapture(
 }
 
 /** Asking the vendor again. The audio never moved; only the failure is cleared. */
-export async function retryVoiceCapture(
-  voiceCaptureId: string,
+export async function retryTranscription(
+  turnId: string,
   siteVisitId: string,
   projectId: string,
 ): Promise<void> {
-  await sendOrThrow(`/voice-captures/${voiceCaptureId}/retry`);
+  await sendOrThrow(`/turns/${turnId}/retry`);
   revalidateSiteVisit(siteVisitId, projectId);
 }
 

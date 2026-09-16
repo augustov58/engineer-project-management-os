@@ -22,8 +22,8 @@ import {
   reportOnTheWire,
   reportsMade,
   visitOnTheWire,
-  voiceCaptureOnTheWire,
-  voiceCapturesMade,
+  conversationHeld,
+  conversationOnTheWire,
   withLocation,
 } from '../wire.js';
 import { audit } from '../audit.js';
@@ -228,6 +228,13 @@ export function siteVisitRoutes(
             // somebody else is a correction — `conducted-by` below — rather
             // than the entry path (ADR-0055 part 5).
             conductedById: callerOf(request).userId,
+            // **Exactly one conversation, created with the visit** (issue
+            // #114, ADR-0058). In the same statement rather than a route of
+            // its own: a walk with no conversation is a walk nothing can be
+            // captured on, and there is nothing for the engineer to decide.
+            // It writes no audit line of its own — it is part of recording
+            // the walk, not a second mutation.
+            conversation: { create: { projectId: project.id, createdAt: at } },
           },
           include: { conductedBy: namedUser },
         });
@@ -297,10 +304,11 @@ export function siteVisitRoutes(
             orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
           },
           photos: photosTaken,
-          // What was spoken on this walk (issue #12), in the order it was
-          // said. A recording still awaiting review is a draft and is not an
-          // observation, so it is read here and not in the list above.
-          voiceCaptures: voiceCapturesMade,
+          // The walk's conversation (issue #12, widened by issue #114), with
+          // every turn in the order it was taken. A capture still awaiting
+          // review is a draft and is not an observation, so it is read here
+          // and not in the list above.
+          conversation: conversationHeld,
           // The write-ups asked for of this walk (issue #13), oldest first.
           // Here rather than on a list route of their own, because "the
           // generated report is retrievable from the visit" is the ticket's
@@ -312,12 +320,16 @@ export function siteVisitRoutes(
         return noSuchSiteVisit(reply);
       }
 
-      const { observations, photos, voiceCaptures, reports, ...visit } = found;
+      const { observations, photos, conversation, reports, ...visit } = found;
       return {
         ...visitOnTheWire(visit, visit.project.timezone),
         observations: observations.map(withLocation),
         photos: photos.map(photoOnTheWire),
-        voiceCaptures: voiceCaptures.map(voiceCaptureOnTheWire),
+        // Never null: the conversation is written in the same statement as the
+        // visit, so a walk without one is a database the migration did not
+        // reach rather than a state this product has.
+        conversation:
+          conversation === null ? null : conversationOnTheWire(conversation),
         reports: reports.map(reportOnTheWire),
       };
     },

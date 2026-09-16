@@ -29,7 +29,7 @@ import { siteVisitRoutes } from './routes/site-visits.js';
 import { submissionRoutes } from './routes/submissions.js';
 import { toolRoutes } from './routes/tools.js';
 import { userRoutes } from './routes/users.js';
-import { voiceRoutes } from './routes/voice.js';
+import { conversationRoutes } from './routes/conversations.js';
 
 export interface ServerDependencies {
   prisma: PrismaClient;
@@ -128,7 +128,7 @@ export function buildServer({
       siteVisitRoutes(v1, dependencies);
       issueRoutes(v1, dependencies);
       photoRoutes(v1, dependencies);
-      voiceRoutes(v1, dependencies);
+      conversationRoutes(v1, dependencies);
       reportRoutes(v1, dependencies);
       registerRoutes(v1, dependencies);
       documentRoutes(v1, dependencies);

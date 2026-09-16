@@ -150,6 +150,11 @@ model Project {
   /// whether its source was an arrival's file or a stored document's version.
   extractions RegisterEntryExtraction[]
 
+  /// The conversations held on this job (issue #114, ADR-0058). Exactly one
+  /// belongs to each site visit and any number belong to the project itself;
+  /// the project-level ones are the project chat's ticket, not this one.
+  conversations Conversation[]
+
   @@map("projects")
 }
 
@@ -548,14 +553,62 @@ model SiteVisit {
   conductedById String @map("conducted_by")
   conductedBy   User   @relation(fields: [conductedById], references: [id], onDelete: Restrict)
 
-  floors        SiteVisitFloor[]
-  observations  Observation[]
-  photos        Photo[]
-  voiceCaptures VoiceCapture[]
-  reports       SiteVisitReport[]
+  floors       SiteVisitFloor[]
+  observations Observation[]
+  photos       Photo[]
+  reports      SiteVisitReport[]
+
+  /// The walk's conversation (issue #114, ADR-0058). **Exactly one**, created
+  /// with the visit, held by a unique on the other side — optional here only
+  /// because Prisma cannot express a one-to-one whose required half is the
+  /// child. What was spoken and typed on this walk is read through it.
+  conversation Conversation?
 
   @@index([projectId, startedAt])
   @@map("site_visits")
+}
+
+/// A **conversation**: a record on a project, or on one site visit, holding
+/// **turns** in order (issue #114, ADR-0058, [[glossary]]: **Conversation**).
+///
+/// ADR-0057 wrote *"a conversation is the sequence of a visit's captures; it is
+/// not an agent run and has no table of its own"*, and ADR-0058 withdrew that
+/// one sentence before either was built: two conversations — the visit's and
+/// the project chat's — with two records would be the shape this product
+/// refuses, and a helper's output quoted in a chat is the **provenance** of the
+/// assumption record it becomes, so an ephemeral chat is refused on the
+/// record's own reason.
+///
+/// A visit has exactly one, created with it. A project has any number; the
+/// project-level ones are the project chat's ticket and nothing writes one
+/// here.
+model Conversation {
+  id String @id @default(uuid())
+
+  /// Whose job. Always set, including on a visit's conversation — it is the
+  /// visit's project, read once at creation rather than through the join every
+  /// time, because every route that answers for a conversation has to know it.
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  /// The walk this conversation is the capture surface for, or null for a
+  /// project-level one. **Unique**, which is the whole of "exactly one per
+  /// visit": a second would be a second place a walk's words lived.
+  siteVisitId String?    @map("site_visit_id")
+  siteVisit   SiteVisit? @relation(fields: [siteVisitId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at")
+
+  turns Turn[]
+
+  /// The proposal runs held on this conversation (issue #114). A run is a row
+  /// in `agent_runs` like a memory run, and this link is what tells the two
+  /// apart without that table gaining the `kind` column ADR-0040 refused.
+  runs AgentRun[]
+
+  @@unique([siteVisitId])
+  @@index([projectId, createdAt])
+  @@map("conversations")
 }
 
 /// One floor's entry in a visit's schedule: when it was started and when it was
@@ -657,11 +710,12 @@ model Observation {
   /// one, which is what keeps staying an observation the default path.
   issues IssueObservation[]
 
-  /// The recording this observation was committed from, if it was spoken
-  /// rather than typed (issue #12). Nothing here says whether there is one:
-  /// the capture points at this row and this row is written no differently,
-  /// which is what keeps typing and speaking the same record.
-  voiceCapture VoiceCapture?
+  /// The capture this observation was confirmed from, if it came from the
+  /// walk's conversation rather than the form (issue #12, renamed by issue
+  /// #114). Nothing here says whether there is one: the turn points at this row
+  /// and this row is written no differently, which is what keeps typing into a
+  /// form, speaking, and typing into the conversation the same record.
+  turn Turn?
 
   /// The photographs that evidence what was seen here (issue #113, ADR-0056).
   /// Nothing here says whether there are any, for the reason `issues` does not:
@@ -738,6 +792,11 @@ model Issue {
   observations IssueObservation[]
   openItems    IssueOpenItem[]
   photos       Photo[]
+
+  /// The agent turns that read a capture as another sighting of this finding
+  /// (issue #114). A proposal and never a sighting: a sighting is
+  /// `issue_observations` above, and nothing here says whether one exists.
+  proposedOn Turn[]
 
   @@unique([projectId, number])
   @@map("issues")
@@ -891,73 +950,135 @@ model Photo {
   @@map("photos")
 }
 
-/// A recording made during a site visit, and the draft observation it becomes
-/// (issue #12, stories 51-52).
+/// One **turn** of a conversation (issue #114, ADR-0058, [[glossary]]: **Turn**).
 ///
-/// The engineer speaks instead of typing, and what the vendor heard is reviewed
-/// and corrected before anything becomes a record — so transcription error
-/// never becomes record error.
+/// This table was `voice_captures` and is the same record widened twice. A
+/// **capture** is still the engineer's verbatim input on a walk and still
+/// becomes a draft the engineer answers before it is an observation — what
+/// changed is that it is now a turn on the visit's conversation, that the words
+/// may have been typed rather than spoken (ADR-0057), and that the agent's
+/// reply is a turn here too (ADR-0058).
+///
+/// **One table with columns that are null by role**, on ADR-0043's precedent,
+/// rather than two tables for one concept. The engineer's turn on a visit
+/// carries the capture machinery — `kind`, the recording, the four
+/// transcription stamps; the agent's turn carries the run it is and the draft
+/// it proposes, and neither carries the other's columns. CHECK constraints in
+/// the migration hold that, because it is a property of the record rather than
+/// a habit of the interface.
 ///
 /// **The draft is this row and not a state of an observation.** ADR-0030 put no
 /// status on `observations`, no category and no promotion route, and a test
 /// asserts the exact key set one comes back with; a `draft` column here would
-/// be that status arriving under another name. Committing writes an ordinary
+/// be that status arriving under another name. Confirming writes an ordinary
 /// observation and stamps `observation_id` here, which is slice 9's shape —
 /// promotion writes nothing at all to the row it points at.
 ///
+/// **Nothing edits a turn.** The transcript is never rewritten, the proposal is
+/// never revised, and the engineer's correction is the body of the confirm call
+/// and becomes `observations.observed`. An answer to the agent's question is the
+/// *next* turn, not an edit to the one that asked.
+///
 /// The audio goes to the injected `ObjectStore` and never into the database,
 /// the way a photograph's bytes do (ADR-0032); this row keeps the key.
-model VoiceCapture {
+model Turn {
   id String @id @default(uuid())
 
-  /// The walk it was recorded on, the way an observation and a photograph are
-  /// each bound to their visit and to nothing else. The project is the visit's.
-  siteVisitId String    @map("site_visit_id")
-  siteVisit   SiteVisit @relation(fields: [siteVisitId], references: [id])
+  /// The conversation this is a turn on, which is the walk it was made on: a
+  /// visit has exactly one conversation and it is created with it. The project
+  /// is the conversation's.
+  ///
+  /// This replaces the `site_visit_id` this table carried as `voice_captures`.
+  /// Keeping both would be two places the same fact lives, free to disagree the
+  /// first time a turn was moved.
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
 
-  /// The name the phone gave this recording before it tried to send it, unique
-  /// per visit.
+  /// Whose turn it is. A database enum for ADR-0036's reason: the set is the
+  /// record's and nothing outside this product can write it.
+  speaker TurnSpeaker
+
+  /// Where it sits in the conversation, from 1. Allocated under an advisory
+  /// lock on the conversation, the shape `routes/phases.ts` uses for the same
+  /// count-then-insert race — two turns arriving in the same instant would
+  /// otherwise read the same count and both take it.
+  position Int
+
+  /// Which kind of capture the engineer made — `VOICE` or `TYPED` (ADR-0057).
+  /// A database enum for ADR-0036's reason.
+  ///
+  /// **Null on the agent's turn**, which is not a capture. It would also be
+  /// null on an engineer's turn in a project conversation, which is the project
+  /// chat's ticket and not this one.
+  kind TurnKind?
+
+  /// The name the phone gave this capture before it tried to send it, unique
+  /// per conversation.
   ///
   /// This is the whole of story 112: the recording is held on the phone until
   /// the server acknowledges it, and a send that is retried after the signal
   /// comes back carries the same key. A photograph reconciles on its filename
-  /// (ADR-0032); a recording has no natural name, so the phone mints one.
+  /// (ADR-0032); a capture has no natural name, so the client mints one.
   ///
   /// Unlike the photograph's, a repeat is answered with the row rather than
   /// refused: a refusal does not tell the phone whether the first attempt
-  /// landed, and "without losing a recording" is what the story asks for.
-  captureKey String @map("capture_key")
-
-  /// When it was recorded, supplied by the phone that recorded it.
+  /// landed, and "without losing a recording" is what the story asks for. The
+  /// rule **holds for a typed turn too** (ADR-0057): a tap that did not visibly
+  /// land is retapped, and a conversation is not a place to say the same thing
+  /// twice by accident.
   ///
-  /// Required, and never falling back to the injected TimeSource, for
-  /// `photos.taken_at`'s reason: a recording sent an hour later when the signal
-  /// returned would otherwise be stamped with the moment it arrived, and the
-  /// observation it becomes is dated from this.
-  recordedAt DateTime @map("recorded_at")
+  /// Null on the agent's turn, which nothing resends.
+  captureKey String? @map("capture_key")
 
-  /// One of the audio types the boundary admits, held so the bytes can be
-  /// served back as what they are. A CHECK names the set, since the read route
-  /// hands this straight to a browser.
-  contentType String @map("content_type")
+  /// When the capture was made, supplied by the client that made it.
+  ///
+  /// Required on the engineer's turn, and never falling back to the injected
+  /// TimeSource, for `photos.taken_at`'s reason: a recording sent an hour later
+  /// when the signal returned would otherwise be stamped with the moment it
+  /// arrived, and the observation it becomes is dated from this.
+  ///
+  /// Null on the agent's turn: the agent was not standing anywhere.
+  recordedAt DateTime? @map("recorded_at")
 
-  /// What was stored, so a list renders without reading every object.
-  byteSize Int @map("byte_size")
+  /// The recording, for a `VOICE` turn: one of the audio types the boundary
+  /// admits, what was stored, and where it is in the object store. A CHECK
+  /// names the audio set, since the read route hands the type straight to a
+  /// browser; the key is never on the wire.
+  ///
+  /// All three are null on a `TYPED` turn and on the agent's — ADR-0057's
+  /// "`storage_key` nullable for a typed one", and there is no recording to
+  /// describe.
+  contentType String? @map("content_type")
+  byteSize    Int?    @map("byte_size")
+  storageKey  String? @unique @map("storage_key")
 
-  /// Where the audio is in the object store. Never on the wire.
-  storageKey String @unique @map("storage_key")
+  /// **The words, verbatim.** What the vendor heard on a `VOICE` turn, what was
+  /// typed on a `TYPED` one, and the agent's question on its own — one column,
+  /// because a turn is one message and "its words verbatim" is one fact
+  /// (ADR-0057, ADR-0058).
+  ///
+  /// **Nothing rewrites it.** The engineer's correction is the body of the
+  /// confirm call and becomes `observations.observed`; both facts are kept,
+  /// which is what makes "transcription error never became record error"
+  /// checkable (ADR-0029's verbatim shape).
+  ///
+  /// Null while a recording is still with the vendor, and null on an agent turn
+  /// whose proposal is fields rather than a question.
+  transcript String?
 
-  /// The four stamps the state is read from. There is no status column, for
-  /// ADR-0024's reason and ADR-0031's: `resolved_at` and `closed_at` are how
-  /// this product says what has happened to a record, and a second answer
-  /// beside them is a second thing to keep true.
+  /// The four stamps a `VOICE` turn's transcription state is read from. There
+  /// is no status column, for ADR-0024's reason and ADR-0031's: `resolved_at`
+  /// and `closed_at` are how this product says what has happened to a record,
+  /// and a second answer beside them is a second thing to keep true.
   ///
   /// Queued is all four null. `transcribing_since` is stamped when the worker
   /// picks the job up; `transcript` and `transcribed_at` move together, as do
   /// `failed_at` and `failure`. Retrying clears the failure and the start, the
   /// way reopening an issue clears `closed_at` and `closure_note`.
+  ///
+  /// A `TYPED` turn has its words at once and never reaches a vendor, so all
+  /// four stay null and it reads as *transcribed* from the first instant.
   transcribingSince DateTime? @map("transcribing_since")
-  transcript        String?
   transcribedAt     DateTime? @map("transcribed_at")
   failedAt          DateTime? @map("failed_at")
 
@@ -966,16 +1087,47 @@ model VoiceCapture {
   /// where it is, and nothing about what the engineer does next differs.
   failure String?
 
+  /// The run this turn **is** (issue #114, ADR-0058 part 3).
+  ///
+  /// Every agent turn is a row in `agent_runs`, under the run-scoped session of
+  /// the person whose typed turn asked for it — and **the run carries no
+  /// transcript** (ADR-0040 §"a run carries no transcript" stands): the words
+  /// live here, on the conversation. Unique, so one run produces at most one
+  /// turn, which is `memory_proposals.run_id`'s shape and for its reason.
+  ///
+  /// Null on every engineer turn.
+  agentRunId String?   @unique @map("agent_run_id")
+  agentRun   AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: Restrict)
+
+  /// What the agent proposed on its own turn (ADR-0057 part 3, ADR-0058 part
+  /// 2): the draft's fields — the location grammar's four columns, what was
+  /// observed, and the finding this reads as another sighting of — or, when a
+  /// field cannot be proposed, the question in `transcript` above instead.
+  ///
+  /// Columns on the row rather than a proposals table, which is ADR-0043's
+  /// shape and for its reasons: there is no base to snapshot, and the engineer
+  /// edits the fields at confirmation rather than against a drifting original.
+  ///
+  /// All null on an engineer's turn, and all null on an agent turn that asked a
+  /// question. **Nothing here is an observation** — the agent never writes one.
+  proposedObserved  String? @map("proposed_observed")
+  proposedFloor     String? @map("proposed_floor")
+  proposedQualifier String? @map("proposed_qualifier")
+  proposedSide      String? @map("proposed_side")
+  proposedSector    String? @map("proposed_sector")
+
+  /// The finding the agent read this as another sighting of, if it read it as
+  /// one. A proposal and nothing more: a sighting is `issue_observations`, it
+  /// burns an identifier that is never given back (ADR-0031), and promotion
+  /// stays the engineer's second act under the observation.
+  proposedIssueId String? @map("proposed_issue_id")
+  proposedIssue   Issue?  @relation(fields: [proposedIssueId], references: [id], onDelete: Restrict)
+
   /// The observation this draft became, or null while it is still a draft.
   ///
-  /// Unique, so one recording becomes at most one observation — the shape
+  /// Unique, so one capture becomes at most one observation — the shape
   /// `issue_observations.observation_id` has, and for its reason: a double tap
   /// that committed twice would write the same words into the record twice.
-  ///
-  /// The transcript above is **never rewritten** when the engineer corrects it.
-  /// What the vendor heard and what was recorded are two facts, and keeping
-  /// both is what makes "transcription error never became record error"
-  /// something anybody can check afterwards (ADR-0029's verbatim shape).
   observationId String?      @unique @map("observation_id")
   /// `Restrict` named explicitly, because Prisma defaults an optional relation
   /// to `SetNull` while every foreign key in this schema is RESTRICT on delete.
@@ -983,13 +1135,35 @@ model VoiceCapture {
   /// the two older ones that already differ.
   observation   Observation? @relation(fields: [observationId], references: [id], onDelete: Restrict)
 
-  /// Entry order, so two recordings made in the same minute do not list at
-  /// random.
+  /// Entry order, the tie-break under `position`.
   createdAt DateTime @map("created_at")
 
-  @@unique([siteVisitId, captureKey])
-  @@index([siteVisitId, recordedAt])
-  @@map("voice_captures")
+  @@unique([conversationId, captureKey])
+  @@unique([conversationId, position])
+  @@map("turns")
+}
+
+/// Whose turn it is (issue #114, ADR-0058).
+///
+/// The engineer and the agent, and nothing else: there is one person in a
+/// conversation and one thing answering. A database enum for ADR-0036's
+/// reason — nothing outside this product writes it.
+enum TurnSpeaker {
+  ENGINEER
+  AGENT
+
+  @@map("turn_speaker")
+}
+
+/// Which kind of capture the engineer made (issue #114, ADR-0057).
+///
+/// A database enum, named by ADR-0057 for ADR-0036's reason. *Voice* is a
+/// recording the vendor transcribes; *typed* is words that arrive complete.
+enum TurnKind {
+  VOICE
+  TYPED
+
+  @@map("turn_kind")
 }
 
 /// The write-up of a walk, rendered to PDF off the request (issue #13).
@@ -1681,6 +1855,24 @@ model AgentRun {
   /// proposal's side — one run, at most one proposal.
   proposal MemoryProposal?
 
+  /// The conversation this run is a turn on, or null for a memory run (issue
+  /// #114, ADR-0058 part 3).
+  ///
+  /// **This is not the `kind` column ADR-0040 refused**, and the difference is
+  /// the reason ADR-0043 gave for not reusing this table: what that ADR needed
+  /// was for "a memory screen reading `agent_runs` per project" to be able to
+  /// keep another kind of run out of its list, and a column naming a kind is
+  /// the answer it declined to add. A link to the record the run belongs to is
+  /// what `sessions.agent_run_id` already is, and the memory read narrows on
+  /// its absence rather than on a value.
+  conversationId String?       @map("conversation_id")
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+
+  /// The turn this run wrote, if it proposed at all (issue #114). Unique from
+  /// the turn's side — one run, at most one turn — and absent on a run that
+  /// failed, which is the honest state: there is no reply.
+  turn Turn?
+
   /// The session the run's tools call the API under (issue #105, ADR-0055).
   /// A list from this side because a `sessions` row is revoked and never
   /// deleted, so a run that was asked for twice would have two; in practice
@@ -1692,6 +1884,7 @@ model AgentRun {
   auditEntries AuditEntry[]
 
   @@index([projectId, createdAt])
+  @@index([conversationId, createdAt])
   @@map("agent_runs")
 }
 

@@ -81,6 +81,7 @@ async function actions(app: TestApi, projectId: string) {
 const AUDITED = [
   'DELETE /v1/sessions/current',
   'DELETE /v1/submissions/:id/open-items/:openItemId',
+  'POST /v1/capture-runs/:id/proposal',
   'POST /v1/assumption-records/:id/assumptions/:line/counterfactual',
   'POST /v1/assumption-records/:id/flags/:line/open-item',
   'POST /v1/documents/:id/extractions',
@@ -138,16 +139,16 @@ const AUDITED = [
   'POST /v1/site-visits/:id/observations',
   'POST /v1/site-visits/:id/photos',
   'POST /v1/site-visits/:id/reports',
-  'POST /v1/site-visits/:id/voice-captures',
+  'POST /v1/site-visits/:id/turns',
   'POST /v1/submissions/:id/assumption-records',
   'POST /v1/submissions/:id/documents/:documentVersionId',
   'POST /v1/submissions/:id/open-items',
   'POST /v1/submissions/:id/open-items/:openItemId',
   'POST /v1/submissions/:id/reissue',
+  'POST /v1/turns/:id/observation',
+  'POST /v1/turns/:id/retry',
   'POST /v1/users',
   'POST /v1/users/:id/disable',
-  'POST /v1/voice-captures/:id/observation',
-  'POST /v1/voice-captures/:id/retry',
 ];
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);

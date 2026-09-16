@@ -1,19 +1,21 @@
 /**
- * The worker: the four things in this product that run off the request —
+ * The worker: the five things in this product that run off the request —
  * transcription (issue #12), rendering a site visit report (issue #13), an
- * agent run proposing a memory edit (issue #18), and an extraction run over
- * an untrusted source (issue #20).
+ * agent run proposing a memory edit (issue #18), an extraction run over an
+ * untrusted source (issue #20), and an agent run proposing the draft a typed
+ * capture becomes (issue #114).
  *
  * BullMQ has been wired and idle since slice 1, and ADR-0032 deliberately kept
  * photo binning out of it — "date comparison and one regular expression". That
  * reasoning does not reach any of these. Asking a vendor what was said in
  * two minutes of audio is a network call of unbounded duration; printing a
  * walk's write-up starts a browser, decodes every photograph on it and lays
- * out a paginated document; and an extraction is an OCR call and a paid model
- * call, back to back. All four tickets' progress criteria presuppose that the
- * request has long since returned.
+ * out a paginated document; an extraction is an OCR call and a paid model
+ * call, back to back; and a capture proposal is a paid model call made while
+ * the engineer is still walking. All five tickets' progress criteria presuppose
+ * that the request has long since returned.
  *
- * One queue and four job names, dispatched below. A second queue would be a
+ * One queue and five job names, dispatched below. A second queue would be a
  * second thing to name, connect and close, for work the single concurrency
  * already serialises.
  *
@@ -55,11 +57,20 @@ export const PROPOSE_MEMORY_EDIT = 'propose-memory-edit';
 export const EXTRACT = 'extract';
 
 /**
+ * Asking the agent to propose the draft a typed capture becomes (issue #114).
+ *
+ * A fifth name on the one queue and **not** a fifth record: the run is a row in
+ * `agent_runs`, as a memory run is, and what tells the two apart is the
+ * conversation it points at (ADR-0058).
+ */
+export const PROPOSE_CAPTURE = 'propose-capture';
+
+/**
  * The id and nothing else. Everything the job needs is on the row, so a job
  * that sat in Redis across a restart cannot carry a stale copy of it.
  */
 export interface TranscribeJob {
-  voiceCaptureId: string;
+  turnId: string;
 }
 
 /** The id and nothing else, for the reason above. */
@@ -75,6 +86,11 @@ export interface ProposeMemoryEditJob {
 /** The id and nothing else, for the reason above. */
 export interface ExtractJob {
   extractionId: string;
+}
+
+/** The id and nothing else, for the reason above. */
+export interface ProposeCaptureJob {
+  agentRunId: string;
 }
 
 export interface WorkerDependencies {
@@ -114,12 +130,16 @@ export function buildWorker({
   connection,
   queueName,
 }: WorkerDependencies): Worker<
-  TranscribeJob | RenderReportJob | ProposeMemoryEditJob | ExtractJob
+  | TranscribeJob
+  | RenderReportJob
+  | ProposeMemoryEditJob
+  | ExtractJob
+  | ProposeCaptureJob
 > {
   /** Asking the vendor what was said (issue #12). */
-  const transcribe = async (voiceCaptureId: string) => {
-    const capture = await prisma.voiceCapture.findUnique({
-      where: { id: voiceCaptureId },
+  const transcribe = async (turnId: string) => {
+    const capture = await prisma.turn.findUnique({
+      where: { id: turnId },
       select: {
         id: true,
         storageKey: true,
@@ -127,7 +147,10 @@ export function buildWorker({
         transcribedAt: true,
       },
     });
-    if (capture === null) {
+    if (capture === null || capture.storageKey === null || capture.contentType === null) {
+      // No row, or a turn with no recording — a typed capture or the agent's
+      // reply. Neither is a job this product enqueues, so reaching here is a
+      // job that outlived its reason rather than work to do.
       return;
     }
     if (capture.transcribedAt !== null) {
@@ -143,7 +166,7 @@ export function buildWorker({
     // Stamped before the vendor is called, and clearing any earlier failure
     // as it goes: this is what a retry looks like from here, and what the
     // progress stream reads as "still working".
-    await prisma.voiceCapture.update({
+    await prisma.turn.update({
       where: { id: capture.id },
       data: {
         transcribingSince: timeSource.now(),
@@ -164,7 +187,7 @@ export function buildWorker({
       // second transcript landing here would silently overwrite the words
       // the engineer is part-way through correcting, which is the thing
       // that refusal exists to prevent.
-      await prisma.voiceCapture.updateMany({
+      await prisma.turn.updateMany({
         where: { id: capture.id, transcribedAt: null },
         data: { transcript, transcribedAt: timeSource.now() },
       });
@@ -173,9 +196,9 @@ export function buildWorker({
       // that rejected this audio will reject it again, and an attempt the
       // engineer did not ask for would move `transcribing_since` under the
       // screen they are reading. The audio is untouched in the store and
-      // `POST /voice-captures/:id/retry` is the way back — which is the
+      // `POST /turns/:id/retry` is the way back — which is the
       // ticket's "leaves the audio recoverable", made of parts that exist.
-      await prisma.voiceCapture.update({
+      await prisma.turn.update({
         where: { id: capture.id },
         data: {
           failedAt: timeSource.now(),
@@ -312,6 +335,110 @@ export function buildWorker({
       // that refused this run will refuse it again, and an attempt the
       // engineer did not ask for would move `running_since` under the screen
       // they are reading. Asking again is another run row.
+      await prisma.agentRun.updateMany({
+        where: { id: run.id, finishedAt: null, failedAt: null },
+        data: {
+          failedAt: timeSource.now(),
+          failure: reasonFor(error, 'the agent run service gave no reason'),
+        },
+      });
+    }
+  };
+
+  /**
+   * Asking the agent to propose the draft a typed capture becomes (issue #114).
+   *
+   * The memory run's shape exactly — the row is the record, the job carries the
+   * id, the start is stamped, and a failure is recorded rather than rethrown so
+   * BullMQ does not retry an attempt nobody asked for. Asking again is another
+   * typed turn, which is the same answer a memory run gives and for the same
+   * reason: every input is still in the database.
+   *
+   * What differs is the packet. The conversation is read **here and not carried
+   * on the job**, so the run answers the words as they stand when it runs
+   * rather than as they stood when it was asked for — which is what makes the
+   * engineer's answer to the agent's question reach the next run at all.
+   */
+  const proposeCapture = async (agentRunId: string) => {
+    const run = await prisma.agentRun.findUnique({
+      where: { id: agentRunId },
+      select: {
+        id: true,
+        projectId: true,
+        finishedAt: true,
+        failedAt: true,
+        conversation: {
+          select: {
+            id: true,
+            siteVisitId: true,
+            turns: {
+              orderBy: { position: 'asc' },
+              select: { speaker: true, transcript: true },
+            },
+          },
+        },
+      },
+    });
+    if (run === null || run.conversation === null) {
+      return;
+    }
+    if (run.finishedAt !== null || run.failedAt !== null) {
+      // Already settled, as a memory run is: a second attempt would ask a paid
+      // model again to produce a turn the unique `agent_run_id` would refuse.
+      return;
+    }
+
+    await prisma.agentRun.update({
+      where: { id: run.id },
+      data: { runningSince: timeSource.now() },
+    });
+
+    try {
+      const siteVisitId = run.conversation.siteVisitId;
+      if (siteVisitId === null) {
+        // A project conversation, which has no walk to read and no
+        // `capture_propose` to call. Its run is the project chat's ticket;
+        // until then, reaching here is a row nothing wrote.
+        throw new Error('that conversation is not on a site visit');
+      }
+
+      await underRunSession(
+        prisma,
+        { agentRunId: run.id },
+        timeSource,
+        (sessionId) =>
+          agentRunService.proposeCapture({
+            runId: run.id,
+            projectId: run.projectId,
+            siteVisitId,
+            conversation: {
+              // A turn with no words is the agent's own proposal of fields,
+              // which is on the record already and is not something to read
+              // back to it as though it had been said.
+              turns: run.conversation!.turns.flatMap((turn) =>
+                turn.transcript === null
+                  ? []
+                  : [
+                      {
+                        speaker:
+                          turn.speaker === 'AGENT'
+                            ? ('agent' as const)
+                            : ('engineer' as const),
+                        words: turn.transcript,
+                      },
+                    ],
+              ),
+            },
+            sessionId,
+          }),
+      );
+      // Compare-and-set, so a redelivered job that got past the read above
+      // writes nothing.
+      await prisma.agentRun.updateMany({
+        where: { id: run.id, finishedAt: null, failedAt: null },
+        data: { finishedAt: timeSource.now() },
+      });
+    } catch (error) {
       await prisma.agentRun.updateMany({
         where: { id: run.id, finishedAt: null, failedAt: null },
         data: {
@@ -465,7 +592,11 @@ export function buildWorker({
   };
 
   return new Worker<
-    TranscribeJob | RenderReportJob | ProposeMemoryEditJob | ExtractJob
+    | TranscribeJob
+    | RenderReportJob
+    | ProposeMemoryEditJob
+    | ExtractJob
+    | ProposeCaptureJob
   >(
     queueName,
     async (job) => {
@@ -485,7 +616,10 @@ export function buildWorker({
       if (job.name === EXTRACT) {
         return extract((job.data as ExtractJob).extractionId);
       }
-      return transcribe((job.data as TranscribeJob).voiceCaptureId);
+      if (job.name === PROPOSE_CAPTURE) {
+        return proposeCapture((job.data as ProposeCaptureJob).agentRunId);
+      }
+      return transcribe((job.data as TranscribeJob).turnId);
     },
     // One at a time. There is one engineer, one walk and one phone; a vendor
     // charging per request is not somewhere to discover concurrency, and two
