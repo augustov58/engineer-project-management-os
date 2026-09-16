@@ -58,7 +58,9 @@ apply to every path stay in `AGENTS.md`.
 - Nothing makes an observation a finding. There is no status column, no category and no
   promotion route (ADR-0030); becoming an **issue** (issue #10) is a row pointing at the
   observation and wrote nothing to it. A test asserts the exact key set an observation
-  returns, so a status cannot be added without a failing test saying so.
+  returns, so a status cannot be added without a failing test saying so. Since issue #113 an
+  observation may carry **photo evidence** — the photograph points at it, and this row is
+  still written no differently, which is the shape a **voice capture** already has.
 - An issue's identifier is an integer off `projects.issues_allocated`, a **high-water mark
   and not a count** (ADR-0031), read and incremented in the transaction that writes the
   issue. Do not compute the next one from `MAX(number) + 1` or `COUNT(*) + 1`: both hand the
@@ -128,6 +130,13 @@ apply to every path stay in `AGENTS.md`.
   question ADR-0031 handed to #13 by name. ADR-0032 had already reasoned the same way about
   evidence: July's photograph does not evidence August's re-observation. It is the same
   `where` clause `GET /v1/site-visits/:id/issues-without-photos` already uses.
+- The report prints **evidence beside what it evidences** (ADR-0056, issue #113): an
+  observation's photographs in the non-issue table, a finding's with the finding and
+  **derived** — what is stamped to it, union its sightings' — and nothing at all for a
+  floor-only photograph, which is unfiled. Each floor's schedule row prints its count of
+  unfiled photographs and renders a zero, with one line under the table for those that
+  binned to no floor. `.claude/rules/photos.md` carries the rest of that record's rules,
+  including why the two readers of the union are not shared.
 - **The renderer is not behind a port** (ADR-0035), deliberately departing from `TimeSource`,
   `ObjectStore` and `Transcriber`. Each of those defers a pick no test can exercise — a
   bucket that does not exist, a vendor account nobody has chosen. Chrome needs no account, no

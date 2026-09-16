@@ -182,6 +182,29 @@ export const photosTaken = {
   include: photoInclude,
 } satisfies Prisma.SiteVisit$photosArgs;
 
+/**
+ * The order `photosTaken` asks the database for, in JavaScript.
+ *
+ * It exists because a **union** of two ordered lists is not one, and since
+ * issue #113 a finding's evidence is exactly that: what is stamped to it,
+ * union its sightings'. Evidence out of order under a finding reads as a
+ * second afternoon.
+ *
+ * One comparator with two readers — here and `report.ts`'s `evidenceFor` — so
+ * the API's answer and the issued document cannot come to order the same
+ * photographs differently. The two *unions* stay separate, being narrowed
+ * differently (ADR-0056); this is the rule they share.
+ */
+export function inTheOrderTaken(
+  one: { takenAt: Date; createdAt: Date },
+  other: { takenAt: Date; createdAt: Date },
+): number {
+  return (
+    one.takenAt.getTime() - other.takenAt.getTime() ||
+    one.createdAt.getTime() - other.createdAt.getTime()
+  );
+}
+
 type StoredPhoto = Prisma.PhotoGetPayload<{ include: typeof photoInclude }>;
 
 /**
@@ -216,13 +239,18 @@ export const issueInclude = {
       observation: {
         include: {
           siteVisit: { select: { id: true, startedAt: true, endedAt: true } },
+          // The other half of this finding's evidence (issue #113, ADR-0056).
+          // Read here rather than by a second query because the sightings are
+          // already being loaded and a finding's evidence *is* them plus what
+          // is stamped to it — one read, and the union is taken below.
+          photos: photosTaken,
         },
       },
     },
   },
   openItems: chasedItems,
-  // The photo evidence for this finding, across every walk it was seen on
-  // (issue #11). A list, whose length is the count.
+  // The photographs stamped directly to this finding (issue #11) — half of
+  // its evidence, the other half being the sightings' above.
   photos: photosTaken,
   // `satisfies` rather than `as const`, which the other includes here use:
   // Prisma's `orderBy` takes a mutable array, and `as const` makes this one
@@ -242,17 +270,43 @@ type Finding = Prisma.IssueGetPayload<{ include: typeof issueInclude }>;
  */
 export function withSightings(found: Finding, timeZone: string) {
   const { observations, openItems, photos, ...issue } = found;
+
+  /**
+   * A finding's evidence, **derived** (issue #113, ADR-0056): the photographs
+   * stamped to it, union the photographs of its sightings. Promotion writes
+   * nothing to a photograph, so this is where the two halves meet — the one
+   * place ADR-0032's *stamped, never derived* is amended, and for this path
+   * only. The floor binding and the filename's are still stamped.
+   *
+   * Nothing is deduplicated because nothing can repeat: a photograph holds at
+   * most one of `observation_id` and `issue_id` (the CHECK), so the two lists
+   * are disjoint by construction, and `observation_id` is unique on a sighting
+   * so an observation appears under a finding once.
+   *
+   * Sorted rather than concatenated: each half arrives ordered and the union of
+   * two ordered lists is not one. `inTheOrderTaken` above is that sort, shared
+   * with the report so the two cannot come to disagree.
+   */
+  const evidence = [
+    ...photos,
+    ...observations.flatMap(({ observation }) => observation.photos),
+  ].sort(inTheOrderTaken);
+
   return {
     ...issue,
     observations: observations.map(({ observation }) => {
-      const { siteVisit, ...sighting } = observation;
+      // The sighting's own photographs come off here: they are read above as
+      // the finding's evidence, and which sighting each one belongs to is not
+      // a question this record answers (issue #96's second consequence, left
+      // open by ADR-0056 on purpose).
+      const { siteVisit, photos: _evidence, ...sighting } = observation;
       return {
         ...withLocation(sighting),
         siteVisit: withDate(siteVisit, timeZone),
       };
     }),
     openItems: openItems.map((row) => openItemOnTheWire(row.openItem)),
-    photos: photos.map(photoOnTheWire),
+    photos: evidence.map(photoOnTheWire),
   };
 }
 

@@ -4,6 +4,7 @@ import { useActionState, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { selectClassName } from './native-select';
+import { EVIDENCES_NOTHING, evidenceValue } from './photo-evidence';
 import { clock } from './wall-clock';
 import type { AddState } from './actions';
 
@@ -145,29 +146,41 @@ export function PhotoForm({
 }
 
 /**
- * The two bindings on one photograph, each corrected in one action — the
- * quality bar ADR-0025 holds this ticket to, so both selects submit on the
- * change rather than waiting for a second click on a button beside them.
+ * The bindings on one photograph, each corrected in one action — the quality
+ * bar ADR-0025 holds this ticket to, so every select submits on the change
+ * rather than waiting for a second click on a button beside them.
  *
- * Two controls and not one, because the mechanisms are independent: a
- * photograph binned to the wrong floor and bound to the right finding needs
- * one of them fixed and not both restated.
+ * **Two controls, not three** (issue #113, ADR-0056). The floor is its own,
+ * because the mechanisms are independent: a photograph binned to the wrong
+ * floor and bound to the right finding needs one of them fixed and not both
+ * restated. What it *evidences* is one control for one fact — a photograph
+ * evidences at most one of an observation and a finding, and moving it between
+ * the two is the single action the ADR asks for rather than an unbind and a
+ * bind.
  */
 export function PhotoBindings({
   floor,
   floors,
+  observationId,
+  observations,
   issueNumber,
   issues,
+  timeZone,
   bindFloor,
-  bindIssue,
+  bindEvidence,
 }: {
   floor: string | null;
   /** Every floor this walk knows about, scheduled or merely observed on. */
   floors: string[];
+  observationId: string | null;
+  /** This walk's observations, in the order they were made. */
+  observations: { id: string; location: string; observedAt: string }[];
   issueNumber: number | null;
   issues: { number: number; category: string }[];
+  /** The zone of the building, which is what these times are read in. */
+  timeZone: string;
   bindFloor: (formData: FormData) => void;
-  bindIssue: (formData: FormData) => void;
+  bindEvidence: (formData: FormData) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -194,22 +207,96 @@ export function PhotoBindings({
         </select>
       </form>
 
-      <form action={bindIssue}>
+      <form action={bindEvidence}>
         <select
-          name="issueNumber"
-          aria-label="The finding this photograph is evidence of"
-          defaultValue={issueNumber === null ? '' : String(issueNumber)}
+          name="evidences"
+          aria-label="What this photograph is evidence of"
+          defaultValue={evidenceValue({ observationId, issueNumber })}
           onChange={(event) => event.currentTarget.form?.requestSubmit()}
           className={selectClassName}
         >
-          <option value="">No finding</option>
-          {issues.map((issue) => (
-            <option key={issue.number} value={issue.number}>
-              Issue {issue.number} · {issue.category}
-            </option>
-          ))}
+          {/* Unfiled, and named as the report names it: a photograph on a floor
+              and nothing else prints nowhere. */}
+          <option value={EVIDENCES_NOTHING}>Unfiled</option>
+          {observations.length > 0 && (
+            <optgroup label="Observations">
+              {observations.map((observation) => (
+                <option
+                  key={observation.id}
+                  value={evidenceValue({
+                    observationId: observation.id,
+                    issueNumber: null,
+                  })}
+                >
+                  {clock(observation.observedAt, timeZone)} ·{' '}
+                  {observation.location}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {issues.length > 0 && (
+            <optgroup label="Findings">
+              {issues.map((issue) => (
+                <option
+                  key={issue.number}
+                  value={evidenceValue({
+                    observationId: null,
+                    issueNumber: issue.number,
+                  })}
+                >
+                  Issue {issue.number} · {issue.category}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
       </form>
     </div>
+  );
+}
+
+/**
+ * The unfiled photographs on this observation's floor, offered on the
+ * observation's own row (issue #113, ADR-0056).
+ *
+ * The first use the floor binding has had beyond the report. Binding one is a
+ * single action, so this submits on the change like every other control here,
+ * and the picture leaves the shortlist because it is no longer unfiled.
+ *
+ * Rendered by the caller only when there is something in it: an empty picker
+ * under every observation on a walk with no loose photographs is a control
+ * that can do nothing, which is not the same as a count of zero.
+ */
+export function EvidenceShortlist({
+  photos,
+  timeZone,
+  bind,
+}: {
+  photos: { id: string; filename: string; takenAt: string }[];
+  timeZone: string;
+  bind: (formData: FormData) => void;
+}) {
+  return (
+    <form action={bind}>
+      {/* Native, because the action reads this out of FormData (ADR-0025). */}
+      <select
+        name="photoId"
+        aria-label="An unfiled photograph from this floor"
+        defaultValue=""
+        onChange={(event) => event.currentTarget.form?.requestSubmit()}
+        className={selectClassName}
+      >
+        <option value="" disabled>
+          {photos.length === 1
+            ? 'Attach the unfiled photograph on this floor'
+            : `Attach one of ${photos.length} unfiled photographs on this floor`}
+        </option>
+        {photos.map((photo) => (
+          <option key={photo.id} value={photo.id}>
+            {clock(photo.takenAt, timeZone)} · {photo.filename}
+          </option>
+        ))}
+      </select>
+    </form>
   );
 }

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { apiFetch, apiPath, getProject } from './api';
+import { chosenEvidence } from './photo-evidence';
 import { instantFrom } from './wall-clock';
 
 /**
@@ -886,21 +887,50 @@ export async function bindPhotoToFloor(
 }
 
 /**
- * Correcting the finding a photograph evidences (story 65). Independent of
- * the floor above, because the two mechanisms are: a photograph binned to the
- * wrong floor and bound to the right finding needs one fixed, not both
+ * Correcting what a photograph evidences (story 65, issue #113). Independent
+ * of the floor above, because the two mechanisms are: a photograph binned to
+ * the wrong floor and bound to the right finding needs one fixed, not both
  * restated.
+ *
+ * One request either way, which is what makes moving a photograph between an
+ * observation and a finding a single action: each of the two routes clears the
+ * other binding, so nothing here has to unbind first.
  */
-export async function bindPhotoToIssue(
+export async function bindPhotoEvidence(
   photoId: string,
   siteVisitId: string,
   projectId: string,
   formData: FormData,
 ): Promise<void> {
-  const chosen = omitIfBlank(formData, 'issueNumber');
-  await sendOrThrow(`/photos/${photoId}/issue`, {
-    issueNumber: chosen === undefined ? null : Number(chosen),
-  });
+  const chosen = chosenEvidence(String(formData.get('evidences') ?? ''));
+  await ('observationId' in chosen
+    ? sendOrThrow(`/photos/${photoId}/observation`, chosen)
+    : sendOrThrow(`/photos/${photoId}/issue`, chosen));
+  revalidatePhoto(siteVisitId, projectId);
+}
+
+/**
+ * Binding an unfiled photograph from the observation's own row (issue #113).
+ *
+ * The other direction through the same route: on the photograph's row the
+ * picture is in hand and the engineer picks what it evidences, here the
+ * observation is and they pick the picture. One action on either screen, which
+ * is what ADR-0056 asks of both.
+ */
+export async function bindPhotoToObservation(
+  observationId: string,
+  siteVisitId: string,
+  projectId: string,
+  formData: FormData,
+): Promise<void> {
+  const photoId = omitIfBlank(formData, 'photoId');
+  if (photoId === undefined) {
+    // The placeholder, which is `disabled` on the screen and so unreachable by
+    // hand. Returning is not a refusal to show: there is nothing to say, and a
+    // thrown error would replace the row with an error boundary.
+    return;
+  }
+  await sendOrThrow(`/photos/${photoId}/observation`, { observationId });
   revalidatePhoto(siteVisitId, projectId);
 }
 

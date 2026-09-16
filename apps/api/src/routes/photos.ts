@@ -14,6 +14,7 @@ import {
   issueInclude,
   photoInclude,
   photoOnTheWire,
+  renderLocation,
   withSightings,
 } from '../wire.js';
 import { audit } from '../audit.js';
@@ -102,6 +103,68 @@ const photoFloorBodySchema = {
   required: ['floor'],
   additionalProperties: false,
   properties: { floor: { oneOf: [FLOOR, { type: 'null' }] } },
+} as const;
+
+/**
+ * The four columns the location grammar renders from (ADR-0030), selected so
+ * an audit line can name an observation the way the screen does rather than by
+ * a row id nobody has written down.
+ */
+const observedWhere = {
+  floor: true,
+  qualifier: true,
+  side: true,
+  sector: true,
+} as const;
+
+type ObservedWhere = {
+  floor: string;
+  qualifier: string;
+  side: string | null;
+  sector: string | null;
+};
+
+/**
+ * What a photograph evidences, as a line reads it.
+ *
+ * One phrase and not two, because the record holds **at most one** of the two
+ * (ADR-0056): both routes below move the same single fact, so a line naming
+ * only the column its own route writes would leave the clear on the other
+ * unrecorded.
+ */
+function evidences(binding: {
+  observation: ObservedWhere | null;
+  issue: { number: number } | null;
+}): string {
+  if (binding.observation !== null) {
+    return `the observation at ${renderLocation(binding.observation)}`;
+  }
+  return binding.issue === null ? 'nothing' : `Issue ${binding.issue.number}`;
+}
+
+/**
+ * Binding what a photograph evidences to an observation, by the row id.
+ *
+ * The row id and not an identifier, unlike the finding below: an observation
+ * has no identifier (ADR-0031 allocates one to a finding and nothing else), so
+ * there is no token an engineer could type and none is invented here — the
+ * shortlist on the screen offers the rows and sends one back.
+ */
+const photoObservationBodySchema = {
+  type: 'object',
+  required: ['observationId'],
+  additionalProperties: false,
+  properties: {
+    observationId: {
+      // The pattern is load-bearing and not decoration. Fastify's ajv coerces
+      // types, so a bare `{ type: 'string' }` beside `{ type: 'null' }` makes
+      // `null` match **both** branches — it coerces to `''` — and `oneOf`
+      // refuses two matches, so clearing the binding would be a 400. The floor
+      // above and the finding below are each saved from this by accident, by
+      // `NOT_BLANK` and by `minimum: 1`; this one says so out loud.
+      oneOf: [{ type: 'string', pattern: NOT_BLANK }, { type: 'null' }],
+    },
+  },
 } as const;
 
 /** Correcting the finding, by the identifier rather than by the row id. */
@@ -409,11 +472,88 @@ export function photoRoutes(
   );
 
   /**
+   * What a photograph evidences, bound to an observation by hand (issue #113,
+   * ADR-0056).
+   *
+   * The mechanism ADR-0032 said did not exist. There is no observation grammar
+   * in a filename and none is invented: an observation has no identifier, so
+   * this is the screen's act and the body carries the row id the shortlist
+   * offered.
+   *
+   * Setting one **clears the finding**, and the route below clears this, which
+   * is what makes moving a photograph between the two a single action rather
+   * than an unbind and a bind. The CHECK underneath is therefore unreachable
+   * from the boundary — which is the point of having it, the record refusing
+   * what no route should ever send.
+   */
+  v1.post<{ Params: { id: string }; Body: { observationId: string | null } }>(
+    '/photos/:id/observation',
+    { schema: { body: photoObservationBodySchema } },
+    async (request, reply) => {
+      const found = await prisma.photo.findUnique({
+        where: { id: request.params.id },
+        select: {
+          id: true,
+          filename: true,
+          siteVisitId: true,
+          observation: { select: observedWhere },
+          issue: { select: { number: true } },
+          siteVisit: { select: { projectId: true } },
+        },
+      });
+      if (found === null) {
+        return noSuchPhoto(reply);
+      }
+
+      const { observationId } = request.body;
+      let seen: ObservedWhere | null = null;
+      if (observationId !== null) {
+        // Narrowed to this walk, the way the finding below is narrowed to this
+        // job. July's photograph does not evidence August's observation, and
+        // the report reads a finding's evidence through the sightings made on
+        // the walk it is about — a binding across walks would print under a
+        // finding on a page that is not this photograph's afternoon.
+        const observation = await prisma.observation.findUnique({
+          where: { id: observationId },
+          select: { ...observedWhere, siteVisitId: true },
+        });
+        if (observation === null || observation.siteVisitId !== found.siteVisitId) {
+          return reply
+            .code(404)
+            .send({ message: 'no observation with that id on this walk' });
+        }
+        seen = observation;
+      }
+
+      const at = timeSource.now();
+      const bound = await prisma.$transaction(async (tx) => {
+        const row = await tx.photo.update({
+          where: { id: found.id },
+          data: { observationId, issueId: null },
+          include: photoInclude,
+        });
+        await audit(tx, {
+          projectId: found.siteVisit.projectId,
+          actor: actorOf(request),
+          subject: { type: 'photo', id: row.id },
+          action: 'photograph observation bound',
+          detail: `${found.filename} — ${evidences(found)} is now ${evidences({ observation: seen, issue: null })}`,
+          at,
+        });
+        return row;
+      });
+      return photoOnTheWire(bound);
+    },
+  );
+
+  /**
    * Correcting the finding in one action (story 65), by the identifier.
    *
    * Independent of the floor above, because the two mechanisms are: a
    * photograph binned to the wrong floor and bound to the right finding
-   * needs one of them fixed and not both restated.
+   * needs one of them fixed and not both restated. Not independent of the
+   * observation above: a photograph evidences at most one thing (ADR-0056),
+   * so naming a finding here is also how one is moved off an observation.
    */
   v1.post<{ Params: { id: string }; Body: { issueNumber: number | null } }>(
     '/photos/:id/issue',
@@ -424,6 +564,7 @@ export function photoRoutes(
         select: {
           id: true,
           filename: true,
+          observation: { select: observedWhere },
           issue: { select: { number: true } },
           siteVisit: { select: { projectId: true } },
         },
@@ -459,7 +600,7 @@ export function photoRoutes(
       const corrected = await prisma.$transaction(async (tx) => {
         const row = await tx.photo.update({
           where: { id: found.id },
-          data: { issueId },
+          data: { issueId, observationId: null },
           include: photoInclude,
         });
         await audit(tx, {
@@ -467,7 +608,13 @@ export function photoRoutes(
           actor: actorOf(request),
           subject: { type: 'photo', id: row.id },
           action: 'photograph issue corrected',
-          detail: `${found.filename} — ${found.issue === null ? 'no issue' : `Issue ${found.issue.number}`} is now ${issueNumber === null ? 'no issue' : `Issue ${issueNumber}`}`,
+          // What it evidenced and what it evidences, one phrase each: this
+          // route clears the observation, so a line naming only the finding
+          // would leave the other half of the move unrecorded.
+          detail: `${found.filename} — ${evidences(found)} is now ${evidences({
+            observation: null,
+            issue: issueNumber === null ? null : { number: issueNumber },
+          })}`,
           at,
         });
         return row;
@@ -505,7 +652,20 @@ export function photoRoutes(
       const found = await prisma.issue.findMany({
         where: {
           observations: { some: { observation: { siteVisitId: id } } },
+          // Both halves of the derived evidence (issue #113, ADR-0056), each
+          // narrowed to this walk. The stamped half was the whole of this
+          // clause until observations could carry evidence; on its own it now
+          // lists a finding whose sighting today *is* photographed, which is
+          // the screen telling the engineer to go back for a picture they
+          // already took.
           photos: { none: { siteVisitId: id } },
+          NOT: {
+            observations: {
+              some: {
+                observation: { siteVisitId: id, photos: { some: {} } },
+              },
+            },
+          },
         },
         orderBy: { number: 'asc' },
         include: issueInclude,

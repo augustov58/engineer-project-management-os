@@ -663,6 +663,12 @@ model Observation {
   /// which is what keeps typing and speaking the same record.
   voiceCapture VoiceCapture?
 
+  /// The photographs that evidence what was seen here (issue #113, ADR-0056).
+  /// Nothing here says whether there are any, for the reason `issues` does not:
+  /// the photograph points at this row and this row is written no differently,
+  /// so an observation with evidence is not a second kind of observation.
+  photos Photo[]
+
   @@index([siteVisitId, observedAt])
   @@map("observations")
 }
@@ -785,18 +791,23 @@ model IssueOpenItem {
   @@map("issue_open_items")
 }
 
-/// A photograph taken on a walk, bound to a floor by its timestamp and to a
-/// finding by its filename (issue #11).
+/// A photograph taken on a walk, bound to a floor by its timestamp and to what
+/// it evidences by hand or by its filename (issue #11, issue #113).
 ///
 /// The bytes are **not here**. They go to the injected `ObjectStore` and this
 /// row keeps the key, which is the ticket's own acceptance criterion and what
 /// makes the same port serve issue #12's audio and step 5's documents.
 ///
-/// Both bindings are stamped when the photograph is added and both are
-/// correctable. Deliberately not derived on read, which is what this product
-/// does with `location`, *currently provisional* and *superseded*: a derived
-/// value has nowhere to keep a correction, and a schedule fixed the next
-/// morning would silently move what was already binned.
+/// Every binding here is stamped when the photograph is added or corrected in
+/// one action, and none is derived on read, which is what this product does
+/// with `location`, *currently provisional* and *superseded*: a derived value
+/// has nowhere to keep a correction, and a schedule fixed the next morning
+/// would silently move what was already binned.
+///
+/// The one exception is on the other side of the relation: a **finding's**
+/// evidence is derived (ADR-0056) — the photographs stamped to it, union the
+/// photographs of its sightings — so promotion writes nothing here. There is
+/// no column for that, on purpose; it is read in `wire.ts` and in `report.ts`.
 model Photo {
   id String @id @default(uuid())
 
@@ -854,6 +865,21 @@ model Photo {
   issueId String? @map("issue_id")
   issue   Issue?  @relation(fields: [issueId], references: [id], onDelete: Restrict)
 
+  /// The observation the engineer bound it to, or null (issue #113, ADR-0056).
+  ///
+  /// The mechanism ADR-0032 said did not exist — "no third mechanism that would
+  /// bind a photograph to one observation out of the dozen made on a floor" —
+  /// which `voice_captures.observation_id` had already been for one slice. It
+  /// is by hand from the observation's screen and there is no observation
+  /// grammar in a filename: an observation has no identifier anybody could type.
+  ///
+  /// **At most one** of this and `issue_id` is set, held by a CHECK in the
+  /// migration: a photograph on a sighting of Issue N that was also stamped to
+  /// Issue M would print under two findings. Both are cleared by setting the
+  /// other, which is what makes moving one a single action.
+  observationId String?      @map("observation_id")
+  observation   Observation? @relation(fields: [observationId], references: [id], onDelete: Restrict)
+
   /// Entry order, so two photographs taken in the same minute do not list at
   /// random.
   createdAt DateTime @map("created_at")
@@ -861,6 +887,7 @@ model Photo {
   @@unique([siteVisitId, filename])
   @@index([siteVisitId, takenAt])
   @@index([issueId])
+  @@index([observationId])
   @@map("photos")
 }
 

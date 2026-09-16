@@ -531,6 +531,133 @@ test('an issue prints the photographs bound to it on this walk', async () => {
   expect(text).toContain('3-room 304-issue-1.png');
 });
 
+// ── Evidence beside what it evidences (issue #113, ADR-0056) ────────────────
+
+test("an observation's photographs print beside it in the non-issue table", async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'R-13');
+  const floor = await startFloor(app, walk.id, '3', '2026-07-23T13:00:00.000Z');
+  expect(floor.floor).toBe('3');
+
+  const seen = await createObservation(app, walk.id, {
+    observed: 'Ceiling tile stained above the nurse station',
+    observedAt: '2026-07-23T13:20:00.000Z',
+    floor: '3',
+    qualifier: 'Nurse station',
+    side: 'A',
+  });
+  const photo = await addPhoto(app, walk.id, {
+    filename: '3-nurse station-stain.png',
+    takenAt: '2026-07-23T13:21:00.000Z',
+  });
+  expect(
+    (await post(app, `/v1/photos/${photo.id}/observation`, {
+      observationId: seen.id,
+    })).status,
+  ).toBe(200);
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  // The majority case can now carry evidence, which is the whole of #96: an
+  // observation nobody promotes is no longer a thing worth remembering whose
+  // photograph reaches no page.
+  expect(text).toContain('Ceiling tile stained above the nurse station');
+  expect(text).toContain('3-nurse station-stain.png');
+});
+
+test('a floor-only photograph prints nowhere, and its floor says how many', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'R-14');
+  const third = await startFloor(app, walk.id, '3', '2026-07-23T13:00:00.000Z');
+  await post(app, `/v1/site-visit-floors/${third.id}/complete`, {
+    completedAt: '2026-07-23T13:50:00.000Z',
+  });
+  await startFloor(app, walk.id, 'PH', '2026-07-23T14:10:00.000Z');
+
+  const unfiled = await addPhoto(app, walk.id, {
+    filename: 'IMG_7788.png',
+    takenAt: '2026-07-23T13:20:00.000Z',
+  });
+  expect(unfiled.floor).toBe('3');
+  expect([unfiled.issueNumber, unfiled.observationId]).toEqual([null, null]);
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  // An unfiled picture under the author's professional name is worse than an
+  // absent one, so it does not print.
+  expect(text).not.toContain('IMG_7788.png');
+  // But the omission is visible: the floor it landed on says how many, and a
+  // floor with none renders its zero (ADR-0038's reasoning). Uppercased on the
+  // page by the `th` rule, as every other column heading is.
+  expect(text).toContain('UNFILED');
+  expect(text).toMatch(/Floor 3\s+1/);
+  expect(text).toMatch(/Floor PH\s+0/);
+});
+
+test('photographs that binned to no floor are counted under the schedule', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'R-15');
+  await startFloor(app, walk.id, '3', '2026-07-23T13:00:00.000Z');
+
+  // Outside every window, so no schedule row is the one it belongs to — the
+  // case ADR-0056's per-floor count has nowhere to put.
+  const loose = await addPhoto(app, walk.id, {
+    filename: 'IMG_9001.png',
+    takenAt: '2026-07-22T09:00:00.000Z',
+  });
+  expect(loose.floor).toBeNull();
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  expect(text).not.toContain('IMG_9001.png');
+  expect(text).toContain('1 photograph binned to no floor');
+});
+
+test("a finding's evidence includes its sightings' photographs", async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'R-16');
+  await startFloor(app, walk.id, '3', '2026-07-23T13:00:00.000Z');
+
+  const seen = await createObservation(app, walk.id, {
+    observed: 'Fire rated wall penetration left unsealed',
+    observedAt: '2026-07-23T13:20:00.000Z',
+    floor: '3',
+    qualifier: 'Room 304 (electrical closet)',
+    side: 'A',
+  });
+  const photo = await addPhoto(app, walk.id, {
+    filename: 'derived-through-the-sighting.png',
+    takenAt: '2026-07-23T13:21:00.000Z',
+  });
+  expect(
+    (await post(app, `/v1/photos/${photo.id}/observation`, {
+      observationId: seen.id,
+    })).status,
+  ).toBe(200);
+
+  // Promoted *after* the photograph was bound, which is the order the work
+  // happens in: see, photograph, write up, promote.
+  await createIssue(app, seen.id, 'Safety / Code');
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  // The sibling of *an issue prints the photographs bound to it on this walk*
+  // above: the same page, reached the other way. Promotion wrote nothing to
+  // the photograph and the evidence is derived through the sighting.
+  expect(text).toContain('Issue 1');
+  expect(text).toContain('derived-through-the-sighting.png');
+  // And it is not also printed as a non-issue: the observation became one.
+  expect(text).toContain('Every observation made on this visit became an issue');
+});
+
 test('a walk with nothing on it still renders, and says so', async () => {
   const app = await api();
   const { walk } = await walked(app, 'R-9');
