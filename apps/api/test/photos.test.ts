@@ -65,6 +65,15 @@ function completeFloor(app: TestApi, floorId: string, completedAt: string) {
   return post(app, `/v1/site-visit-floors/${floorId}/complete`, { completedAt });
 }
 
+/** Binding what a photograph evidences, by hand, from the observation's side. */
+function bindObservation(
+  app: TestApi,
+  photoId: string,
+  observationId: string | null,
+) {
+  return post(app, `/v1/photos/${photoId}/observation`, { observationId });
+}
+
 /**
  * A walk with the schedule every binning test below reads: floor 3 walked
  * 13:00 to 13:45, floor 4 walked 14:00 to 14:30, and a quarter of an hour
@@ -117,7 +126,7 @@ test('a photograph is added to a walk and keeps the name it arrived with', async
   expect((await visit(app, walk.id)).photos).toEqual([photo]);
 });
 
-test('a photograph carries the two bindings and never its bytes', async () => {
+test('a photograph carries its bindings and never its bytes', async () => {
   const app = await api();
   const { walk } = await walked(app, 'P-2');
   const photo = await addPhoto(app, walk.id);
@@ -133,6 +142,7 @@ test('a photograph carries the two bindings and never its bytes', async () => {
     'floor',
     'id',
     'issueNumber',
+    'observationId',
     'siteVisitId',
     'takenAt',
   ]);
@@ -564,9 +574,9 @@ test('binding by filename writes nothing to the finding', async () => {
   expect(after.photos).toHaveLength(1);
 });
 
-// ── The two mechanisms are independent ───────────────────────────────────
+// ── The floor and what it evidences are independent ──────────────────────
 
-test('a photograph may have either binding, both, or neither', async () => {
+test('a photograph may have the floor, the finding, both, or neither', async () => {
   const app = await api();
   const { walk } = await walked(app, 'I-1');
   await finding(app, walk.id);
@@ -682,6 +692,161 @@ test('correcting a photograph that does not exist is a 404', async () => {
   const app = await api();
   expect((await post(app, `/v1/photos/${NO_SUCH}/floor`, { floor: '3' })).status).toBe(404);
   expect((await post(app, `/v1/photos/${NO_SUCH}/issue`, { issueNumber: 1 })).status).toBe(404);
+  const observation = { observationId: NO_SUCH };
+  expect((await post(app, `/v1/photos/${NO_SUCH}/observation`, observation)).status).toBe(404);
+});
+
+// ── A photograph evidences an observation (issue #113, ADR-0056) ─────────
+
+test('a photograph is bound to an observation in one action, and cleared', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'O-1');
+  const seen = await createObservation(app, walk.id, { floor: '3' });
+  const photo = await addPhoto(app, walk.id, {
+    takenAt: '2026-07-23T13:20:00.000Z',
+  });
+  expect(photo.observationId).toBeNull();
+
+  const bound = await bindObservation(app, photo.id, seen.id);
+  expect(bound.status).toBe(200);
+  expect(((await bound.json()) as PhotoResponse).observationId).toBe(seen.id);
+
+  const [stored] = (await visit(app, walk.id)).photos;
+  expect(stored?.observationId).toBe(seen.id);
+  // The floor is the other mechanism and a binding by hand does not touch it.
+  expect(stored?.floor).toBe('3');
+  // The name is the mechanism, and a correction never rewrites it.
+  expect(stored?.filename).toBe(photo.filename);
+
+  const cleared = await bindObservation(app, photo.id, null);
+  expect(cleared.status).toBe(200);
+  expect(((await cleared.json()) as PhotoResponse).observationId).toBeNull();
+});
+
+test('a photograph evidences an observation or a finding and never both', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'O-2');
+  await finding(app, walk.id);
+  const seen = await createObservation(app, walk.id, { floor: '3' });
+
+  // Stamped to Issue 1 by its filename, then moved to the observation in one
+  // action: the finding is cleared by the move rather than in a second one.
+  const photo = await addPhoto(app, walk.id, { filename: 'issue-1.jpg' });
+  expect(photo.issueNumber).toBe(1);
+
+  const moved = (await (await bindObservation(app, photo.id, seen.id)).json()) as PhotoResponse;
+  expect([moved.observationId, moved.issueNumber]).toEqual([seen.id, null]);
+
+  // And back the other way, which is the same one action on the photograph.
+  const back = await post(app, `/v1/photos/${photo.id}/issue`, { issueNumber: 1 });
+  expect(back.status).toBe(200);
+  const returned = (await back.json()) as PhotoResponse;
+  expect([returned.observationId, returned.issueNumber]).toEqual([null, 1]);
+});
+
+test('a photograph cannot evidence an observation made on another walk', async () => {
+  const app = await api();
+  const { project, walk } = await walked(app, 'O-3');
+  const photo = await addPhoto(app, walk.id);
+
+  const second = await createSiteVisit(app, project.id, {
+    startedAt: '2026-08-14T13:00:00.000Z',
+  });
+  const elsewhere = await createObservation(app, second.id, { floor: '3' });
+
+  // July's photograph does not evidence August's observation, which is the
+  // narrowing the shortlist offers and the report already reads this way.
+  expect((await bindObservation(app, photo.id, elsewhere.id)).status).toBe(404);
+  expect((await visit(app, walk.id)).photos[0]?.observationId).toBeNull();
+});
+
+test('promoting an observation writes nothing to its photographs', async () => {
+  const app = await api();
+  const { project, walk } = await walked(app, 'O-4');
+  const seen = await createObservation(app, walk.id, { floor: '3' });
+  const photo = await addPhoto(app, walk.id, {
+    takenAt: '2026-07-23T13:20:00.000Z',
+  });
+  expect((await bindObservation(app, photo.id, seen.id)).status).toBe(200);
+
+  const raised = await createIssue(app, seen.id);
+
+  // The photograph is untouched: a finding's evidence is derived, so there is
+  // nothing for promotion to stamp (ADR-0056).
+  const [stored] = (await visit(app, walk.id)).photos;
+  expect(stored?.observationId).toBe(seen.id);
+  expect(stored?.issueNumber).toBeNull();
+
+  // And it is the finding's evidence all the same, through the sighting.
+  const after = await issue(app, project.id, raised.number);
+  expect(after.photos.map((one) => one.id)).toEqual([photo.id]);
+});
+
+test("a finding's evidence is its own photographs and its sightings'", async () => {
+  const app = await api();
+  const { project, walk } = await walked(app, 'O-5');
+  const seen = await createObservation(app, walk.id, { floor: '3' });
+  const raised = await createIssue(app, seen.id);
+
+  const stamped = await addPhoto(app, walk.id, {
+    filename: 'issue-1.jpg',
+    takenAt: '2026-07-23T13:20:00.000Z',
+  });
+  expect(stamped.issueNumber).toBe(raised.number);
+
+  const throughSighting = await addPhoto(app, walk.id, {
+    filename: 'IMG_0400.jpg',
+    takenAt: '2026-07-23T13:30:00.000Z',
+  });
+  expect((await bindObservation(app, throughSighting.id, seen.id)).status).toBe(200);
+
+  // The union, oldest first, and each photograph once.
+  const after = await issue(app, project.id, raised.number);
+  expect(after.photos.map((one) => one.id)).toEqual([
+    stamped.id,
+    throughSighting.id,
+  ]);
+});
+
+test('a finding evidenced only through a sighting is not on the without-photos list', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'O-6');
+  const seen = await createObservation(app, walk.id, { floor: '3' });
+  await createIssue(app, seen.id);
+  expect((await withoutPhotos(app, walk.id)).map((one) => one.number)).toEqual([1]);
+
+  const photo = await addPhoto(app, walk.id, {
+    takenAt: '2026-07-23T13:20:00.000Z',
+  });
+  expect((await bindObservation(app, photo.id, seen.id)).status).toBe(200);
+
+  // The list is "which findings seen today still have no photograph", and this
+  // one now has one — reached through the sighting rather than stamped.
+  expect(await withoutPhotos(app, walk.id)).toEqual([]);
+});
+
+test("another walk's sighting does not lend this walk its evidence", async () => {
+  const app = await api();
+  const { project, walk } = await walked(app, 'O-7');
+  const july = await createObservation(app, walk.id, { floor: '3' });
+  const raised = await createIssue(app, july.id);
+  const photo = await addPhoto(app, walk.id, {
+    takenAt: '2026-07-23T13:20:00.000Z',
+  });
+  expect((await bindObservation(app, photo.id, july.id)).status).toBe(200);
+
+  const second = await createSiteVisit(app, project.id, {
+    startedAt: '2026-08-14T13:00:00.000Z',
+  });
+  const august = await createObservation(app, second.id, { floor: '3' });
+  expect(
+    (await post(app, `/v1/issues/${raised.id}/observations/${august.id}`)).status,
+  ).toBe(204);
+
+  // July's photograph does not evidence August's re-observation, which is the
+  // narrowing derived evidence has to preserve and not quietly widen.
+  expect((await withoutPhotos(app, second.id)).map((one) => one.number)).toEqual([1]);
+  expect(await withoutPhotos(app, walk.id)).toEqual([]);
 });
 
 // ── Which findings still have no photo evidence (story 66) ───────────────

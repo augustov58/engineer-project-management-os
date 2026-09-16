@@ -106,6 +106,7 @@ const AUDITED = [
   'POST /v1/phases/:id/rename',
   'POST /v1/photos/:id/floor',
   'POST /v1/photos/:id/issue',
+  'POST /v1/photos/:id/observation',
   'POST /v1/projects',
   'POST /v1/projects/:id/current-phase',
   'POST /v1/projects/:id/archive',

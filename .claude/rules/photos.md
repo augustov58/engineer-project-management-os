@@ -5,6 +5,7 @@ paths:
   - "apps/api/test/photos.test.ts"
   - "apps/api/prisma/schema.prisma"
   - "apps/web/app/photo-form.tsx"
+  - "apps/web/app/photo-evidence.ts"
   - "apps/web/app/photos/**"
   - "apps/web/app/wall-clock.ts"
   - "apps/web/app/site-visits/*/page.tsx"
@@ -49,11 +50,44 @@ apply to every path stay in `AGENTS.md`.
   changed in one commit, as ADR-0050 required: `composeInstant` composes in the project's
   zone and `asTypedInstant` is deleted. `binToFloor` did not change and is now correct,
   because both sides of the comparison are instants.
-- Photo evidence lands on the **floor** and the **finding**, never on the observation
-  (ADR-0032), whatever the glossary's Observation entry used to promise. There is no
-  `photo_observations` join; a photograph and the observations made on its floor are read
-  together through the floor value, which is why ADR-0030 joined those columns by value.
-  Binding by filename creates no **sighting** — a sighting is an observation.
+- A photograph evidences **at most one** of an observation and a finding, beside the floor
+  it landed on (ADR-0056, issue #113). `photos.observation_id` sits beside `issue_id` under
+  the CHECK `num_nonnulls(observation_id, issue_id) <= 1`; there is still **no
+  `photo_observations` join**, because a photograph evidences one thing. ADR-0032 refused
+  this for one reason — *"there is no third mechanism that would bind a photograph to one
+  observation out of the dozen made on a floor"* — and the very next slice built one,
+  `voice_captures.observation_id`. Binding is **by hand** from the observation's screen and
+  there is no observation grammar in a filename: an observation has no identifier, and none
+  is invented. Binding by filename still creates no **sighting** — a sighting is an
+  observation.
+- **Each of the two evidence routes clears the other**, which is what makes moving a
+  photograph between an observation and a finding one action rather than an unbind and a
+  bind (ADR-0025's bar). The CHECK is therefore unreachable from the boundary, which is the
+  point of having it: the record refuses what no route should ever send. On the screen they
+  are **one** select and not two, ADR-0030's reason for making Side and Sector one control —
+  two independent controls would present as independent a pair the record will not let
+  disagree. `apps/web/app/photo-evidence.ts` is the one place that format is spelled, in a
+  plain module because a `'use server'` file cannot import out of a `'use client'` one.
+- **A finding's evidence is derived** and this is the one amendment to *stamped, never
+  derived* (ADR-0056): the photographs stamped to it, union the photographs of its
+  sightings. **Promotion writes nothing to a photograph.** Two readers take that union —
+  `withSightings` in `wire.ts`, across every walk, and `evidenceFor` in `report.ts`,
+  narrowed to one — and they are deliberately not shared, being narrowed differently; the
+  rule they keep in step is ADR-0056's. Neither deduplicates, because the CHECK makes the
+  two halves disjoint. `GET /v1/site-visits/:id/issues-without-photos` reads **both** halves:
+  the stamped clause alone sends the engineer back for a picture they already took.
+- A photograph and the observation it evidences are on the **same walk**, refused at the
+  boundary with a 404 naming the walk — July's photograph does not evidence August's
+  observation, the narrowing ADR-0035 already gives the report. There is no `where` on the
+  observation's photographs anywhere, because that refusal is what makes one unnecessary.
+- **A floor-only photograph is unfiled and prints nowhere** (ADR-0056). Each floor's row in
+  the report's schedule prints its count of unfiled photographs, rendering a zero
+  (ADR-0038's reasoning); photographs that binned to **no** floor, and those on a floor
+  nobody formally started, are counted in one line under the table — ADR-0056 has no row for
+  them, and a count nobody can see is the silence it is against. The non-issue table's
+  Evidence column is the opposite answer and printed only when something is in it: a column
+  of blanks under that heading, in a document issued under the author's name, reads as
+  evidence that went missing.
 - Nothing deletes a photograph and nothing rewrites its filename: the name is the mechanism,
   so a correction touches only the bindings. `PATCH`, `PUT` and `DELETE` on one are 404, as
   they are for a submission and an issue, and a test asserts it.

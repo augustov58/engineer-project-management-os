@@ -506,6 +506,16 @@ export interface Photo {
    * what the filename carried in.
    */
   issueNumber: number | null;
+  /**
+   * The observation it evidences, or null (issue #113, ADR-0056). The row id
+   * and not an identifier, unlike the finding above: an observation has none,
+   * and it is read through the walk it was made on — which is the payload this
+   * arrives in, so the screen has both sides already.
+   *
+   * At most one of this and `issueNumber` is set. Both null is **unfiled**: a
+   * photograph on a floor and nothing else, which prints nowhere.
+   */
+  observationId: string | null;
   createdAt: string;
 }
 

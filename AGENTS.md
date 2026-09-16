@@ -15,42 +15,44 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it, and what is planned beyond the MVP is one sentence, the five deferred items with named triggers.
-- `docs/adr/` - decision records 0001-0061, indexed with a status for every one by `docs/adr/README.md`; in the files, 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, but **0012-0019 carry none**, so those eight have only the index. Six are superseded (0001 and 0005 by 0012, 0007 by 0016, 0012 and 0020 by 0055, 0050 by 0054) and **six** Accepted with a qualifier (0004, 0006, 0008, 0010, 0011, 0013); **none is Proposed**, none since 0020 was accepted 2026-09-01.
+- `docs/adr/` - decision records 0001-0061, indexed with a status for every one by `docs/adr/README.md`; in the files, 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, but **0012-0019 carry none**, so those eight have only the index. Six are superseded — the index says which — and **six** Accepted with a qualifier (0004, 0006, 0008, 0010, 0011, 0013); **none is Proposed**, none since 0020 was accepted 2026-09-01.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
 
 ## Current status
 
-Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with the
-three correctness gaps found reviewing project memory closed as issue #42 and the root
-typecheck repaired as #49. That is every step of the six-step **Revised MVP sequence** in
+Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with #42's three
+correctness gaps closed and #49's root typecheck repaired. That is every step of the six-step **Revised MVP sequence** in
 `PRD and Architecture.md` including step 1, done 2026-09-05 on job **260001** — the four
 items the PRD names are T-1's *examples* of an open item's shape, not a checklist, and
 reading them as one is what kept the step open; do not re-raise it. **Step 5 is done since
 #109**: consent landed 2026-09-08 and both adapters are written, so "no adapter exists" is
 spent. The **inbound mail provider stays unwritten**, the last vendor pick.
 
-**Post-MVP has started** (issue #103). Eight tickets have landed: the timezone frame (#104,
-ADR-0054); **users and sessions replacing the edge gate** (#105, ADR-0055) — there is a
-`users` table, a deployment's first account is a command on the machine, and no shared
-secret is configured anywhere; **the gates** (#106, ADR-0052) — `.github/workflows/ci.yml`
-runs every gate below on every push and pull request, and does not deploy; **the helper
+**Post-MVP has started** (issue #103). Nine tickets have landed: the timezone frame (#104,
+ADR-0054); **users and sessions replacing the edge gate** (#105, ADR-0055) — a `users`
+table, the first account a command on the machine, no shared secret anywhere;
+**the gates** (#106, ADR-0052) — `.github/workflows/ci.yml`
+runs every gate below on every push and PR, and does not deploy; **the helper
 skills** (#107, ADR-0053) — `apps/api/tools/` is a submodule pinned by commit at the helpers'
 own repository, its manifested helpers reachable as `POST /v1/tools/:name` through the one
-mutating-method route that **records nothing**; **extraction reachable** (#108, no ADR) —
+mutating route that **records nothing**; **extraction reachable** (#108) —
 the register screen asks for one over a stored document and every ask lands on the
 confirmation screen; **the vendor picks** (#109, ADR-0060/0061) — `OCR=azure` is Azure AI
-Document Intelligence and `TRANSCRIBER=azure` Azure AI Speech **fast** transcription, both
+Document Intelligence and `TRANSCRIBER=azure` Azure AI Speech **fast**, both
 refusing by default, no key in source; **the actor and the subject** (#111, ADR-0055 part 2)
 — every audit line says **who**, **which row** it touched and the run it was written during,
-the actor coming from the session and never a request body, and **no model carries a
-`created_by`**; and **the person on the record** (#112, ADR-0055 part 5) — a walk's
+the actor coming from the session and never a request body; and **the person on the
+record** (#112, ADR-0055 part 5) — a walk's
 `conducted_by` (the report prints it), an open item's `owner_id` replacing free text, the
 handoff that names who the ball came to, and *mine*/*ours* on the daily layer. Still no
 `created_by`: whose a record **is** differs from who typed it. **ADR-0055 is built whole.**
-The platform health check is `/healthz`, a Next route that
-reaches the API, **verified on the machine that serves**; the readings are in ADR-0045. The
+**Evidence** (#113, ADR-0056) — `photos.observation_id` beside `issue_id`, **at most one**;
+a finding's evidence is **derived** through its sightings and promotion writes nothing to a
+photograph.
+The platform health check is `/healthz`, a Next route reaching
+the API, **verified on the machine that serves** (ADR-0045). The
 per-slice record is [docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051).
 Work one ticket at a time, and only when asked.
 
@@ -91,7 +93,7 @@ was rewritten; only `helpers.md` was written fresh, for #107.
 | submissions, phases, exposure, supersede | [submissions.md](./.claude/rules/submissions.md) |
 | open items, the pending view, assumption records | [open-items.md](./.claude/rules/open-items.md) |
 | site visits, observations, issues, the report | [site-visits.md](./.claude/rules/site-visits.md) |
-| photographs, binning, the filename grammar | [photos.md](./.claude/rules/photos.md) |
+| photographs, binning, evidence, the filename grammar | [photos.md](./.claude/rules/photos.md) |
 | voice captures, transcription | [voice.md](./.claude/rules/voice.md) |
 | registers, entries, ball-in-court, the clock, dispositions | [registers.md](./.claude/rules/registers.md) |
 | project memory, proposals, agent runs, the audit, the activity feed | [memory.md](./.claude/rules/memory.md) |

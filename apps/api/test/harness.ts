@@ -896,7 +896,11 @@ export interface IssueResponse {
   observations: IssueObservationResponse[];
   /** What is being chased for this finding, oldest first. */
   openItems: OpenItemResponse[];
-  /** The photo evidence for this finding, across every walk. */
+  /**
+   * The photo evidence for this finding, across every walk — **derived**
+   * (issue #113, ADR-0056): the photographs stamped to it, union the
+   * photographs of its sightings. Nothing is written here by promotion.
+   */
   photos: PhotoResponse[];
 }
 
@@ -938,6 +942,12 @@ export interface PhotoResponse {
    * the thing anybody has written down.
    */
   issueNumber: number | null;
+  /**
+   * The observation it evidences, or null (issue #113). The row id and not an
+   * identifier, because an observation has none: it is read through the walk
+   * it was made on, which is the payload this arrives in.
+   */
+  observationId: string | null;
   createdAt: string;
 }
 

@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   addPhoto,
   addVoiceCapture,
+  bindPhotoEvidence,
   bindPhotoToFloor,
-  bindPhotoToIssue,
+  bindPhotoToObservation,
   commitVoiceCapture,
   completeFloor,
   endSiteVisit,
@@ -30,7 +31,11 @@ import {
 import { selectClassName } from '../../native-select';
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { clock, day } from '../../wall-clock';
-import { PhotoBindings, PhotoForm } from '../../photo-form';
+import {
+  EvidenceShortlist,
+  PhotoBindings,
+  PhotoForm,
+} from '../../photo-form';
 import { ReportProgress, ReportState } from '../../report-form';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
 import {
@@ -93,6 +98,33 @@ export default async function SiteVisitRecord({
       ...visit.observations.map((observation) => observation.floor),
     ]),
   ];
+
+  /**
+   * What evidences each observation, and what is still **unfiled** on each
+   * floor (issue #113, ADR-0056).
+   *
+   * Both read off the payload already in hand rather than by a second fetch:
+   * `GET /v1/site-visits/:id` carries every photograph on the walk, and an
+   * observation's evidence is a photograph pointing at it. A route of their own
+   * would be two more reads for facts that arrived with the first.
+   *
+   * Unfiled is the report's word and this screen's: on a floor and evidencing
+   * nothing, which is exactly what prints nowhere. Keyed by the floor value,
+   * the join ADR-0030 made by value and the first use it has had beyond the
+   * document.
+   */
+  const evidencing = new Map<string, typeof visit.photos>();
+  const unfiled = new Map<string, typeof visit.photos>();
+  for (const photo of visit.photos) {
+    if (photo.observationId !== null) {
+      evidencing.set(photo.observationId, [
+        ...(evidencing.get(photo.observationId) ?? []),
+        photo,
+      ]);
+    } else if (photo.issueNumber === null && photo.floor !== null) {
+      unfiled.set(photo.floor, [...(unfiled.get(photo.floor) ?? []), photo]);
+    }
+  }
 
   async function end() {
     'use server';
@@ -252,6 +284,8 @@ export default async function SiteVisitRecord({
           <ul className="divide-y rounded-lg border">
             {visit.observations.map((observation) => {
               const finding = raisedFrom.get(observation.id);
+              const evidence = evidencing.get(observation.id) ?? [];
+              const loose = unfiled.get(observation.floor) ?? [];
 
               return (
                 <li key={observation.id} className="space-y-2 px-4 py-3">
@@ -271,6 +305,43 @@ export default async function SiteVisitRecord({
                   <p className="text-sm whitespace-pre-wrap">
                     {observation.observed}
                   </p>
+
+                  {/*
+                    What evidences it (issue #113, ADR-0056), beside what it
+                    evidences — the arrangement the report prints. Through the
+                    Next server, never straight at the API.
+                  */}
+                  {evidence.length > 0 && (
+                    <ul className="flex flex-wrap gap-2">
+                      {evidence.map((photo) => (
+                        <li key={photo.id}>
+                          <img
+                            src={`/photos/${photo.id}/bytes`}
+                            alt={photo.filename}
+                            className="bg-muted size-16 rounded-md border object-cover"
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {/*
+                    The unfiled photographs on this observation's floor, if
+                    there are any. Offered here and not always, because an
+                    empty picker is a control that can do nothing.
+                  */}
+                  {loose.length > 0 && (
+                    <EvidenceShortlist
+                      photos={loose}
+                      timeZone={zone}
+                      bind={bindPhotoToObservation.bind(
+                        null,
+                        observation.id,
+                        id,
+                        projectId,
+                      )}
+                    />
+                  )}
 
                   {/*
                     Promoting is the deliberate exception, so it is a small
@@ -521,23 +592,33 @@ export default async function SiteVisitRecord({
                   </p>
                   <p className="text-muted-foreground text-sm tabular-nums">
                     {clock(photo.takenAt, zone)}
-                    {photo.floor === null && photo.issueNumber === null
-                      ? ' · unbound'
+                    {/*
+                      Unfiled is about what it evidences and not about the
+                      floor (issue #113, ADR-0056): a photograph on a floor and
+                      nothing else prints nowhere, so the floor is no longer
+                      half of what makes this worth saying. The floor's own
+                      answer is the select beside it.
+                    */}
+                    {photo.observationId === null && photo.issueNumber === null
+                      ? ' · unfiled'
                       : ''}
                   </p>
                 </div>
                 <PhotoBindings
                   floor={photo.floor}
                   floors={floors}
+                  observationId={photo.observationId}
+                  observations={visit.observations}
                   issueNumber={photo.issueNumber}
                   issues={issues}
+                  timeZone={zone}
                   bindFloor={bindPhotoToFloor.bind(
                     null,
                     photo.id,
                     id,
                     projectId,
                   )}
-                  bindIssue={bindPhotoToIssue.bind(
+                  bindEvidence={bindPhotoEvidence.bind(
                     null,
                     photo.id,
                     id,

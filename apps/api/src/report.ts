@@ -13,7 +13,7 @@
  */
 
 import type { ObjectStore } from './object-store.js';
-import { renderLocation } from './wire.js';
+import { inTheOrderTaken, renderLocation } from './wire.js';
 import { clockIn, dayIn } from './zone.js';
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 
@@ -122,8 +122,17 @@ const STYLESHEET = `
   td { padding: 4pt 8pt 4pt 0; border-top: 0.5pt solid #e4dfd9; vertical-align: top; }
   td:last-child, th:last-child { padding-right: 0; }
   .at { white-space: nowrap; width: 12%; font-variant-numeric: tabular-nums; }
-  .where { width: 34%; }
+  .where { width: 28%; }
+  /* The unfiled count on a floor's row: a number, read down the column. */
+  .count { white-space: nowrap; width: 10%; text-align: right; font-variant-numeric: tabular-nums; }
+  th.count { text-align: right; }
   .nothing { color: #5c5651; font-style: italic; margin: 0; }
+  /*
+   * The photographs that landed on no floor at all, under the schedule rather
+   * than in it: there is no row for a floor nobody walked, and a count nobody
+   * can see is the silence ADR-0056 is against.
+   */
+  .adrift { margin: 6pt 0 0; font-size: 9.5pt; color: #5c5651; }
   .finding { break-inside: avoid-page; margin-top: 14pt; }
   .finding h3 {
     margin: 0 0 1pt;
@@ -161,6 +170,16 @@ const STYLESHEET = `
     border: 0.5pt solid #cdc7c0;
   }
   .evidence figcaption { font-size: 7.5pt; color: #5c5651; word-break: break-all; margin-top: 2pt; }
+  /*
+   * An observation's evidence, in a table cell rather than across the width of
+   * a finding (issue #113). One per line and half the height: a column beside
+   * three others has a quarter of the page, and a figure sized for a finding
+   * would push the row it is in onto a page of its own.
+   */
+  .shown { width: 22%; }
+  .shown .evidence { margin-top: 0; gap: 4pt; }
+  .shown .evidence figure { width: 100%; }
+  .shown .evidence img { max-height: 35mm; }
   footer {
     margin-top: 22pt;
     padding-top: 6pt;
@@ -184,11 +203,31 @@ const visitInclude = {
   floors: { orderBy: { startedAt: 'asc' } },
   observations: {
     orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
-    // Whether this observation became a finding, and nothing more. The
-    // non-issue table is every observation for which this list is empty —
-    // ADR-0030 put no status on the row to read instead, deliberately, so that
-    // staying an observation stayed the default path.
-    include: { issues: { select: { issueId: true } } },
+    include: {
+      // Whether this observation became a finding, and nothing more. The
+      // non-issue table is every observation for which this list is empty —
+      // ADR-0030 put no status on the row to read instead, deliberately, so
+      // that staying an observation stayed the default path.
+      issues: { select: { issueId: true } },
+      // What evidences it (issue #113, ADR-0056). No `siteVisitId` narrowing
+      // beside it, unlike a finding's: a photograph and the observation it
+      // evidences are on the same walk, refused at the boundary, so there is
+      // no cross-walk binding for a `where` here to exclude.
+      photos: { orderBy: [{ takenAt: 'asc' }, { createdAt: 'asc' }] },
+    },
+  },
+  /**
+   * The walk's **unfiled** photographs: bound to neither an observation nor a
+   * finding, whatever floor they landed on (issue #113, ADR-0056).
+   *
+   * Not the walk's photographs. The document prints evidence beside what it
+   * evidences and reads every one of those through the thing it is under, so
+   * the only photographs this list is for are the ones that print nowhere —
+   * counted so the omission is visible rather than silent.
+   */
+  photos: {
+    where: { observationId: null, issueId: null },
+    select: { floor: true },
   },
   // `satisfies` rather than `as const`, for the reason `issueInclude` in
   // `wire.ts` records: Prisma's `orderBy` takes a mutable array, and `as
@@ -221,7 +260,16 @@ function findingsSightedOn(prisma: PrismaClient, siteVisitId: string) {
           { observation: { observedAt: 'asc' } },
           { observation: { createdAt: 'asc' } },
         ],
-        select: { observation: true },
+        select: {
+          observation: {
+            // The derived half of the evidence (issue #113, ADR-0056). The
+            // sightings are already narrowed to this walk above, so their
+            // photographs are this afternoon's without a `where` of their own.
+            include: {
+              photos: { orderBy: [{ takenAt: 'asc' }, { createdAt: 'asc' }] },
+            },
+          },
+        },
       },
       photos: {
         where: { siteVisitId },
@@ -229,6 +277,42 @@ function findingsSightedOn(prisma: PrismaClient, siteVisitId: string) {
       },
     },
   });
+}
+
+/** A photograph, as much of one as the page needs: a caption and its bytes. */
+type Printed = {
+  id: string;
+  filename: string;
+  contentType: string;
+  storageKey: string;
+  takenAt: Date;
+  createdAt: Date;
+};
+
+/**
+ * A finding's evidence on this walk, **derived** (issue #113, ADR-0056): what
+ * is stamped to it, union what its sightings carry.
+ *
+ * The same union `withSightings` takes in `wire.ts`, and deliberately not
+ * shared with it: that one is every walk's and reads a row that has been
+ * through `photoOnTheWire`, and this one is one afternoon's and reads the row.
+ * Two readers of one rule, each narrowed differently — the thing to keep in
+ * step is the rule, which is ADR-0056's and is written down there.
+ *
+ * Nothing is deduplicated, and that rests on two constraints rather than one.
+ * The CHECK makes the two lists disjoint — a photograph holds at most one of
+ * `observation_id` and `issue_id` — and `issue_observations`' composite key
+ * makes an observation appear under a finding once, so the sightings cannot
+ * contribute the same photograph twice either.
+ */
+function evidenceFor(finding: {
+  photos: Printed[];
+  observations: { observation: { photos: Printed[] } }[];
+}): Printed[] {
+  return [
+    ...finding.photos,
+    ...finding.observations.flatMap(({ observation }) => observation.photos),
+  ].sort(inTheOrderTaken);
 }
 
 /** The pieces of a repeated section, concatenated. */
@@ -270,15 +354,64 @@ export async function composeReport(
 
   const findings = await findingsSightedOn(prisma, siteVisitId);
 
-  /** The evidence, read one photograph at a time and inlined as it goes. */
+  // The majority case, and the reason it comes first (story 56). An
+  // observation is a non-issue exactly when nothing points at it.
+  const nonIssues = visit.observations.filter(
+    (observation) => observation.issues.length === 0,
+  );
+
+  /** Each finding's evidence, derived once and read twice below. */
+  const derived = new Map(
+    findings.map((finding) => [finding.id, evidenceFor(finding)] as const),
+  );
+
+  /**
+   * The evidence, read one photograph at a time and inlined as it goes.
+   *
+   * Over one list rather than nested inside the findings, since issue #113:
+   * an observation's photographs print too, and a finding's are reached
+   * through its sightings, so a photograph can be arrived at more than one way
+   * and the `Map` is what stops it being fetched and inlined twice.
+   */
+  const printed = [
+    ...[...derived.values()].flat(),
+    ...nonIssues.flatMap((observation) => observation.photos),
+  ];
   const evidence = new Map<string, string>();
-  for (const finding of findings) {
-    for (const photo of finding.photos) {
-      const bytes = await objectStore.get(photo.storageKey);
-      evidence.set(
-        photo.id,
-        `data:${photo.contentType};base64,${bytes.toString('base64')}`,
-      );
+  for (const photo of printed) {
+    if (evidence.has(photo.id)) {
+      continue;
+    }
+    const bytes = await objectStore.get(photo.storageKey);
+    evidence.set(
+      photo.id,
+      `data:${photo.contentType};base64,${bytes.toString('base64')}`,
+    );
+  }
+
+  /**
+   * How many unfiled photographs landed on each floor, and how many landed on
+   * none (issue #113, ADR-0056).
+   *
+   * Keyed by the designation, because that is what both sides hold: ADR-0030
+   * made `photos.floor` and `site_visit_floors.floor` the same type joined by
+   * value, and this is the second use that join has had. A floor nobody
+   * formally started has no schedule row, so its photographs are counted with
+   * the floorless under the table rather than being silently dropped.
+   */
+  const unfiled = new Map<string, number>();
+  let adrift = 0;
+  for (const photo of visit.photos) {
+    if (photo.floor === null) {
+      adrift += 1;
+      continue;
+    }
+    unfiled.set(photo.floor, (unfiled.get(photo.floor) ?? 0) + 1);
+  }
+  const scheduled = new Set(visit.floors.map((floor) => floor.floor));
+  for (const [floor, count] of unfiled) {
+    if (!scheduled.has(floor)) {
+      adrift += count;
     }
   }
 
@@ -316,11 +449,22 @@ export async function composeReport(
   // the IANA name rather than an abbreviation, because `EST` is four different
   // zones and a report is read by people who were not on the walk.
 
-  // The majority case, and the reason it comes first (story 56). An
-  // observation is a non-issue exactly when nothing points at it.
-  const nonIssues = visit.observations.filter(
-    (observation) => observation.issues.length === 0,
+  // Printed only when something is there to print, the way a finding's
+  // evidence is. An "Evidence" heading over a column of blanks in a document
+  // issued under the author's name reads as evidence that went missing, which
+  // is the opposite of what the column is for — and the opposite answer to the
+  // unfiled count below, which renders its zero precisely because the count is
+  // the signal (ADR-0038).
+  const anyEvidence = nonIssues.some(
+    (observation) => observation.photos.length > 0,
   );
+
+  /** One photograph, inlined, wherever a page shows one. */
+  const figure = (photo: { id: string; filename: string }) => `
+      <figure>
+        <img src="${evidence.get(photo.id) ?? ''}" alt="${escape(photo.filename)}">
+        <figcaption>${escape(photo.filename)}</figcaption>
+      </figure>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -343,7 +487,7 @@ export async function composeReport(
     visit.floors.length === 0
       ? '<p class="nothing">No floors were recorded on the schedule.</p>'
       : `<table>
-    <thead><tr><th class="at">Arrived</th><th class="at">Left</th><th>Floor</th></tr></thead>
+    <thead><tr><th class="at">Arrived</th><th class="at">Left</th><th>Floor</th><th class="count">Unfiled</th></tr></thead>
     <tbody>${all(
       visit.floors.map(
         (floor) => `
@@ -351,11 +495,17 @@ export async function composeReport(
         <td class="at">${clock(floor.startedAt)}</td>
         <td class="at">${floor.completedAt === null ? NONE : clock(floor.completedAt)}</td>
         <td>Floor ${escape(floor.floor)}</td>
+        <td class="count">${unfiled.get(floor.floor) ?? 0}</td>
       </tr>`,
       ),
     )}
     </tbody>
   </table>`
+  }
+  ${
+    adrift === 0
+      ? ''
+      : `<p class="adrift">${adrift === 1 ? '1 photograph binned to no floor' : `${adrift} photographs binned to no floor`}, and prints nowhere.</p>`
   }
 </section>
 
@@ -365,14 +515,24 @@ export async function composeReport(
     nonIssues.length === 0
       ? '<p class="nothing">Every observation made on this visit became an issue.</p>'
       : `<table>
-    <thead><tr><th class="at">Time</th><th class="where">Location</th><th>Observed</th></tr></thead>
+    <thead><tr><th class="at">Time</th><th class="where">Location</th><th>Observed</th>${anyEvidence ? '<th class="shown">Evidence</th>' : ''}</tr></thead>
     <tbody>${all(
       nonIssues.map(
         (observation) => `
       <tr>
         <td class="at">${clock(observation.observedAt)}</td>
         <td class="where">${escape(renderLocation(observation))}</td>
-        <td>${escape(observation.observed)}</td>
+        <td>${escape(observation.observed)}</td>${
+          anyEvidence
+            ? `
+        <td class="shown">${
+          observation.photos.length === 0
+            ? ''
+            : `<div class="evidence">${all(observation.photos.map(figure))}
+        </div>`
+        }</td>`
+            : ''
+        }
       </tr>`,
       ),
     )}
@@ -403,16 +563,10 @@ export async function composeReport(
       ),
     )}
     ${
-      finding.photos.length === 0
+      (derived.get(finding.id) ?? []).length === 0
         ? ''
         : `<div class="evidence">${all(
-            finding.photos.map(
-              (photo) => `
-      <figure>
-        <img src="${evidence.get(photo.id) ?? ''}" alt="${escape(photo.filename)}">
-        <figcaption>${escape(photo.filename)}</figcaption>
-      </figure>`,
-            ),
+            (derived.get(finding.id) ?? []).map(figure),
           )}
     </div>`
     }
