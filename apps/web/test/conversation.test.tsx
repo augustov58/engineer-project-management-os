@@ -1,9 +1,20 @@
 import { act } from 'react';
 import { hydrateRoot, type Root } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { CaptureRun, Turn } from '../app/api';
-import { ConversationProgress, DraftObservationForm } from '../app/conversation';
+import {
+  ConversationProgress,
+  DraftObservationForm,
+  TypeATurn,
+} from '../app/conversation';
 
 /**
  * The walk's conversation panel (issue #114, ADR-0058).
@@ -122,6 +133,7 @@ afterEach(() => {
     root = undefined;
   }
   container.remove();
+  cleanup();
   vi.restoreAllMocks();
 });
 
@@ -298,4 +310,86 @@ test('a proposal that chose a sector lands on sector', () => {
   expect(
     container.querySelector<HTMLInputElement>('[name="axisValue"]')?.value,
   ).toBe('NE');
+});
+
+test('a send that failed leaves the words in the box', () => {
+  // The typed path's answer to a send that did not land, and the counterpart of
+  // the recorder's IndexedDB hold: an engineer in a stairwell gets the refusal
+  // *and* the words back. Clearing in the submit handler emptied the box before
+  // the action resolved and lost them — which is what `typeATurn`'s own comment
+  // promises it does not do.
+  const refuse = async (previous: { added: number }) => ({
+    added: previous.added,
+    error: 'no signal',
+  });
+
+  render(<TypeATurn submit={refuse} />);
+  const box = screen.getByLabelText('What you are seeing') as HTMLTextAreaElement;
+
+  fireEvent.change(box, { target: { value: 'cracked tile, south stair' } });
+  fireEvent.submit(box.closest('form') as HTMLFormElement);
+
+  return waitFor(() => {
+    expect(screen.getByRole('alert').textContent).toBe('no signal');
+    expect(box.value).toBe('cracked tile, south stair');
+  });
+});
+
+test('a send that landed clears the box, and so does the next one', async () => {
+  const keys: string[] = [];
+  const accept = async (previous: { added: number }, formData: FormData) => {
+    keys.push(String(formData.get('captureKey')));
+    return { added: previous.added + 1 };
+  };
+
+  render(<TypeATurn submit={accept} />);
+  const box = screen.getByLabelText('What you are seeing') as HTMLTextAreaElement;
+
+  fireEvent.change(box, { target: { value: 'first capture' } });
+  fireEvent.submit(box.closest('form') as HTMLFormElement);
+  await waitFor(() => expect(box.value).toBe(''));
+
+  // The **second** send of a session has to clear too, which is why the clear
+  // is keyed on `added` rising rather than on it being non-zero.
+  fireEvent.change(box, { target: { value: 'second capture' } });
+  fireEvent.submit(box.closest('form') as HTMLFormElement);
+  await waitFor(() => expect(keys).toHaveLength(2));
+  await waitFor(() => expect(box.value).toBe(''));
+
+  // Two captures, two keys: a new draft is a new capture.
+  expect(keys[0]).not.toBe(keys[1]);
+  // And each is one the boundary admits, which is what makes the resend rule
+  // reachable rather than only recorded.
+  for (const key of keys) {
+    expect(key).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+  }
+});
+
+test('a retry after a failed send carries the same key', async () => {
+  // The resend rule from this screen (ADR-0057, extended to the typed kind).
+  // A request that landed and whose response was lost is retried with the key
+  // the API already has, which answers 200 with the existing row — where a
+  // fresh key per submit would write a second turn saying the same thing.
+  const keys: string[] = [];
+  let refuse = true;
+  const flaky = async (previous: { added: number }, formData: FormData) => {
+    keys.push(String(formData.get('captureKey')));
+    if (refuse) {
+      return { added: previous.added, error: 'no signal' };
+    }
+    return { added: previous.added + 1 };
+  };
+
+  render(<TypeATurn submit={flaky} />);
+  const box = screen.getByLabelText('What you are seeing') as HTMLTextAreaElement;
+
+  fireEvent.change(box, { target: { value: 'cracked tile' } });
+  fireEvent.submit(box.closest('form') as HTMLFormElement);
+  await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+
+  refuse = false;
+  fireEvent.submit(box.closest('form') as HTMLFormElement);
+  await waitFor(() => expect(keys).toHaveLength(2));
+
+  expect(keys[0]).toBe(keys[1]);
 });

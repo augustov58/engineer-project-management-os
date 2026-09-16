@@ -1162,7 +1162,9 @@ export async function addRecording(
  *
  * A `useActionState` action like every other form here, and deliberately not
  * the recorder's loop: there is one turn per submit and nothing held on the
- * device, because a tap that did not land leaves the words in the box.
+ * device, because a tap that did not land leaves the words in the box — and
+ * leaves them under **the same key**, so resending them is the resend rule and
+ * not a second turn saying what the first already said.
  */
 export async function typeATurn(
   siteVisitId: string,
@@ -1174,10 +1176,15 @@ export async function typeATurn(
   const error = await refusal(
     await send(`/site-visits/${siteVisitId}/turns`, {
       kind: 'TYPED',
-      // Minted here rather than on the client, because a server action is one
-      // request: there is no held-and-resent path to reconcile, and the resend
-      // rule this satisfies is the record's rather than the phone's.
-      captureKey: randomUUID(),
+      // **The client's key, held across a failed send** (ADR-0057's resend rule
+      // for the typed kind). Minting one here per call would make it fresh on
+      // every submit, so a request that landed and whose *response* was lost
+      // would be retyped into a second turn saying what the first already said
+      // — which is the thing the rule exists to prevent, and the record's own
+      // 200-with-the-existing-row would never be reached from this screen.
+      // The fallback covers a caller that sent none; the boundary refuses a key
+      // that is not one.
+      captureKey: String(formData.get('captureKey') ?? '') || randomUUID(),
       // The engineer's own wall clock, which is what the observation is dated
       // from — the browser is the only side that knows it (ADR-0054).
       recordedAt: String(formData.get('recordedAt') ?? new Date().toISOString()),

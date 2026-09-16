@@ -101,6 +101,13 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
   no run; an agent's turn has a run and may propose; only an engineer's may carry
   `observation_id`. *The agent never writes an observation* is true underneath as well as at
   the boundary, where the confirm route refuses an agent turn by name.
+- The typed box **holds the words and the key across a failed send**: the box is cleared only
+  once `added` has risen, and `captureKey` is minted on the client with
+  `crypto.getRandomValues` and kept until then. Clearing on submit and minting per call each
+  looked harmless and together made a lost *response* into a second turn saying what the first
+  already said — the rule held by `(conversation_id, capture_key)` was true and unreachable
+  from the screen. Not `crypto.randomUUID`: it needs a secure context, and the typed path is
+  the one that has to work on a phone over plain HTTP.
 - A **typed** capture queues a proposal run; a recording queues a transcription and nothing
   else. That asymmetry is ADR-0057's and not an oversight: a recording is a draft the
   engineer corrects, and the voice path is left exactly as it was.

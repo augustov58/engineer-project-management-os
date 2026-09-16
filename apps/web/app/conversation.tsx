@@ -409,6 +409,26 @@ export function DraftObservationForm({
 }
 
 /**
+ * A capture key the client mints, opaque and unguessable enough not to collide.
+ *
+ * `crypto.getRandomValues` and **not `crypto.randomUUID`**, which the recorder
+ * above uses: `randomUUID` requires a secure context, and the typed path is the
+ * one that has to work on a phone over `http://<address>:3000` — the very case
+ * `getUserMedia` refuses and the screen tells the engineer about. A key minted
+ * with `randomUUID` there would be `undefined` and the send would 400.
+ *
+ * Hex rather than base64url so every character is inside the boundary's
+ * `^[A-Za-z0-9_-]{8,64}$`, with no padding to strip.
+ */
+function newCaptureKey(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
+    '',
+  );
+}
+
+/**
  * Typing into the conversation (issue #114, ADR-0057).
  *
  * Beside the recorder and not instead of it: a capture is one record either
@@ -424,12 +444,42 @@ export function TypeATurn({
 }) {
   const [state, action, pending] = useActionState(submit, { added: 0 });
   const [text, setText] = useState('');
+  // One key per draft, held until the API has it. A fresh key on every submit
+  // would make a retry after a lost response a *second* turn saying what the
+  // first already said — the resend rule reaches the record and never this
+  // screen. Lazy, so it is minted once per draft rather than on every render.
+  const [captureKey, setCaptureKey] = useState(newCaptureKey);
+
+  /**
+   * Cleared when the API has the words, and **never on submit**.
+   *
+   * Clearing in the submit handler empties the box before the action resolves,
+   * so a send that failed — no signal in a stairwell, a 500 — left the refusal
+   * on screen and nothing to retry with. The typed path's answer to a send that
+   * did not land is that the words are still in the box, which is what the
+   * recorder's IndexedDB hold is for the spoken one; losing them is that
+   * record's defect arriving on this one.
+   *
+   * Keyed on `added` **rising**, not on it being non-zero: the second send of a
+   * session must clear too. The ref starts where the state does, so nothing is
+   * set during the hydration commit, where an update would be discarded
+   * (ADR-0028).
+   */
+  const kept = useRef(state.added);
+  useEffect(() => {
+    if (state.added > kept.current) {
+      kept.current = state.added;
+      setText('');
+      // A new draft is a new capture, so the key moves on with the words.
+      setCaptureKey(newCaptureKey());
+    }
+  }, [state.added]);
 
   return (
     <form
       action={(formData) => {
         formData.set('recordedAt', new Date().toISOString());
-        setText('');
+        formData.set('captureKey', captureKey);
         action(formData);
       }}
       className="space-y-3"
