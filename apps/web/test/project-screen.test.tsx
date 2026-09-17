@@ -137,3 +137,33 @@ test('each strip appears the moment its list is not empty', async () => {
     expect.stringContaining(`/clock?projectId=${project.id}`),
   );
 });
+
+/**
+ * The invariant the strips' own comments claim, which the assertions above do
+ * not reach: the *number* is read unfiltered, and both destinations default to
+ * *mine* (issue #112), so a link that said nothing about scope opened a
+ * narrower list than the figure beside it. Measured on a job with two entries
+ * past turnaround, one held by each engineer: the strip said 2 and the page it
+ * opened listed 1 (issue #141).
+ *
+ * Both halves are asserted together on purpose. Making the count *mine* is the
+ * other way to close this, and it is a different decision about what a job's
+ * page means — so it has to fail here and be argued, not pass quietly.
+ */
+test('each strip links at the scope its count was read at', async () => {
+  vi.mocked(api.listExposure).mockResolvedValue(rows(2));
+  vi.mocked(api.listClock).mockResolvedValue(rows(2));
+
+  await projectScreen();
+
+  // Unfiltered: everyone's, which is what "our court" on the strip says.
+  expect(api.listExposure).toHaveBeenCalledWith(project.id);
+  expect(api.listClock).toHaveBeenCalledWith(project.id);
+
+  expect(
+    screen.getByRole('link', { name: /still standing on an unresolved/ }),
+  ).toHaveProperty('href', expect.stringContaining('scope=ours'));
+  expect(
+    screen.getByRole('link', { name: /past (its|their) turnaround/ }),
+  ).toHaveProperty('href', expect.stringContaining('scope=ours'));
+});

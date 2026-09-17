@@ -41,6 +41,7 @@ import { NewPhaseForm } from '../../new-phase-form';
 import { SiteVisitForm } from '../../site-visit-form';
 import { SubmissionForm } from '../../submission-form';
 import { OpenItemEntry } from '../../open-item';
+import { scopeHref } from '../../scope';
 import { clock, day } from '../../wall-clock';
 import { PhaseList } from '../../phases';
 import { ProcessingLocation } from '../../processing-location';
@@ -210,11 +211,15 @@ export default async function ProjectRecord({
 
         {/*
           This project's exposure. The number is the length of the list it
-          links to, so clicking it lands on exactly what it counted.
+          links to, so clicking it lands on exactly what it counted — which
+          means the link carries the scope the count was read at. `listExposure`
+          here is unfiltered, and the destination defaults to *mine* (issue
+          #112), so a link without `ours` on it would open a narrower list than
+          the number beside it (issue #141).
         */}
         {exposure.length > 0 && (
           <Link
-            href={`/exposure?projectId=${id}`}
+            href={scopeHref('/exposure', 'ours', { projectId: id })}
             className="text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-baseline gap-2 rounded-lg border border-dashed px-4 py-2 text-sm transition-colors"
           >
             <span className="text-foreground font-medium tabular-nums">
@@ -399,11 +404,13 @@ export default async function ProjectRecord({
         {/*
           This project's clock, the second of the two daily counts and never
           combined with the first (ADR-0016). The number is the length of the
-          list it links to, so clicking it lands on exactly what it counted.
+          list it links to, so clicking it lands on exactly what it counted —
+          and the copy below says *our court*, so the link says `ours` too
+          (issue #141).
         */}
         {onTheClock.length > 0 && (
           <Link
-            href={`/clock?projectId=${id}`}
+            href={scopeHref('/clock', 'ours', { projectId: id })}
             className="text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-baseline gap-2 rounded-lg border border-dashed px-4 py-2 text-sm transition-colors"
           >
             <span className="text-foreground font-medium tabular-nums">
