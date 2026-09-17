@@ -26,7 +26,7 @@ export async function GET(
   // for every route on an API deliberately bound to loopback. Found and fixed
   // on the photo route (ADR-0032); this is the same route written again.
   const upstream = await apiFetch(
-    `/voice-captures/${encodeURIComponent(id)}/audio`,
+    `/turns/${encodeURIComponent(id)}/audio`,
     { cache: 'no-store' },
   );
 

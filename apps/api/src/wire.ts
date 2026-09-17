@@ -7,7 +7,11 @@
  * and a leaf is what stops `site-visits` and `photos` importing each other.
  */
 
-import { Prisma, type SiteVisitReport } from '../generated/prisma/client.js';
+import {
+  Prisma,
+  type SiteVisitReport,
+  type TurnKind,
+} from '../generated/prisma/client.js';
 import { dayIn } from './zone.js';
 
 /**
@@ -311,23 +315,23 @@ export function withSightings(found: Finding, timeZone: string) {
 }
 
 /**
- * A recording read with the observation it became, if it became one.
+ * A turn read with the observation it became, if it became one.
  *
- * Here rather than in `routes/voice.ts` because two records return it: a walk
- * lists its recordings, and the voice routes return one. That is the same
- * reason `photoOnTheWire` is here (ADR-0033).
+ * Here rather than in `routes/conversations.ts` because two records return it:
+ * a walk carries its conversation, and the conversation's own routes return one
+ * turn. That is the same reason `photoOnTheWire` is here (ADR-0033).
  */
-export const voiceCapturesMade = {
-  orderBy: [{ recordedAt: 'asc' }, { createdAt: 'asc' }],
+export const turnsTaken = {
+  orderBy: [{ position: 'asc' }],
   include: { observation: true },
-} satisfies Prisma.SiteVisit$voiceCapturesArgs;
+} satisfies Prisma.Conversation$turnsArgs;
 
-type StoredCapture = Prisma.VoiceCaptureGetPayload<{
+type StoredTurn = Prisma.TurnGetPayload<{
   include: { observation: true };
 }>;
 
 /**
- * What has happened to a recording, derived on every read from the four stamps
+ * What has happened to a capture, derived on every read from the four stamps
  * and stored nowhere.
  *
  * There is no status column underneath this, for ADR-0024's reason and
@@ -338,37 +342,186 @@ type StoredCapture = Prisma.VoiceCaptureGetPayload<{
  * Failed is read first. A retry clears the failure before the vendor is called
  * again, so a row carrying both a failure and a start is one that failed after
  * starting — which is every failure there is.
+ *
+ * A **typed** turn never reaches a vendor and has its words from the first
+ * instant, so it reads *transcribed* with all four stamps null (ADR-0057).
+ * That is not a special case in the arithmetic below: it is what the words
+ * being there already means, and the kind is what says whether the vendor was
+ * ever involved.
  */
-function transcriptionState(capture: {
+function transcriptionState(turn: {
+  kind: TurnKind | null;
+  transcript: string | null;
   transcribingSince: Date | null;
   transcribedAt: Date | null;
   failedAt: Date | null;
 }): 'queued' | 'transcribing' | 'transcribed' | 'failed' {
-  if (capture.failedAt !== null) {
-    return 'failed';
-  }
-  if (capture.transcribedAt !== null) {
+  if (turn.kind === 'TYPED') {
     return 'transcribed';
   }
-  return capture.transcribingSince === null ? 'queued' : 'transcribing';
+  if (turn.failedAt !== null) {
+    return 'failed';
+  }
+  if (turn.transcribedAt !== null) {
+    return 'transcribed';
+  }
+  return turn.transcribingSince === null ? 'queued' : 'transcribing';
 }
 
 /**
- * A recording on the wire: what the vendor heard, what state it is in, and the
- * observation it became — never the key its audio is under.
+ * What the agent proposed on its turn, or null (issue #114, ADR-0057).
+ *
+ * The draft's fields, gathered off the columns they are stored in so a screen
+ * reads one object rather than six keys it has to know go together — and null
+ * on every turn that proposed none, which is the engineer's every turn and the
+ * agent's when it asked a question instead.
+ *
+ * The location **is composed here**, through `renderLocation` like every other
+ * reader of the grammar (ADR-0030). Writing it out on the screen instead was
+ * tried and is the defect that ADR names: *"composed on every read so the parts
+ * and the string cannot disagree"* is true of each copy and false of the pair,
+ * and the second copy printed `Floor 3 — South stair, A` where the record says
+ * `Side A`. That a proposal is not yet a record is not a reason to spell its
+ * location twice — it is a reason the **fields** are what the engineer edits,
+ * which they are.
+ *
+ * The CHECK under this table makes the four columns all-or-nothing, so a row
+ * with `proposed_observed` has the other three and the narrowing below is a
+ * fact about the record rather than an assumption about it.
+ */
+function proposalOnTheWire(turn: {
+  proposedObserved: string | null;
+  proposedFloor: string | null;
+  proposedQualifier: string | null;
+  proposedSide: string | null;
+  proposedSector: string | null;
+  proposedIssueId: string | null;
+}) {
+  if (
+    turn.proposedObserved === null ||
+    turn.proposedFloor === null ||
+    turn.proposedQualifier === null
+  ) {
+    return null;
+  }
+  return {
+    observed: turn.proposedObserved,
+    issueId: turn.proposedIssueId,
+    ...withLocation({
+      floor: turn.proposedFloor,
+      qualifier: turn.proposedQualifier,
+      side: turn.proposedSide,
+      sector: turn.proposedSector,
+    }),
+  };
+}
+
+/**
+ * A turn on the wire: whose it is, what was said, what state it is in, what it
+ * proposed, and the observation it became — never the key its audio is under.
  *
  * The observation itself and not its id, because *committed* is exactly "there
  * is one", and a screen holding both an id and a record could show a draft
  * beside the words it already became. The storage key is the object store's
  * business and means something different the day the adapter changes, which is
  * why a photograph does not carry one either.
+ *
+ * The six `proposed*` columns leave as one `proposal`, for the reason the
+ * storage key does not leave at all: what a screen needs is the draft, and six
+ * keys that are null together are six chances to read five of them.
  */
-export function voiceCaptureOnTheWire(capture: StoredCapture) {
-  const { storageKey: _key, observationId: _row, observation, ...onTheWire } = capture;
+export function turnOnTheWire(turn: StoredTurn) {
+  const {
+    storageKey: _key,
+    observationId: _row,
+    observation,
+    proposedObserved: _observed,
+    proposedFloor: _floor,
+    proposedQualifier: _qualifier,
+    proposedSide: _side,
+    proposedSector: _sector,
+    proposedIssueId: _issue,
+    ...onTheWire
+  } = turn;
   return {
     ...onTheWire,
-    state: transcriptionState(capture),
+    state: transcriptionState(turn),
+    proposal: proposalOnTheWire(turn),
     observation: observation === null ? null : withLocation(observation),
+  };
+}
+
+/**
+ * An agent run's state, derived on every read from the four stamps — queued is
+ * all four null — with no status column beside them (ADR-0035's shape, for the
+ * third queued record).
+ *
+ * Here since issue #114, moved out of `routes/memory.ts` when a walk's
+ * conversation became the second record to read an `agent_runs` row. That is
+ * ADR-0033's trigger exactly, and the same one that moved the SSE machinery out
+ * of the voice routes: a thing used by one record lives with that record until
+ * a second reaches for it.
+ */
+export function agentRunState(run: {
+  runningSince: Date | null;
+  finishedAt: Date | null;
+  failedAt: Date | null;
+}): 'queued' | 'running' | 'finished' | 'failed' {
+  if (run.failedAt !== null) {
+    return 'failed';
+  }
+  if (run.finishedAt !== null) {
+    return 'finished';
+  }
+  return run.runningSince === null ? 'queued' : 'running';
+}
+
+/**
+ * A walk's conversation: its turns in order, and the runs held on it.
+ *
+ * Exactly one per visit, created with it — so this is never null on a walk, and
+ * the read that would find it null is one whose migration did not run.
+ *
+ * **The runs are here and their proposals are not**, which is the opposite of
+ * the memory screen's shape and the point of ADR-0058: what an agent proposed
+ * lives on its *turn*, on the conversation, and the run carries no transcript
+ * (ADR-0040). What a run is worth to this screen is whether it has settled —
+ * a capture whose run failed has no reply coming, and without this the panel
+ * would say the agent was still reading it forever.
+ */
+export const conversationHeld = {
+  include: {
+    turns: turnsTaken,
+    runs: {
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        runningSince: true,
+        finishedAt: true,
+        failedAt: true,
+        failure: true,
+        createdAt: true,
+      },
+    },
+  },
+} satisfies Prisma.SiteVisit$conversationArgs;
+
+export function conversationOnTheWire(
+  conversation: Prisma.ConversationGetPayload<typeof conversationHeld>,
+) {
+  const { turns, runs, ...rest } = conversation;
+  return {
+    ...rest,
+    turns: turns.map(turnOnTheWire),
+    // The stamps stay off the wire and the state stands for them: a screen has
+    // nothing to do with when a run started, only with whether it is still
+    // going — and `failure` is the sentence it shows when it is not.
+    runs: runs.map((run) => ({
+      id: run.id,
+      createdAt: run.createdAt,
+      failure: run.failure,
+      state: agentRunState(run),
+    })),
   };
 }
 

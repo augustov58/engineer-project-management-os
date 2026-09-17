@@ -91,9 +91,14 @@ export function noSuchPhoto(reply: FastifyReply) {
   return reply.code(404).send({ message: 'no photo with that id' });
 }
 
-/** The one 404 body for voice captures, matching the others. */
-export function noSuchVoiceCapture(reply: FastifyReply) {
-  return reply.code(404).send({ message: 'no voice capture with that id' });
+/** The one 404 body for turns, matching the others. */
+export function noSuchTurn(reply: FastifyReply) {
+  return reply.code(404).send({ message: 'no turn with that id' });
+}
+
+/** The one 404 body for conversations, matching the others. */
+export function noSuchConversation(reply: FastifyReply) {
+  return reply.code(404).send({ message: 'no conversation with that id' });
 }
 
 /** The one 404 body for registers, matching the others. */

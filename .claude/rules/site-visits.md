@@ -60,7 +60,7 @@ apply to every path stay in `AGENTS.md`.
   observation and wrote nothing to it. A test asserts the exact key set an observation
   returns, so a status cannot be added without a failing test saying so. Since issue #113 an
   observation may carry **photo evidence** — the photograph points at it, and this row is
-  still written no differently, which is the shape a **voice capture** already has.
+  still written no differently, which is the shape a **capture** already has.
 - An issue's identifier is an integer off `projects.issues_allocated`, a **high-water mark
   and not a count** (ADR-0031), read and incremented in the transaction that writes the
   issue. Do not compute the next one from `MAX(number) + 1` or `COUNT(*) + 1`: both hand the
@@ -105,7 +105,7 @@ apply to every path stay in `AGENTS.md`.
 - A **site visit report** is a record of a **rendering**, not a document kept up to date
   (ADR-0035). Nothing edits one; `POST /v1/site-visits/:id/reports` writes another row every
   time it is called, which is ADR-0028's reissue shape and ADR-0029's rerun shape arriving
-  for a third record. There is therefore **no retry route** — the departure from a voice
+  for a third record. There is therefore **no retry route** — the departure from a
   capture, whose audio is irreplaceable and whose phone has already let go of it, where a
   report's every input is still in the database. Generating again is also how a report is
   regenerated once a finding that had no photograph has one (story 66).

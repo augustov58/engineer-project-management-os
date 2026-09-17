@@ -6,20 +6,21 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   addPhoto,
-  addVoiceCapture,
+  addRecording,
   bindPhotoEvidence,
   bindPhotoToFloor,
   bindPhotoToObservation,
-  commitVoiceCapture,
+  commitTurn,
   completeFloor,
   endSiteVisit,
   generateSiteVisitReport,
   raiseIssue,
   recordObservation,
   reobserveIssue,
-  retryVoiceCapture,
+  retryTranscription,
   setConductedBy,
   startFloor,
+  typeATurn,
 } from '../../actions';
 import {
   getSiteVisit,
@@ -39,11 +40,12 @@ import {
 import { ReportProgress, ReportState } from '../../report-form';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
 import {
-  CaptureProgress,
   CaptureState,
+  ConversationProgress,
   DraftObservationForm,
+  TypeATurn,
   VoiceRecorder,
-} from '../../voice-form';
+} from '../../conversation';
 
 export const dynamic = 'force-dynamic';
 
@@ -404,121 +406,264 @@ export default async function SiteVisitRecord({
       </section>
 
       {/*
-        Speaking is the point of this ticket and typing is the fallback, so it
-        comes first and gets the whole width. ADR-0025: field capture is
-        designed for a thumb, and this is the one control on the screen that
-        has to be hit without looking.
+        The walk's **conversation** (issue #114, ADR-0058): what the engineer
+        captured, spoken or typed, and what the agent proposed back. Speaking
+        and typing are two ways into one record, which is why they sit in one
+        card and not two — ADR-0025 asks for field capture designed for a thumb,
+        and which hand is free is the only thing that decides between them.
       */}
       <Card>
         <CardHeader>
-          <CardTitle>Speak an observation</CardTitle>
+          <CardTitle>Capture what you see</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
           <VoiceRecorder
             siteVisitId={id}
-            add={addVoiceCapture.bind(null, id, projectId)}
+            add={addRecording.bind(null, id, projectId)}
           />
+          <div className="border-t pt-6">
+            <TypeATurn submit={typeATurn.bind(null, id, projectId)} />
+          </div>
         </CardContent>
       </Card>
 
       {/*
-        What was said, and what it is waiting on. A recording is a **draft**
-        until the engineer has read it and corrected it — so nothing here has
-        written an observation, and the list above stays what was actually
-        recorded.
+        The conversation itself. A capture is a **draft** until the engineer has
+        read it and confirmed it — so nothing here has written an observation,
+        and the list above stays what was actually recorded.
       */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Spoken</h2>
+          <h2 className="text-lg font-medium">Conversation</h2>
           {/*
-            Live over SSE, so a slow transcription reads as working rather than
-            as broken — and so the drafts below appear without a reload.
+            Live over SSE, so a slow transcription and a slow model both read
+            as working rather than as broken — and so the agent's reply and the
+            drafts below appear without a reload.
           */}
-          <CaptureProgress siteVisitId={id} initial={visit.voiceCaptures} />
+          <ConversationProgress
+            siteVisitId={id}
+            initial={visit.conversation.turns}
+            initialRuns={visit.conversation.runs}
+          />
         </div>
 
-        {visit.voiceCaptures.length > 0 && (
+        {visit.conversation.turns.length > 0 && (
           <ul className="divide-y rounded-lg border">
-            {visit.voiceCaptures.map((capture) => (
-              <li key={capture.id} className="space-y-3 px-4 py-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-muted-foreground text-sm tabular-nums">
-                    {clock(capture.recordedAt, zone)}
-                  </span>
-                  <CaptureState capture={capture} />
-                  {/*
-                    Through the Next server, never straight at the API — the
-                    same reason a photograph's bytes are proxied. This is also
-                    half of what makes a failed transcription recoverable: the
-                    engineer listens and writes it down.
-                  */}
-                  <audio
-                    controls
-                    preload="none"
-                    src={`/voice-captures/${capture.id}/audio`}
-                    className="h-9 min-w-48 flex-1"
-                  />
-                </div>
-
-                {/*
-                  Offered on *queued* as well as on a failure, because a
-                  recording can sit queued with no job behind it: Redis has no
-                  volume in this stack, so a job can be lost while its row
-                  cannot. That is the case the retry route names in its own
-                  comment, and it was the one case the screen had no button
-                  for. Not offered while it is transcribing, which is a vendor
-                  genuinely working.
-                */}
-                {(capture.failure !== null || capture.state === 'queued') &&
-                  capture.observation === null && (
+            {visit.conversation.turns.map((turn) => {
+              // The agent's turn: a proposal read beside what it answers, and
+              // never a draft anybody confirms here. Confirming happens on the
+              // capture above it, which is where `observation_id` is stamped.
+              if (turn.speaker === 'AGENT') {
+                return (
+                  <li
+                    key={turn.id}
+                    className="bg-muted/40 space-y-2 px-4 py-3"
+                  >
                     <div className="flex flex-wrap items-center gap-3">
-                      {capture.failure !== null && (
-                        <p className="text-destructive text-sm">
-                          {capture.failure}
-                        </p>
-                      )}
-                      <form
-                        action={retryVoiceCapture.bind(
-                          null,
-                          capture.id,
-                          id,
-                          projectId,
-                        )}
-                      >
-                        <Button type="submit" variant="ghost" size="sm">
-                          Ask again
-                        </Button>
-                      </form>
+                      <Badge variant="outline">Proposed</Badge>
+                      <span className="text-muted-foreground text-sm">
+                        The agent read the capture above.
+                      </span>
                     </div>
+                    {turn.proposal === null ? (
+                      // A field it could not propose, so it asked instead. The
+                      // answer is the next capture and never an edit to this.
+                      <p className="text-sm whitespace-pre-wrap">
+                        {turn.transcript}
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {/*
+                          The composed grammar, exactly as the API renders it —
+                          this screen cannot spell it a second way (ADR-0030).
+                          It read `Floor 3 — South stair, A` while it did,
+                          against the record's `Side A`.
+                        */}
+                        <p className="text-muted-foreground text-sm">
+                          {turn.proposal.location}
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap">
+                          {turn.proposal.observed}
+                        </p>
+                        {turn.proposal.issueId !== null && (
+                          <p className="text-muted-foreground text-sm">
+                            {/*
+                              Read as another sighting, and proposed only: a
+                              sighting burns an identifier that is never given
+                              back (ADR-0031), so promoting stays the second act
+                              under the observation once it exists.
+                            */}
+                            Reads as another sighting of{' '}
+                            {issues.find(
+                              (issue) => issue.id === turn.proposal!.issueId,
+                            )?.number === undefined
+                              ? 'a finding on this job'
+                              : `Issue ${
+                                  issues.find(
+                                    (issue) =>
+                                      issue.id === turn.proposal!.issueId,
+                                  )!.number
+                                }`}
+                            .
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              }
+
+              // The engineer's capture. Where the agent has answered it, the
+              // confirm form below is seeded with what it proposed.
+              const answer = visit.conversation.turns.find(
+                (one) =>
+                  one.speaker === 'AGENT' && one.position === turn.position + 1,
+              );
+              const evidence =
+                turn.observation === null
+                  ? []
+                  : (evidencing.get(turn.observation.id) ?? []);
+              const loose =
+                turn.observation === null
+                  ? []
+                  : (unfiled.get(turn.observation.floor) ?? []);
+
+              return (
+                <li key={turn.id} className="space-y-3 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-muted-foreground text-sm tabular-nums">
+                      {turn.recordedAt === null
+                        ? ''
+                        : clock(turn.recordedAt, zone)}
+                    </span>
+                    <CaptureState capture={turn} />
+                    {turn.kind === 'VOICE' && (
+                      /*
+                        Through the Next server, never straight at the API — the
+                        same reason a photograph's bytes are proxied. This is
+                        also half of what makes a failed transcription
+                        recoverable: the engineer listens and writes it down.
+                      */
+                      <audio
+                        controls
+                        preload="none"
+                        src={`/turns/${turn.id}/audio`}
+                        className="h-9 min-w-48 flex-1"
+                      />
+                    )}
+                  </div>
+
+                  {/*
+                    What was captured, verbatim — on a typed turn it is there
+                    from the first instant, and on a spoken one it arrives with
+                    the vendor. Shown above the form rather than only inside it,
+                    because the form's box is the engineer's correction and this
+                    is what they are correcting *from*.
+                  */}
+                  {turn.kind === 'TYPED' && turn.transcript !== null && (
+                    <p className="text-sm whitespace-pre-wrap">
+                      {turn.transcript}
+                    </p>
                   )}
 
-                {capture.observation !== null ? (
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground text-sm">
-                      {capture.observation.location}
-                    </p>
-                    <p className="text-sm whitespace-pre-wrap">
-                      {capture.observation.observed}
-                    </p>
-                  </div>
-                ) : isWorking(capture) ? (
-                  <p className="text-muted-foreground text-sm">
-                    Waiting for the transcript. The audio is already stored.
-                  </p>
-                ) : (
-                  <DraftObservationForm
-                    transcript={capture.transcript}
-                    submit={commitVoiceCapture.bind(
-                      null,
-                      capture.id,
-                      id,
-                      visitedOn,
-                      projectId,
+                  {/*
+                    Offered on *queued* as well as on a failure, because a
+                    recording can sit queued with no job behind it: Redis has no
+                    volume in this stack, so a job can be lost while its row
+                    cannot. That is the case the retry route names in its own
+                    comment, and it was the one case the screen had no button
+                    for. Not offered while it is transcribing, which is a vendor
+                    genuinely working — nor on a typed turn, which never waited
+                    on one.
+                  */}
+                  {turn.kind === 'VOICE' &&
+                    (turn.failure !== null || turn.state === 'queued') &&
+                    turn.observation === null && (
+                      <div className="flex flex-wrap items-center gap-3">
+                        {turn.failure !== null && (
+                          <p className="text-destructive text-sm">
+                            {turn.failure}
+                          </p>
+                        )}
+                        <form
+                          action={retryTranscription.bind(
+                            null,
+                            turn.id,
+                            id,
+                            projectId,
+                          )}
+                        >
+                          <Button type="submit" variant="ghost" size="sm">
+                            Ask again
+                          </Button>
+                        </form>
+                      </div>
                     )}
-                  />
-                )}
-              </li>
-            ))}
+
+                  {turn.observation !== null ? (
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-sm">
+                          {turn.observation.location}
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap">
+                          {turn.observation.observed}
+                        </p>
+                      </div>
+
+                      {/*
+                        What already evidences it, and the floor's unfiled
+                        photographs to bind — the confirmed draft's shortlist
+                        (ADR-0057 part 5, by ADR-0056's mechanism). Here as well
+                        as under the observation above, because this is the
+                        screen the engineer is looking at when they confirm.
+                      */}
+                      {evidence.length > 0 && (
+                        <ul className="flex flex-wrap gap-2">
+                          {evidence.map((photo) => (
+                            <li key={photo.id}>
+                              <img
+                                src={`/photos/${photo.id}/bytes`}
+                                alt={photo.filename}
+                                className="bg-muted size-16 rounded-md border object-cover"
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {loose.length > 0 && (
+                        <EvidenceShortlist
+                          photos={loose}
+                          timeZone={zone}
+                          bind={bindPhotoToObservation.bind(
+                            null,
+                            turn.observation.id,
+                            id,
+                            projectId,
+                          )}
+                        />
+                      )}
+                    </div>
+                  ) : isWorking(turn) ? (
+                    <p className="text-muted-foreground text-sm">
+                      Waiting for the transcript. The audio is already stored.
+                    </p>
+                  ) : (
+                    <DraftObservationForm
+                      transcript={turn.transcript}
+                      proposal={answer?.proposal ?? null}
+                      submit={commitTurn.bind(
+                        null,
+                        turn.id,
+                        id,
+                        visitedOn,
+                        projectId,
+                      )}
+                    />
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

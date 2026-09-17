@@ -507,8 +507,9 @@ test('the agent is handed the run and the project, and never the database', asyn
       seen.push(request);
       return Promise.resolve();
     },
-    // Not this ticket's run; the port is two methods since issue #20.
+    // Not this ticket's run; the port is three methods since issue #114.
     extractRegisterEntry: () => Promise.resolve(),
+    proposeCapture: () => Promise.resolve(),
   };
   const app = await api({ agentRunService: recording });
   const project = await createProject(app, 'M-1', 'Office fit-out');

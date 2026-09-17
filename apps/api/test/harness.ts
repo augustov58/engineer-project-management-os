@@ -762,8 +762,8 @@ export interface SiteVisitDetail extends SiteVisitResponse {
   observations: ObservationResponse[];
   /** In the order they were taken, which is the order the walk happened in. */
   photos: PhotoResponse[];
-  /** What was spoken on this walk, in the order it was said (issue #12). */
-  voiceCaptures: VoiceCaptureResponse[];
+  /** The walk's conversation, with its turns in order (issue #114). */
+  conversation: ConversationResponse;
   /** The write-ups asked for of this walk, oldest first (issue #13). */
   reports: SiteVisitReportResponse[];
 }
@@ -1043,35 +1043,78 @@ export function heldTranscriber(
   };
 }
 
-/** A voice capture as the API returns it. Never its audio, never its key. */
-export interface VoiceCaptureResponse {
+/** What the agent proposed on its turn, or null (issue #114). */
+export interface ProposalResponse {
+  observed: string;
+  floor: string;
+  qualifier: string;
+  side: string | null;
+  sector: string | null;
+  /** The grammar, composed on every read as an observation's is (ADR-0030). */
+  location: string;
+  issueId: string | null;
+}
+
+/** A turn as the API returns it. Never its audio, never its key. */
+export interface TurnResponse {
   id: string;
-  siteVisitId: string;
-  /** What the phone called it, so a resend after a signal drop lands once. */
-  captureKey: string;
-  recordedAt: string;
-  contentType: string;
-  byteSize: number;
+  conversationId: string;
+  speaker: 'ENGINEER' | 'AGENT';
+  /** Where it sits in the conversation, from 1. */
+  position: number;
+  /** Which kind of capture the engineer made. Null on the agent's turn. */
+  kind: 'VOICE' | 'TYPED' | null;
+  /** What the client called it, so a resend after a signal drop lands once. */
+  captureKey: string | null;
+  recordedAt: string | null;
+  contentType: string | null;
+  byteSize: number | null;
   /** Stamped when the worker picked it up. Null while it is still queued. */
   transcribingSince: string | null;
-  /** What the vendor heard, verbatim, and never rewritten by a correction. */
+  /** What was said, verbatim, and never rewritten by a correction. */
   transcript: string | null;
   transcribedAt: string | null;
   failedAt: string | null;
   failure: string | null;
   createdAt: string;
+  /** The run this turn is, on the agent's turn and nowhere else. */
+  agentRunId: string | null;
   /** Derived from the four stamps on every read, and stored nowhere. */
   state: 'queued' | 'transcribing' | 'transcribed' | 'failed';
+  /** The draft the agent proposed, or null on every other turn. */
+  proposal: ProposalResponse | null;
   /** The observation it became, or null while it is still a draft. */
   observation: ObservationResponse | null;
 }
 
-export interface VoiceCaptureBody {
+/** One proposal run held on a conversation. The state, never the stamps. */
+export interface CaptureRunResponse {
+  id: string;
+  createdAt: string;
+  failure: string | null;
+  state: 'queued' | 'running' | 'finished' | 'failed';
+}
+
+/** A walk's conversation, with its turns in order (issue #114). */
+export interface ConversationResponse {
+  id: string;
+  projectId: string;
+  siteVisitId: string | null;
+  createdAt: string;
+  turns: TurnResponse[];
+  /** The proposal runs asked for on it, oldest first. */
+  runs: CaptureRunResponse[];
+}
+
+export interface TurnBody {
+  kind: 'VOICE' | 'TYPED';
   captureKey: string;
   recordedAt: string;
-  contentType: string;
+  contentType?: string;
   /** The audio, base64. The record keeps the key; the store keeps these. */
-  bytes: string;
+  bytes?: string;
+  /** What was typed, on a typed capture and never beside audio. */
+  text?: string;
 }
 
 /**
@@ -1084,34 +1127,53 @@ export interface VoiceCaptureBody {
 export const A_SOUND = 'T2dnUwACAAAAAAAAAABzcGVha2luZw==';
 
 /** A valid create body, so a test about one field need not restate the rest. */
-export function voiceCaptureBody(
-  patch: Partial<VoiceCaptureBody> = {},
-): VoiceCaptureBody {
-  return {
+export function turnBody(patch: Partial<TurnBody> = {}): TurnBody {
+  const base: TurnBody = {
+    kind: 'VOICE',
     captureKey: 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
     recordedAt: '2026-07-23T13:20:00.000Z',
     contentType: 'audio/webm',
     bytes: A_SOUND,
-    ...patch,
   };
+  // A typed capture carries no audio at all, and the boundary refuses a body
+  // that mixes the two — so patching the kind swaps the branch rather than
+  // adding to it, which is what lets a test say `{ kind: 'TYPED', text }`.
+  if (patch.kind === 'TYPED') {
+    const { contentType: _type, bytes: _bytes, ...typed } = base;
+    return { ...typed, text: 'south stair, cracked tile', ...patch };
+  }
+  return { ...base, ...patch };
 }
 
 /** Fixtures are built through the API, never by writing to the database. */
-export async function addVoiceCapture(
+export async function addTurn(
   api: TestApi,
   siteVisitId: string,
-  patch: Partial<VoiceCaptureBody> = {},
-): Promise<VoiceCaptureResponse> {
-  const path = `/v1/site-visits/${siteVisitId}/voice-captures`;
+  patch: Partial<TurnBody> = {},
+): Promise<TurnResponse> {
+  const path = `/v1/site-visits/${siteVisitId}/turns`;
   const response = await api.fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(voiceCaptureBody(patch)),
+    body: JSON.stringify(turnBody(patch)),
   });
   if (response.status !== 201) {
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
   }
-  return (await response.json()) as VoiceCaptureResponse;
+  return (await response.json()) as TurnResponse;
+}
+
+/** The walk's conversation, read on its own. */
+export async function conversationOn(
+  api: TestApi,
+  siteVisitId: string,
+): Promise<ConversationResponse> {
+  const path = `/v1/site-visits/${siteVisitId}/conversation`;
+  const response = await api.fetch(path);
+  if (response.status !== 200) {
+    throw new Error(`fixture failed: GET ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as ConversationResponse;
 }
 
 /** A site visit report as the API returns it (issue #13). */
@@ -1715,6 +1777,11 @@ export async function requestMemoryRun(
  * proposal route. Its payload includes the title and revision the arrival
  * path proposes, so a test whose source is a stored document passes its own
  * proposal — that path refuses the pair.
+ *
+ * The capture half proposes one fixed draft, again through the real route: a
+ * floor, a qualifier, an axis and words that say what they are. A test that
+ * wants the agent's **question** instead passes `{ question: '…' }` as the
+ * proposal, which is the same route's other branch.
  */
 export function fakeAgentRunService(
   app: {
@@ -1741,6 +1808,12 @@ export function fakeAgentRunService(
     title: 'RFI-001 baseplate detail',
     revision: 'A',
   },
+  captureProposal: Record<string, unknown> = {
+    observed: '[fake agent draft] cracked tile at the south stair',
+    floor: '3',
+    qualifier: 'south stair',
+    side: 'A',
+  },
 ): AgentRunService {
   return {
     proposeMemoryEdit: async ({ runId, sessionId }) => {
@@ -1762,6 +1835,14 @@ export function fakeAgentRunService(
         headers: { [SESSION_HEADER]: sessionId },
       });
     },
+    proposeCapture: async ({ runId, sessionId }) => {
+      await app.inject({
+        method: 'POST',
+        url: `/v1/capture-runs/${runId}/proposal`,
+        payload: captureProposal,
+        headers: { [SESSION_HEADER]: sessionId },
+      });
+    },
   };
 }
 
@@ -1770,6 +1851,7 @@ export function refusingAgentRunService(reason: string): AgentRunService {
   return {
     proposeMemoryEdit: () => Promise.reject(new Error(reason)),
     extractRegisterEntry: () => Promise.reject(new Error(reason)),
+    proposeCapture: () => Promise.reject(new Error(reason)),
   };
 }
 
@@ -1795,6 +1877,10 @@ export function heldAgentRunService() {
       await held;
     },
     extractRegisterEntry: async () => {
+      arrive();
+      await held;
+    },
+    proposeCapture: async () => {
       arrive();
       await held;
     },

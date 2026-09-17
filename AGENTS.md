@@ -14,68 +14,68 @@ The Obsidian vault is the single source of truth for this project's documentatio
 /home/augusto/Obsidian Notes/Projects/Engineer Project Management OS/
 ```
 
-- `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it, and what is planned beyond the MVP is one sentence, the five deferred items with named triggers.
-- `docs/adr/` - decision records 0001-0061, indexed with a status for every one by `docs/adr/README.md`; in the files, 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, but **0012-0019 carry none**, so those eight have only the index. Six are superseded — the index says which — and **six** Accepted with a qualifier (0004, 0006, 0008, 0010, 0011, 0013); **none is Proposed**, none since 0020 was accepted 2026-09-01.
+- `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it. What is planned beyond the MVP is the five deferred items with named triggers.
+- `docs/adr/` - decision records 0001-0061. `docs/adr/README.md` is the index and **the only place with a status for every one**: in the files 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, and **0012-0019 carry none**. Six are superseded and six Accepted with a qualifier; **none is Proposed** since 0020, 2026-09-01.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
 
 ## Current status
 
-Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with #42's three
-correctness gaps closed and #49's root typecheck repaired. That is every step of the six-step **Revised MVP sequence** in
-`PRD and Architecture.md` including step 1, done 2026-09-05 on job **260001** — the four
-items the PRD names are T-1's *examples* of an open item's shape, not a checklist, and
-reading them as one is what kept the step open; do not re-raise it. **Step 5 is done since
-#109**: consent landed 2026-09-08 and both adapters are written, so "no adapter exists" is
-spent. The **inbound mail provider stays unwritten**, the last vendor pick.
+Slices 1 through 22 — issues #2 to #22, plus the deployment as #56 — are built, with #42's
+three correctness gaps closed and #49's root typecheck repaired. That is every step of the
+six-step **Revised MVP sequence** in `PRD and Architecture.md`, step 1 included: done
+2026-09-05 on job **260001**, the four items the PRD names being T-1's *examples* of an open
+item's shape and not a checklist. Do not re-raise it. **Step 5 is done since #109**. The
+**inbound mail provider stays unwritten**, the last vendor pick.
 
-**Post-MVP has started** (issue #103). Nine tickets have landed: the timezone frame (#104,
+**Post-MVP has started** (issue #103). Ten tickets have landed: the timezone frame (#104,
 ADR-0054); **users and sessions replacing the edge gate** (#105, ADR-0055) — a `users`
 table, the first account a command on the machine, no shared secret anywhere;
 **the gates** (#106, ADR-0052) — `.github/workflows/ci.yml`
 runs every gate below on every push and PR, and does not deploy; **the helper
 skills** (#107, ADR-0053) — `apps/api/tools/` is a submodule pinned by commit at the helpers'
 own repository, its manifested helpers reachable as `POST /v1/tools/:name` through the one
-mutating route that **records nothing**; **extraction reachable** (#108) —
-the register screen asks for one over a stored document and every ask lands on the
-confirmation screen; **the vendor picks** (#109, ADR-0060/0061) — `OCR=azure` is Azure AI
-Document Intelligence and `TRANSCRIBER=azure` Azure AI Speech **fast**, both
-refusing by default, no key in source; **the actor and the subject** (#111, ADR-0055 part 2)
-— every audit line says **who**, **which row** it touched and the run it was written during,
-the actor coming from the session and never a request body; and **the person on the
-record** (#112, ADR-0055 part 5) — a walk's
+mutating route that **records nothing**; **extraction reachable** (#108); **the vendor
+picks** (#109, ADR-0060/0061) — `OCR=azure` is Azure AI Document Intelligence and
+`TRANSCRIBER=azure` Azure AI Speech **fast**, both refusing by default, no key in source;
+**the actor and the subject** (#111, ADR-0055 part 2) — every audit line says **who**,
+**which row** it touched and the run it was written during, the actor coming from the session
+and never a request body; and **the person on the record** (#112, ADR-0055 part 5) — a walk's
 `conducted_by` (the report prints it), an open item's `owner_id` replacing free text, the
 handoff that names who the ball came to, and *mine*/*ours* on the daily layer. Still no
 `created_by`: whose a record **is** differs from who typed it. **ADR-0055 is built whole.**
-**Evidence** (#113, ADR-0056) — `photos.observation_id` beside `issue_id`, **at most one**;
-a finding's evidence is **derived** through its sightings and promotion writes nothing to a
-photograph.
-The platform health check is `/healthz`, a Next route reaching
-the API, **verified on the machine that serves** (ADR-0045). The
-per-slice record is [docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051).
-Work one ticket at a time, and only when asked.
+**Evidence** (#113, ADR-0056) — `photos.observation_id` beside `issue_id`, at most one; a
+finding's evidence is **derived** through its sightings. **The conversation** (#114, ADR-0057
+as amended by ADR-0058) — a walk has exactly one, created with it; `voice_captures` is now
+`turns` under it, a capture is **spoken or typed**, and a typed one queues a run whose reply
+is a turn carrying the draft or a question. The run is an `agent_runs` row naming its
+conversation — the link, not the `kind` column ADR-0040 refused. **Confirming is still the
+engineer's**, and the forms are unchanged.
+`/healthz` is the platform check (ADR-0045); the per-slice record is
+[docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051). Work one ticket at a
+time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` run from the repo root and
-pass. Since issue #50 (ADR-0049) `pnpm test` covers `apps/web` too — component-level
-Vitest, no browser. The frontend **build** is in neither and is CI's fourth gate (#106);
+pass. Since #50 (ADR-0049) `pnpm test` covers `apps/web` too — component-level Vitest, no
+browser. The frontend **build** is in neither and is CI's fourth gate (#106);
 `.claude/rules/web.md` says what it catches and how to run it by hand, which is still what to
-do before calling a frontend change done. The fifth is `./scripts/helper-tests.sh` (#107),
-running each helper's own tests — it gates what this repository *pinned* where the others
-gate what it wrote. See [README.md](./README.md).
+do before calling a frontend change done. The fifth is `./scripts/helper-tests.sh` (#107) —
+it gates what this repository *pinned* where the others gate what it wrote.
+See [README.md](./README.md).
 
 ## Ground rules for agents
 
 - Plan changes, scope adjustments and vendor decisions get recorded in the vault, not only in code or commits.
-- Milestone completion is marked in `PRD and Architecture.md` in the same session.
-- Follow the ADRs; if an ADR must change, write a new/superseding ADR in the vault first.
-- Stack: TypeScript monorepo (pnpm), Next.js frontend, Fastify API (ADR-0021), PostgreSQL + Prisma, Redis + BullMQ, S3 docs, Pi SDK (`@earendil-works/pi-coding-agent`).
+- Milestone completion is marked in `PRD and Architecture.md` the same session.
+- Follow the ADRs; if one must change, write a new/superseding ADR in the vault first.
+- Stack: TypeScript monorepo (pnpm), Next.js, Fastify (ADR-0021), PostgreSQL + Prisma, Redis + BullMQ, S3 docs, Pi SDK (`@earendil-works/pi-coding-agent`).
 - The product implements no calculation logic anywhere. Helper skills produce inputs to the
   record; it records what one produced and never reimplements its math.
 - The glossary's `_Avoid_` lists are **binding vocabulary**, in column names as much as in
   UI copy: the observation's content column is `observed` and not `note`; the record is a
-  *site visit*, never an inspection or a walkthrough; a location has no *area* or *zone*.
-  Check a new column name against the glossary before writing it.
+  *site visit*, never an inspection or a walkthrough; a location has no *area* or *zone*; a
+  **turn** is never a *message*. Check a new column name against the glossary first.
 - `apps/web` imports carry no file extension (bundler resolution); `apps/api` imports carry `.js` (NodeNext). `tsc` accepts the wrong one and the bundler does not.
 
 ## Rules by path
@@ -84,7 +84,8 @@ The rules for one record live in `.claude/rules/`, one file per path family, and
 loads a file the moment a path in its frontmatter is read through the Read tool. A file
 opened through the shell loads nothing, so before editing anything in the left column, read
 the file on the right. Each rule there was a bullet in this file until 2026-09-01 and none
-was rewritten; only `helpers.md` was written fresh, for #107.
+was rewritten; `helpers.md` was fresh for #107, and `voice.md` became `conversations.md`
+for #114.
 
 | Before editing | Read |
 |---|---|
@@ -94,7 +95,7 @@ was rewritten; only `helpers.md` was written fresh, for #107.
 | open items, the pending view, assumption records | [open-items.md](./.claude/rules/open-items.md) |
 | site visits, observations, issues, the report | [site-visits.md](./.claude/rules/site-visits.md) |
 | photographs, binning, evidence, the filename grammar | [photos.md](./.claude/rules/photos.md) |
-| voice captures, transcription | [voice.md](./.claude/rules/voice.md) |
+| the walk's conversation, captures, transcription, the proposed draft | [conversations.md](./.claude/rules/conversations.md) |
 | registers, entries, ball-in-court, the clock, dispositions | [registers.md](./.claude/rules/registers.md) |
 | project memory, proposals, agent runs, the audit, the activity feed | [memory.md](./.claude/rules/memory.md) |
 | the ingest address, documents and referenced files, extraction, processing location | [ingest.md](./.claude/rules/ingest.md) |
@@ -104,7 +105,7 @@ was rewritten; only `helpers.md` was written fresh, for #107.
 `prisma/schema.prisma`, `worker.ts` and the project page are listed in every file whose
 record they touch, so reading one loads all of those, on purpose. A rule about one record
 goes in that record's file and never here: this file carries only what applies to every
-path, and stays under 8 KB — trimmed back under it on 2026-09-15.
+path, and stays under 8 KB — trimmed back under it on 2026-09-15 and again on 2026-09-16.
 
 ## Agent skills
 

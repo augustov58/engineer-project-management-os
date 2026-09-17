@@ -132,7 +132,7 @@ apply to every path stay in `AGENTS.md`.
   document version's route still hands its own type back, and may, because that set is closed.
 - `ingested_documents.arrived_at` is stamped from the `TimeSource` and the sender's `Date`
   header is **not read** — the opposite answer to `photos.taken_at` and
-  `voice_captures.recorded_at`, because the only value on offer here is one an untrusted
+  `turns.recorded_at`, because the only value on offer here is one an untrusted
   party controls (ADR-0042).
 - The **rate limit is a count of `EMAIL` rows in the trailing hour**, not a counter beside
   them — exposure's and the clock's shape. No Redis key: a counter in a second store is a
@@ -173,7 +173,7 @@ apply to every path stay in `AGENTS.md`.
   the same failure applied backwards.
 - An **extraction** is one record, `register_entry_extractions`: the run's four stamps, the
   proposal's fields and the resolution, with the state derived on every read and **no status
-  column** — the shape a voice capture and a site visit report established (ADR-0043). The
+  column** — the shape a capture and a site visit report established (ADR-0043). The
   source is **exactly one** of an ingested file or a document version, held by a CHECK, so
   the ambiguity is never a value in a column. The asking is **manual and per file**: the
   engineer picks which file of an arrival is the correspondence (story 84's "automatically"

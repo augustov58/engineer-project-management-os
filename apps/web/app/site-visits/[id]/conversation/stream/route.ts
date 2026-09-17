@@ -20,7 +20,7 @@ export async function GET(
   const { id } = await params;
 
   const upstream = await apiFetch(
-    `/site-visits/${encodeURIComponent(id)}/voice-captures/stream`,
+    `/site-visits/${encodeURIComponent(id)}/conversation/stream`,
     {
       cache: 'no-store',
       // So closing the browser tab closes the API's stream too, rather than

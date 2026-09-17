@@ -56,7 +56,8 @@ apply to every path stay in `AGENTS.md`.
   `photo_observations` join**, because a photograph evidences one thing. ADR-0032 refused
   this for one reason — *"there is no third mechanism that would bind a photograph to one
   observation out of the dozen made on a floor"* — and the very next slice built one,
-  `voice_captures.observation_id`. Binding is **by hand** from the observation's screen and
+  `voice_captures.observation_id` — `turns.observation_id` since issue #114. Binding is
+  **by hand** from the observation's screen and
   there is no observation grammar in a filename: an observation has no identifier, and none
   is invented. Binding by filename still creates no **sighting** — a sighting is an
   observation.

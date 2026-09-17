@@ -16,6 +16,7 @@ import {
   auditEntryOnTheWire,
 } from '../audit.js';
 import { actorOf, callerOf, mintRunSession } from '../gate.js';
+import { agentRunState } from '../wire.js';
 
 /**
  * The size budget, in characters (story 101).
@@ -101,20 +102,16 @@ type StoredProposal = Prisma.MemoryProposalGetPayload<{
 }>;
 
 /**
- * The run's state, derived on every read from the four stamps — queued is
- * all four null — with no status column beside them (ADR-0035's shape, for
- * the third queued record).
+ * The run's state, derived on every read from the four stamps.
+ *
+ * The arithmetic moved to `wire.ts` when a walk's conversation became the
+ * second record to read an `agent_runs` row (issue #114) — the trigger
+ * ADR-0033 names, and the reason `stream.ts` moved out of `routes/voice.ts`.
+ * The shape a memory run goes out in stays here, because only this screen
+ * returns the whole row.
  */
 function runOnTheWire(run: StoredRun) {
-  const state =
-    run.failedAt !== null
-      ? 'failed'
-      : run.finishedAt !== null
-        ? 'finished'
-        : run.runningSince !== null
-          ? 'running'
-          : 'queued';
-  return { ...run, state };
+  return { ...run, state: agentRunState(run) };
 }
 
 /**
@@ -223,6 +220,24 @@ const MEMORY_HAS_MOVED = 'the memory has changed since that was proposed';
 /** Thrown inside a transaction to roll it back as one of those two. */
 class AlreadyResolved extends Error {}
 class BaseHasMoved extends Error {}
+
+/**
+ * Which of a project's `agent_runs` rows are this record's (issue #114).
+ *
+ * `agent_runs` has no `kind` column — ADR-0040's deliberate shape, and the
+ * reason ADR-0043 gave for making an extraction a record of its own: *"a memory
+ * screen reading it per project could not keep an extraction run out of its
+ * list"*. ADR-0058 then required every agent turn to be a row here, so that
+ * objection had to be answered, and it is answered with a **link** rather than
+ * a kind: a capture-proposal run names the conversation it is a turn on, and a
+ * memory run names none.
+ *
+ * Both readers of this table on this screen go through this one constant, for
+ * the reason `currentVersion` is one function: two `where` clauses free to
+ * disagree would show the list and the stream different runs, and the one that
+ * nobody watches is the one that would be wrong.
+ */
+const MEMORY_RUNS = { conversationId: null } as const;
 
 export function memoryRoutes(
   v1: FastifyInstance,
@@ -380,7 +395,7 @@ export function memoryRoutes(
         return noSuchProject(reply);
       }
       const runs = await prisma.agentRun.findMany({
-        where: { projectId: project.id },
+        where: { projectId: project.id, ...MEMORY_RUNS },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: runSelect,
       });
@@ -678,7 +693,7 @@ export function memoryRoutes(
       await stream(request, reply, async () => {
         const [runs, proposals, current] = await Promise.all([
           prisma.agentRun.findMany({
-            where: { projectId },
+            where: { projectId, ...MEMORY_RUNS },
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             select: runSelect,
           }),
