@@ -16,6 +16,7 @@ All planning documentation lives in the Obsidian vault. This vault location is t
 ├── Post-MVP PRD.md           ← the post-MVP plan, inheriting the above by reference
 ├── docs/
 │   ├── adr/                  ← architecture decisions, and README.md, the index
+│   ├── design/               ← the approved design brief and the mockups (ADR-0059, issue #116)
 │   └── glossary.md           ← domain terms
 ```
 
