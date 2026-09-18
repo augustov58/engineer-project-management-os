@@ -104,6 +104,9 @@ test('an empty database still names every table', async () => {
       email: app.user.email,
       createdAt: expect.any(String),
       disabledAt: null,
+      // The export drops the hash and carries the rest of the row, so a
+      // column added to `users` lands here by construction (issue #117).
+      theme: 'SYSTEM',
     },
   ]);
   expect(body.version).toBe(1);

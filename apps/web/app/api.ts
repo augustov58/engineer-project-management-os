@@ -1331,10 +1331,27 @@ export interface User {
 }
 
 /**
+ * Which theme an engineer reads the product in (issue #117). *System* is the
+ * absence of an override, which leaves `prefers-color-scheme` to answer.
+ */
+export type Theme = 'SYSTEM' | 'LIGHT' | 'DARK';
+
+/**
+ * The signed-in person, who is the one person a read returns a theme for.
+ *
+ * Separate from `User` and not a fourth field on it: a walk's conducted-by, an
+ * item's owner and the people list are all `User`, and none of them is a
+ * preference of the person reading the screen.
+ */
+export interface SignedInUser extends User {
+  theme: Theme;
+}
+
+/**
  * Who this request is signed in as, or undefined when it is signed in as
  * nobody — which is what the header renders on the sign-in screen itself.
  */
-export async function currentUser(): Promise<User | undefined> {
+export async function currentUser(): Promise<SignedInUser | undefined> {
   const response = await apiFetch('/sessions/current', {
     cache: 'no-store',
     refusal: 'answer',
@@ -1345,7 +1362,7 @@ export async function currentUser(): Promise<User | undefined> {
   if (!response.ok) {
     throw new Error(`GET ${apiPath('/sessions/current')} returned ${response.status}`);
   }
-  return response.json() as Promise<User>;
+  return response.json() as Promise<SignedInUser>;
 }
 
 /**

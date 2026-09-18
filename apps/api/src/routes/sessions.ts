@@ -109,7 +109,17 @@ export function sessionRoutes(
     });
   });
 
-  /** Who this request is. The gate refused it already if it is nobody. */
+  /**
+   * Who this request is. The gate refused it already if it is nobody.
+   *
+   * The one read that carries a field `userOnTheWire` does not: the signed-in
+   * person's **theme** (issue #117). That projection is the three fields a
+   * name on a record needs and is spread across half the product — a walk's
+   * conducted-by, an item's owner, the people list — and a theme on every one
+   * of those would be a field on the wire that no screen reads. Here it has a
+   * reader: the root layout writes the class on `<html>` off this read, which
+   * it was already making, so the override costs no second request.
+   */
   v1.get('/sessions/current', async (request, reply) => {
     const user = await prisma.user.findUnique({
       where: { id: callerOf(request).userId },
@@ -117,7 +127,7 @@ export function sessionRoutes(
     if (user === null) {
       return refuse(reply, NOT_AN_ACCOUNT);
     }
-    return reply.send(userOnTheWire(user));
+    return reply.send({ ...userOnTheWire(user), theme: user.theme });
   });
 
   /**

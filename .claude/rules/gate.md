@@ -133,6 +133,19 @@ apply to every path stay in `AGENTS.md`.
   regression in either was invisible to `pnpm test`. Both were verified by breaking them on
   purpose — an empty cookie let past, and the guard returning its argument — and each failed
   exactly the assertion written for it.
+- **A person's theme is a column and the route names no id** (issue #117, ADR-0059 point 4 as
+  the design brief's decision 2 extends it). `users.theme` is a three-value enum defaulting to
+  `SYSTEM`, and `POST /v1/users/current/theme` is `current` rather than `/users/:id/theme`: a
+  theme is the caller's own, `callerOf` supplies the row and `actorOf` the actor, so there is
+  no id to point at somebody else with. That is not ADR-0055 part 7's *recorded rather than
+  prevented* being reversed — adding and closing accounts are acts on the firm and are
+  recorded; changing what another engineer's screen looks like is not an act on the firm at
+  all. It writes one audit line and none on a no-op, as a second disable does. A **cookie** was
+  the alternative and is what the column exists instead of: a cookie is per browser, and the
+  point is that the choice follows the engineer from the phone on the walk to the desk.
+  `GET /v1/sessions/current` is the one read that carries it — `userOnTheWire` stays the three
+  fields a name on a record needs, and a theme on every walk's conducted-by would be a field on
+  the wire no screen reads.
 - The gate test is **exhaustive and not representative**. `startTestApi` collects every route
   Fastify registers through an `onRoute` hook and exposes them as `routes()`; `gate.test.ts`
   walks every one of them and asserts the allowed set is exactly the ingest webhook — no

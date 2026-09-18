@@ -2,7 +2,28 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/**
+ * The dark theme is reachable two ways (issue #117, ADR-0059 point 4 as the
+ * design brief's decision 2 extends it): the class the server writes on
+ * `<html>` from `users.theme`, and the system's own preference underneath it
+ * when there is no override. Both branches are spelled here because a
+ * `dark:` utility has to follow the tokens — it was `(&:is(.dark *))` alone
+ * until now, and the tokens below moved before it did.
+ *
+ * `:root:not(.light)` and not `:root:not(.dark):not(.light)`: an explicit
+ * `.dark` matches the first branch as well, and both branches carry the same
+ * declarations, so the overlap costs nothing and the selector stays readable.
+ */
+@custom-variant dark {
+  &:is(.dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:is(:root:not(.light) *) {
+      @slot;
+    }
+  }
+}
 
 @theme inline {
     --font-heading: var(--font-sans);
@@ -47,73 +68,108 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/**
+ * The palette, both themes, one declaration a token (issue #117).
+ *
+ * Every pair is `light-dark(light, dark)`, which resolves against the used
+ * `color-scheme` below — so the system's preference and the engineer's
+ * override reach the same values by the same route, and there is no second
+ * copy of the dark palette to drift from the first. `color-scheme` is not
+ * decoration either: this product keeps native selects everywhere on purpose
+ * (ADR-0025), and without it the browser paints them as light-theme widgets
+ * on a dark page.
+ *
+ * The values are the approved design brief's `## Colour` tables verbatim
+ * (`docs/design/design-brief.md` in the vault, issue #116). **Six token names
+ * moved, eleven declarations across the two themes** — `--destructive`,
+ * `--muted-foreground`, `--input`, `--ring` and `--border` in both, and the
+ * dark `--sidebar-primary` deleted. A token that is one value in both themes
+ * is written once rather than as a pair of identical halves.
+ */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    /* No override: the system answers. The two classes below are the override,
+       written on `<html>` by the root layout from `users.theme`. */
+    color-scheme: light dark;
+
+    --background: light-dark(oklch(1 0 0), oklch(0.145 0 0));
+    --foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+    --card: light-dark(oklch(1 0 0), oklch(0.205 0 0));
+    --card-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+    --popover: light-dark(oklch(1 0 0), oklch(0.205 0 0));
+    --popover-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+    --primary: light-dark(oklch(0.205 0 0), oklch(0.922 0 0));
+    --primary-foreground: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
+    --secondary: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+    --secondary-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+    --muted: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+    /* Was 0.556 / 0.708. The nav, every helper line and most secondary text in
+       the product at once, and it cleared AA by a quarter of a point. */
+    --muted-foreground: light-dark(oklch(0.522 0 0), oklch(0.72 0 0));
+    --accent: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+    --accent-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+    /* Was 0.577 0.245 / 0.704 0.191, and **both were outside sRGB** — nothing
+       above chroma 0.235 is in gamut at the light one's lightness, nothing
+       above 0.188 at the dark one's, so the browser painted a clamped value
+       neither token ever described. These two are in gamut: the number in the
+       file is the number on the screen. This is the AA failure on seven of
+       sixteen screens. */
+    --destructive: light-dark(oklch(0.52 0.2 27.325), oklch(0.73 0.15 22.216));
+    /* Was 0.922 / white at 10%. A separator is decoration and carries no AA
+       bar; the floor is legibility on a bright screen outdoors. The dark half
+       stops being an alpha because its contrast was otherwise a different
+       number on every surface it touched. */
+    --border: light-dark(oklch(0.86 0 0), oklch(0.35 0 0));
+    /* Was 0.922 / white at 15%. A field outline **is** a UI component: AA asks
+       3:1 and it was 1.26:1. */
+    --input: light-dark(oklch(0.65 0 0), oklch(0.55 0 0));
+    /* Was 0.708 / 0.556. The focus indicator, at 2.58:1. */
+    --ring: light-dark(oklch(0.55 0 0), oklch(0.72 0 0));
+    /* Five greys, the same in both themes. The palette is achromatic with one
+       hue on purpose: the only colour in this product means *late, or
+       unconfirmed*, and a second hue would dilute the first. */
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
+    --sidebar-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
+    /* One value and not a pair: the dark half was `oklch(0.488 0.243 264.376)`,
+       a blue that was the only other hue in this file, that nothing renders —
+       there is no sidebar — and that the brief deletes. */
     --sidebar-primary: oklch(0.205 0 0);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-accent: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
+    --sidebar-accent-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+    --sidebar-border: light-dark(oklch(0.922 0 0), oklch(1 0 0 / 10%));
+    --sidebar-ring: light-dark(oklch(0.708 0 0), oklch(0.556 0 0));
+
+    /**
+     * The two measures (the brief's `## The spacing scale, and the measure`).
+     *
+     * Everything in the product is 64 rem wide today, the 847-line site visit
+     * screen included. `record` is one column for a screen whose content is a
+     * record being read, where a line of prose at 16 px sits at 60–75
+     * characters; `desk` is unchanged, for the lists and tables that compare
+     * rows. Declared here and applied by the screen-group tickets: this one
+     * changes no screen's layout.
+     */
+    --measure-record: 44rem;
+    --measure-desk: 64rem;
 }
 
-.dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+/**
+ * The override, from `users.theme` (issue #117). `SYSTEM` writes no class at
+ * all, which is what leaves `color-scheme: light dark` above to answer — it is
+ * the absence of an override and not a third colour.
+ */
+:root.light {
+    color-scheme: light;
+}
+
+:root.dark {
+    color-scheme: dark;
 }
 
 @layer base {
