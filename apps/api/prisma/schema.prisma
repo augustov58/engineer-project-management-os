@@ -24,6 +24,20 @@ enum ProcessingLocation {
   @@map("processing_location")
 }
 
+/// Which theme an engineer reads the product in (issue #117, ADR-0059 point 4).
+///
+/// A database enum for ADR-0036's reason: the set is this product's and
+/// nothing outside it writes one. *System* is the default and is not a third
+/// colour — it is the absence of an override, which leaves
+/// `prefers-color-scheme` to answer.
+enum Theme {
+  SYSTEM
+  LIGHT
+  DARK
+
+  @@map("theme")
+}
+
 /// The record everything else in this product hangs off (issue #3). There is
 /// no owner, no tenant and no user: see ADR-0012.
 ///
@@ -2254,6 +2268,14 @@ model User {
   /// their live sessions stop validating; the rows they wrote stay theirs,
   /// which is why this is a stamp and never a delete.
   disabledAt DateTime? @map("disabled_at")
+
+  /// Which theme this person reads the product in (issue #117).
+  ///
+  /// On the person and not in the browser, so it follows them from the phone
+  /// on the walk to the desk afterwards. It is a preference and not a fact
+  /// about the firm's work, which is why it is the one column here nothing
+  /// else joins to.
+  theme Theme @default(SYSTEM)
 
   sessions Session[]
 

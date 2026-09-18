@@ -191,3 +191,111 @@ test("the firm's mutations are audited, and land on no job's trail", async () =>
   ).json()) as { action: string }[];
   expect(trail.map((line) => line.action)).toEqual(['project recorded']);
 });
+
+/**
+ * The theme a person reads the product in (issue #117, ADR-0059 point 4).
+ *
+ * It is a column on `users` and not a cookie, so it follows the engineer from
+ * the phone on the walk to the desk afterwards — which is the whole of why it
+ * is stored at all, `prefers-color-scheme` being the default underneath it.
+ * The route names no id: a preference is the caller's own, and `current` is
+ * the word `/v1/sessions/current` already uses for whoever this request is.
+ */
+function setTheme(app: TestApi, theme: unknown) {
+  return app.fetch('/v1/users/current/theme', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ theme }),
+  });
+}
+
+test("a person's theme defaults to the system's and is read back on the session", async () => {
+  const app = await api();
+
+  const before = await (await app.fetch('/v1/sessions/current')).json();
+  expect(before).toEqual({
+    id: app.user.id,
+    name: TEST_USER.name,
+    email: TEST_USER.email,
+    theme: 'SYSTEM',
+  });
+
+  const set = await setTheme(app, 'DARK');
+  expect(set.status).toBe(200);
+  expect(await set.json()).toEqual({
+    id: app.user.id,
+    name: TEST_USER.name,
+    email: TEST_USER.email,
+    theme: 'DARK',
+  });
+
+  const after = await (await app.fetch('/v1/sessions/current')).json();
+  expect((after as { theme: string }).theme).toBe('DARK');
+});
+
+test('the theme is the caller\'s own and never another account\'s', async () => {
+  const app = await api();
+
+  // A second engineer exists and is left alone by the first one's choice:
+  // there is no id on this route to point at them with.
+  const second = (await (await create(app, SECOND_ENGINEER)).json()) as {
+    id: string;
+  };
+  await setTheme(app, 'LIGHT');
+
+  const theirs = await fetch(`${app.baseUrl}/v1/sessions/current`, {
+    headers: {
+      'x-session-id': (
+        (await (
+          await signIn(app, SECOND_ENGINEER.email, SECOND_ENGINEER.password)
+        ).json()) as { id: string }
+      ).id,
+    },
+  });
+  expect(await theirs.json()).toEqual({
+    id: second.id,
+    name: SECOND_ENGINEER.name,
+    email: SECOND_ENGINEER.email,
+    theme: 'SYSTEM',
+  });
+});
+
+test('a theme outside the three is refused, and the record is unchanged', async () => {
+  const app = await api();
+
+  expect((await setTheme(app, 'SEPIA')).status).toBe(400);
+  expect((await setTheme(app, null)).status).toBe(400);
+
+  const read = (await (await app.fetch('/v1/sessions/current')).json()) as {
+    theme: string;
+  };
+  expect(read.theme).toBe('SYSTEM');
+});
+
+test('setting the theme to the one already set writes no audit line', async () => {
+  const app = await api();
+
+  const firmWide = async () => {
+    const exported = (await (await app.fetch('/v1/export')).json()) as {
+      records: { auditEntries: { action: string }[] };
+    };
+    return exported.records.auditEntries.filter(
+      (line) => line.action === 'theme set',
+    );
+  };
+
+  expect(await firmWide()).toHaveLength(0);
+
+  expect((await setTheme(app, 'DARK')).status).toBe(200);
+  const once = await firmWide();
+  expect(once).toHaveLength(1);
+
+  // A no-op writes no line, as a second archive and a second disable do
+  // (ADR-0040's rule).
+  expect((await setTheme(app, 'DARK')).status).toBe(200);
+  expect(await firmWide()).toHaveLength(1);
+
+  // And a real change writes the second.
+  expect((await setTheme(app, 'SYSTEM')).status).toBe(200);
+  expect(await firmWide()).toHaveLength(2);
+});

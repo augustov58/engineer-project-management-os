@@ -595,7 +595,13 @@ export default async function ProjectRecord({
                 memory.size > memory.budget
                   ? 'bg-destructive h-full'
                   : memory.size > memory.budget / 2
-                    ? 'bg-amber-500 h-full'
+                    ? // The one hard-coded colour the product had, and the
+                      // only value outside the system: the palette is
+                      // achromatic with one hue and that hue means *late, or
+                      // unconfirmed*, which a budget over half is not. A chart
+                      // grey, which is the token set that exists for a mark
+                      // (issue #117, the brief's `## Colour`).
+                      'bg-chart-2 h-full'
                     : 'bg-primary h-full'
               }
               style={{

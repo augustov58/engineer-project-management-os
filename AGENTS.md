@@ -29,7 +29,7 @@ six-step **Revised MVP sequence** in `PRD and Architecture.md`, step 1 included:
 item's shape and not a checklist. Do not re-raise it. **Step 5 is done since #109**. The
 **inbound mail provider stays unwritten**, the last vendor pick.
 
-**Post-MVP has started** (issue #103). Ten tickets have landed: the timezone frame (#104,
+**Post-MVP has started** (issue #103). Eleven tickets have landed: the timezone frame (#104,
 ADR-0054); **users and sessions replacing the edge gate** (#105, ADR-0055) — a `users`
 table, the first account a command on the machine, no shared secret anywhere;
 **the gates** (#106, ADR-0052) — `.github/workflows/ci.yml`
@@ -51,7 +51,9 @@ as amended by ADR-0058) — a walk has exactly one, created with it; `voice_capt
 `turns` under it, a capture is **spoken or typed**, and a typed one queues a run whose reply
 is a turn carrying the draft or a question. The run is an `agent_runs` row naming its
 conversation — the link, not the `kind` column ADR-0040 refused. **Confirming is still the
-engineer's**, and the forms are unchanged.
+engineer's**, and the forms are unchanged. And **the design system**
+(#117, ADR-0059 point 4) — the brief's tokens, the dark theme on with a `users.theme` override,
+every screen measured in both themes.
 `/healthz` is the platform check (ADR-0045); the per-slice record is
 [docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051). Work one ticket at a
 time, and only when asked.

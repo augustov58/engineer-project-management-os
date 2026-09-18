@@ -116,7 +116,7 @@ export default async function RegisterEntryRecord({
           <Badge variant="outline" className="font-mono">
             {entry.number}
           </Badge>
-          <h1 className="text-2xl font-medium">{entry.subject}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{entry.subject}</h1>
           <BallInCourtBadge ballInCourt={entry.ballInCourt} />
           <ClockBadge entry={entry} />
         </div>

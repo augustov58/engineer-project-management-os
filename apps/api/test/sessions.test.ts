@@ -99,6 +99,11 @@ test('the session read names whoever the request came in as', async () => {
     id: app.user.id,
     name: TEST_USER.name,
     email: TEST_USER.email,
+    // The one field this read carries that `userOnTheWire` does not: the
+    // theme is the signed-in person's own and is read by the layout that
+    // writes the class, so it rides the read that layout already makes
+    // (issue #117).
+    theme: 'SYSTEM',
   });
 });
 

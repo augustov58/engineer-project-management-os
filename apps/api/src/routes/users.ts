@@ -6,7 +6,7 @@ import { NOT_BLANK, isUniqueViolation, type RouteDependencies } from '../http.js
 import { MINIMUM_PASSWORD_LENGTH } from '../passwords.js';
 import { createUser } from '../users.js';
 import { userOnTheWire } from '../wire.js';
-import { actorOf } from '../gate.js';
+import { actorOf, callerOf } from '../gate.js';
 
 /**
  * The address is `\S+@\S+` and no more. A pattern that tried to be RFC 5322
@@ -27,6 +27,21 @@ const userBodySchema = {
     email: { type: 'string', pattern: '^\\S+@\\S+$', maxLength: 320 },
     password: { type: 'string', minLength: MINIMUM_PASSWORD_LENGTH, maxLength: 1024 },
   },
+} as const;
+
+/**
+ * The three themes, and no fourth.
+ *
+ * A schema rather than a check in the handler, so that a value outside the set
+ * is a 400 at the boundary and the column's enum is never the thing that
+ * refuses — the same shape every other closed vocabulary in this product has
+ * (ADR-0036).
+ */
+const themeBodySchema = {
+  type: 'object',
+  required: ['theme'],
+  additionalProperties: false,
+  properties: { theme: { enum: ['SYSTEM', 'LIGHT', 'DARK'] } },
 } as const;
 
 export function userRoutes(
@@ -124,6 +139,56 @@ export function userRoutes(
       });
 
       return reply.send(userOnTheWire(user));
+    },
+  );
+
+  /**
+   * Which theme the signed-in person reads the product in (issue #117,
+   * ADR-0059 point 4 as the design brief's decision 2 extends it).
+   *
+   * **`current` and not an id.** A theme is the caller's own preference, and a
+   * route carrying an id would be one engineer able to change what another
+   * one sees — which is not a thing to record rather than prevent, because
+   * nothing about the firm's work is in it. `actorOf` supplies the actor as
+   * everywhere else and `callerOf` the row, so nothing here is read off the
+   * body (ADR-0055 part 2).
+   *
+   * *System* is the absence of an override and not a third colour: it leaves
+   * `prefers-color-scheme` to answer, which is where ADR-0059 point 4 put the
+   * default. Setting the theme already set is a no-op and writes no line, as a
+   * second disable does (ADR-0040's rule).
+   */
+  v1.post<{ Body: { theme: 'SYSTEM' | 'LIGHT' | 'DARK' } }>(
+    '/users/current/theme',
+    { schema: { body: themeBodySchema } },
+    async (request, reply) => {
+      const id = callerOf(request).userId;
+      const at = timeSource.now();
+      const { theme } = request.body;
+
+      const user = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.user.updateMany({
+          where: { id, theme: { not: theme } },
+          data: { theme },
+        });
+        const after = await tx.user.findUniqueOrThrow({ where: { id } });
+        if (count === 0) {
+          // Already this theme. The answer is the same either way, and a
+          // no-op writes no audit line.
+          return after;
+        }
+        await audit(tx, {
+          projectId: null,
+          actor: actorOf(request),
+          subject: { type: 'user', id },
+          action: 'theme set',
+          detail: theme.toLowerCase(),
+          at,
+        });
+        return after;
+      });
+
+      return reply.send({ ...userOnTheWire(user), theme: user.theme });
     },
   );
 }

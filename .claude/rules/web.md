@@ -33,6 +33,20 @@ apply to every path stay in `AGENTS.md`.
   different questions, and the pending screen's GET form carries it in a hidden field,
   because a GET form replaces the whole query string and filtering would otherwise widen
   back to *ours*. Two `<Link>`s and not a control: each half is a URL to bookmark or send.
+- The **theme class is written on `<html>` by the server** and never by a client hook (issue
+  #117). The root layout reads the session on every request already, so the theme is known
+  before the first byte: no flash of the other theme, no `suppressHydrationWarning`, no
+  hydration mismatch. It is ADR-0028's rule reaching the one element React never re-renders
+  cheaply. **`SYSTEM` is no class at all** — it is the absence of an override, which leaves
+  `color-scheme: light dark` in `globals.css` to let `prefers-color-scheme` answer, so do not
+  "fix" it by writing a `system` class. The palette is `light-dark(light, dark)`, one
+  declaration a token, rather than a `.dark` block duplicated under a media query: both ways
+  into the theme then reach the same values with no second copy to drift, and the
+  `@custom-variant dark` carries both branches so a `dark:` utility follows. `color-scheme` is
+  load-bearing — without it the browser paints this product's native selects as light widgets
+  on a dark page. The nav control is **three submit buttons**, not a dropdown: every other
+  closed vocabulary here is the native select element, but those are fields inside a form that
+  serialises something else, and this one is the whole form.
 - Every select added for a person is the **native** element (ADR-0025), for the reason every
   other one here is: the walk's conducted-by, the open item's hand-on, the handoff fieldset's
   "if it is ours, whose", and the extraction confirmation's — which is the one field on that

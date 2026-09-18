@@ -64,7 +64,7 @@ export default async function RegisterLog({
         >
           &larr; {project.projectNumber} {project.name}
         </Link>
-        <h1 className="mt-2 text-2xl font-medium">
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
           {REGISTER_NAMES[register.kind]}
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">

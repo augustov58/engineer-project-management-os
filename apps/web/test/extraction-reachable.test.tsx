@@ -139,7 +139,9 @@ beforeEach(() => {
   vi.mocked(api.getRegister).mockResolvedValue(register);
   vi.mocked(api.listExtractionTargets).mockResolvedValue([document]);
   vi.mocked(api.listUsers).mockResolvedValue([engineer]);
-  vi.mocked(api.currentUser).mockResolvedValue(engineer);
+  // The signed-in person carries a theme where a person on a record does
+  // not (issue #117).
+  vi.mocked(api.currentUser).mockResolvedValue({ ...engineer, theme: 'SYSTEM' });
 });
 
 afterEach(() => {

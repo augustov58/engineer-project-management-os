@@ -149,6 +149,7 @@ const AUDITED = [
   'POST /v1/turns/:id/retry',
   'POST /v1/users',
   'POST /v1/users/:id/disable',
+  'POST /v1/users/current/theme',
 ];
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
