@@ -235,7 +235,10 @@ export function VoiceRecorder({
         size="lg"
         variant={recording ? 'destructive' : 'default'}
         onClick={recording ? finish : () => void begin()}
-        className="h-16 w-full text-base"
+        // `whitespace-normal` because the capture bar gives this a column and
+        // not the page (issue #118): the button's own base is `nowrap`, and the
+        // copy is the record's — story 51's words, not a label to shorten.
+        className="h-16 w-full text-base leading-tight whitespace-normal"
       >
         {recording ? 'Stop and keep it' : 'Hold a moment and speak'}
       </Button>

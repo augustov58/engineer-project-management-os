@@ -333,7 +333,7 @@ export function ConversationPanel({
       */}
       <div className="grid gap-2 rounded-lg border p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-          <div className="sm:w-44 sm:shrink-0">
+          <div className="sm:w-56 sm:shrink-0">
             <VoiceRecorder siteVisitId={siteVisitId} add={add} />
           </div>
           <div className="min-w-0 flex-1">
