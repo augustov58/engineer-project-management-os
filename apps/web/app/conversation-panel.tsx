@@ -171,26 +171,36 @@ export function ConversationPanel({
                     above's observation, so it is seeded with this proposal and
                     bound to that capture's id — and it is offered only while
                     that capture is still a draft.
+
+                    **Only where there is a proposal.** An agent turn is the
+                    draft's fields *or* its one question and never both, so a
+                    turn that asked one proposed nothing: the commit stays under
+                    the capture, where a form under the question would read as
+                    though the question were the draft.
                   */}
-                  {answered !== undefined && answered.observation === null && (
-                    <DraftObservationForm
-                      transcript={answered.transcript}
-                      proposal={turn.proposal}
-                      submit={commit(answered.id)}
-                    />
-                  )}
+                  {turn.proposal !== null &&
+                    answered !== undefined &&
+                    answered.observation === null && (
+                      <DraftObservationForm
+                        transcript={answered.transcript}
+                        proposal={turn.proposal}
+                        submit={commit(answered.id)}
+                      />
+                    )}
                 </li>
               );
             }
 
-            // The engineer's capture. Where the agent answered it, the commit
-            // is under that answer; where it did not — the spoken path, or a
-            // run that failed — it is here, because a failed capture is still
-            // committable.
+            // The engineer's capture. Where the agent **proposed** against it,
+            // the commit is under that proposal; where it did not — the spoken
+            // path, a run that failed, or a turn that asked a question rather
+            // than proposing — it is here, because a failed capture is still
+            // committable and a question is answered by the next capture.
             const answer = turns.find(
               (one) =>
                 one.speaker === 'AGENT' && one.position === turn.position + 1,
             );
+            const proposed = answer !== undefined && answer.proposal !== null;
             const evidence =
               turn.observation === null
                 ? []
@@ -309,7 +319,7 @@ export function ConversationPanel({
                     Waiting for the transcript. The audio is already stored.
                   </p>
                 ) : (
-                  answer === undefined && (
+                  !proposed && (
                     <DraftObservationForm
                       transcript={turn.transcript}
                       proposal={null}

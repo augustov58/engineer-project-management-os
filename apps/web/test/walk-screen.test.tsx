@@ -238,3 +238,90 @@ test('the field screens carry no text-lg heading', () => {
 
   expect(offenders).toEqual([]);
 });
+
+/** One engineer capture awaiting review, at `position`. */
+function capture(position: number, patch: Partial<api.Turn> = {}): api.Turn {
+  return {
+    id: `turn-${position}`,
+    conversationId: 'conversation-1',
+    speaker: 'ENGINEER',
+    position,
+    kind: 'TYPED',
+    captureKey: `key-${position}`,
+    recordedAt: '2026-09-17T13:41:00.000Z',
+    contentType: null,
+    byteSize: null,
+    transcribingSince: null,
+    transcript: `capture ${position}`,
+    transcribedAt: '2026-09-17T13:41:00.000Z',
+    failedAt: null,
+    failure: null,
+    createdAt: '2026-09-17T13:41:00.000Z',
+    agentRunId: null,
+    state: 'transcribed',
+    proposal: null,
+    observation: null,
+    ...patch,
+  };
+}
+
+/** The agent's answer at `position`: a draft, or the one question it asked. */
+function answer(position: number, proposal: api.Proposal | null): api.Turn {
+  return {
+    ...capture(position),
+    id: `turn-${position}`,
+    speaker: 'AGENT',
+    kind: null,
+    captureKey: null,
+    recordedAt: null,
+    transcript: proposal === null ? 'Which floor was that on?' : null,
+    agentRunId: `run-${position}`,
+    proposal,
+  };
+}
+
+const draft: api.Proposal = {
+  observed: 'Isolation room pressure monitor reads −0.01 in. w.c.',
+  floor: '4',
+  qualifier: 'Room 412 (patient room)',
+  side: 'A',
+  sector: null,
+  location: 'Floor 4 — Room 412 (patient room), Side A',
+  issueId: null,
+};
+
+/** For each commit form on the panel, whose turn it is sitting inside. */
+async function commitsUnder(turns: api.Turn[]): Promise<string[]> {
+  vi.mocked(api.getSiteVisit).mockResolvedValue({
+    ...visit,
+    conversation: { ...visit.conversation, turns },
+  });
+  const root = await paint();
+  return [...root.querySelectorAll('#conversation > ul > li')]
+    .filter((one) => one.querySelector('textarea[name="observed"]') !== null)
+    .map((one) => (one.className.includes('bg-muted/40') ? 'agent' : 'engineer'));
+}
+
+test('the commit sits under the agent turn that proposed, and nowhere else', async () => {
+  // The brief's anatomy point 3: "the draft form inline under the agent's turn
+  // that proposed it". What it writes is still the **engineer's** capture — the
+  // confirm route refuses an agent turn by name — so the form moves and what it
+  // is bound to does not.
+  expect(await commitsUnder([capture(1), answer(2, draft)])).toEqual(['agent']);
+
+  // An agent turn is the draft's fields *or* its one question and never both,
+  // so a turn that asked one proposed nothing. A form under the question would
+  // read as though the question were the draft.
+  expect(await commitsUnder([capture(1), answer(2, null)])).toEqual(['engineer']);
+
+  // No run at all — the spoken path, and a run that failed leaves no turn.
+  // A failed capture is still committable: that is what stops a dead vendor
+  // stopping the walk being written up.
+  expect(await commitsUnder([capture(1)])).toEqual(['engineer']);
+
+  // And exactly one form per capture, never two.
+  expect(await commitsUnder([capture(1), answer(2, draft), capture(3)])).toEqual([
+    'agent',
+    'engineer',
+  ]);
+});
