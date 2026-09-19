@@ -2,7 +2,7 @@
 
 import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
-import { selectClassName } from './native-select';
+import { fieldSelectClassName } from './native-select';
 import type { AddState } from './actions';
 // The five moved to `api.ts` when the filter on `/issues` became a second
 // reader of them (issue #64). One copy on this side of the wire: the API
@@ -51,7 +51,7 @@ function ChooseAndSubmit({
           required
           aria-label={label}
           defaultValue=""
-          className={`${selectClassName} min-w-48 flex-1`}
+          className={`${fieldSelectClassName} min-w-48 flex-1`}
         >
           <option value="" disabled>
             {placeholder}
@@ -62,7 +62,12 @@ function ChooseAndSubmit({
             </option>
           ))}
         </select>
-        <Button type="submit" variant={variant} size="sm" disabled={pending}>
+        <Button
+          type="submit"
+          variant={variant}
+          disabled={pending}
+          className="h-11 px-3"
+        >
           {action}
         </Button>
       </form>

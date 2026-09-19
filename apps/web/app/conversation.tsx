@@ -240,25 +240,29 @@ export function VoiceRecorder({
         {recording ? 'Stop and keep it' : 'Hold a moment and speak'}
       </Button>
 
-      <p className="text-muted-foreground text-sm">
-        What you say becomes a draft you correct before it is recorded, so a
-        misheard word never becomes the record.
-        {waiting > 0 && (
-          <>
-            {' '}
+      {/*
+        Only what this device is still holding, and only when it is holding
+        something (issue #118). The sentence that used to sit here — what you
+        say becomes a draft you correct — is the capture bar's one hint now,
+        said once for the spoken and the typed path together, because they are
+        one record and two copies of that line said so twice.
+      */}
+      {(waiting > 0 || pending) && (
+        <p className="text-muted-foreground text-xs">
+          {waiting > 0 && (
             <span className="text-foreground font-medium">
               {waiting === 1
                 ? 'One recording is held on this device'
                 : `${waiting} recordings are held on this device`}
               , and will go up when the signal comes back.
             </span>
-          </>
-        )}
-        {pending && ' Sending…'}
-      </p>
+          )}
+          {pending && ' Sending…'}
+        </p>
+      )}
 
       {error !== undefined && (
-        <p role="alert" className="text-destructive text-sm">
+        <p role="alert" className="text-destructive text-xs">
           {error}
         </p>
       )}
@@ -303,7 +307,7 @@ export function ConversationProgress({
 
   if (live.turns.length === 0) {
     return (
-      <span className="text-muted-foreground text-sm">nothing captured yet</span>
+      <span className="text-muted-foreground text-xs">nothing captured yet</span>
     );
   }
 
@@ -319,7 +323,7 @@ export function ConversationProgress({
   const refused = live.runs.filter((run) => run.state === 'failed').length;
 
   return (
-    <span className="text-muted-foreground text-sm">
+    <span className="text-muted-foreground text-xs">
       {working > 0 && (
         <span className="text-foreground animate-pulse font-medium">
           {working === 1
@@ -484,6 +488,11 @@ export function TypeATurn({
       }}
       className="space-y-3"
     >
+      {/*
+        A turn's words are the **Record** step (issue #118): 16/24, not the
+        `md:text-sm` the Textarea drops to at a desk. What is captured here is
+        the record, not the chrome around it.
+      */}
       <Textarea
         name="text"
         value={text}
@@ -491,19 +500,19 @@ export function TypeATurn({
         rows={3}
         required
         maxLength={4000}
+        className="md:text-base"
         placeholder="Say what you can see. Floor, where on it, what is wrong."
         aria-label="What you are seeing"
       />
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" size="lg" disabled={pending || text.trim() === ''}>
-          {pending ? 'Sending…' : 'Send'}
-        </Button>
-        <p className="text-muted-foreground text-sm">
-          The agent proposes the observation; your confirm is what records it.
-        </p>
-      </div>
+      <Button
+        type="submit"
+        disabled={pending || text.trim() === ''}
+        className="h-11 w-full px-4"
+      >
+        {pending ? 'Sending…' : 'Send'}
+      </Button>
       {state.error !== undefined && (
-        <p role="alert" className="text-destructive text-sm">
+        <p role="alert" className="text-destructive text-xs">
           {state.error}
         </p>
       )}

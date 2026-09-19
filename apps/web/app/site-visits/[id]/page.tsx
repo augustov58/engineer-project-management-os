@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   addPhoto,
   addRecording,
@@ -24,13 +23,15 @@ import {
 } from '../../actions';
 import {
   getSiteVisit,
-  isWorking,
   listIssues,
   listIssuesWithoutPhotos,
   listUsers,
 } from '../../api';
-import { selectClassName } from '../../native-select';
+import { ConversationPanel } from '../../conversation-panel';
+import { Disclosure } from '../../disclosure';
+import { fieldSelectClassName } from '../../native-select';
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
+import { SectionHead } from '../../section-head';
 import { clock, day } from '../../wall-clock';
 import {
   EvidenceShortlist,
@@ -39,15 +40,29 @@ import {
 } from '../../photo-form';
 import { ReportProgress, ReportState } from '../../report-form';
 import { ObservationForm, StartFloorForm } from '../../site-visit-form';
-import {
-  CaptureState,
-  ConversationProgress,
-  DraftObservationForm,
-  TypeATurn,
-  VoiceRecorder,
-} from '../../conversation';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The jumper's five sections, in the order density rule 5 names them (issue
+ * #118, plate F-01).
+ *
+ * Anchors and no JavaScript, sticky under the header at 44 px. This is the
+ * whole of the rule: at the baseline Photographs began 2 733 px down a 3 672 px
+ * page — 3.4 screens of scrolling — and bar 3's *taps to reach* is what that
+ * costs. One tap now.
+ *
+ * The brief's `### Field` paragraph lists Conversation before Observations and
+ * rule 5's jumper lists it after; the plate draws the jumper. Two of the three
+ * say Observations first, so that is the order.
+ */
+const SECTIONS = [
+  { id: 'floors', label: 'Floors' },
+  { id: 'observations', label: 'Observations' },
+  { id: 'conversation', label: 'Conversation' },
+  { id: 'photographs', label: 'Photographs' },
+  { id: 'report', label: 'Report' },
+];
 
 export default async function SiteVisitRecord({
   params,
@@ -117,6 +132,10 @@ export default async function SiteVisitRecord({
    */
   const evidencing = new Map<string, typeof visit.photos>();
   const unfiled = new Map<string, typeof visit.photos>();
+  // On no floor at all, and evidencing nothing: the line the report prints
+  // under its schedule table, because ADR-0056 has no row for these and a
+  // count nobody can see is the silence it is against.
+  let unplaced = 0;
   for (const photo of visit.photos) {
     if (photo.observationId !== null) {
       evidencing.set(photo.observationId, [
@@ -125,8 +144,16 @@ export default async function SiteVisitRecord({
       ]);
     } else if (photo.issueNumber === null && photo.floor !== null) {
       unfiled.set(photo.floor, [...(unfiled.get(photo.floor) ?? []), photo]);
+    } else if (photo.issueNumber === null) {
+      unplaced += 1;
     }
   }
+
+  /** Every photograph on this walk that evidences nothing, floor or no floor. */
+  const unfiledOnTheWalk =
+    visit.photos.filter(
+      (photo) => photo.observationId === null && photo.issueNumber === null,
+    ).length;
 
   async function end() {
     'use server';
@@ -139,35 +166,34 @@ export default async function SiteVisitRecord({
   }
 
   return (
-    <div className="space-y-8">
-      <div>
+    /*
+      The **record measure**, `--measure-record: 44rem` (704 px), declared inert
+      by issue #117 and consumed here for the first time (the brief's `## The
+      spacing scale, and the measure`). The walk is a record being read: a line
+      of prose at 16 px sits at 60–75 characters at this width, where the desk's
+      1024 px put it at half as many again.
+    */
+    <div className="mx-auto grid max-w-[var(--measure-record)] gap-6">
+      <div className="grid gap-1">
         <Link
           href={`/projects/${projectId}`}
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+          className="text-muted-foreground hover:text-foreground font-mono text-xs tracking-[0.06em] uppercase transition-colors"
         >
-          &larr; {visit.project.projectNumber} {visit.project.name}
+          &larr; {visit.project.projectNumber} &middot; {visit.project.name}
         </Link>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Site visit {visit.visitedOn}
-          </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Site visit</h1>
           {visit.endedAt === null && <Badge variant="secondary">Under way</Badge>}
         </div>
 
-        <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-4 text-sm">
-          <span>
-            {clock(visit.startedAt, zone)}
-            {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt, zone)}`}
-          </span>
-          {visit.endedAt === null && (
-            <form action={end}>
-              <Button type="submit" variant="ghost" size="sm">
-                End the visit
-              </Button>
-            </form>
-          )}
-        </div>
+        <p className="text-muted-foreground text-xs">
+          <span className="tabular-nums">
+            {visitedOn} &middot; {clock(visit.startedAt, zone)}
+            {visit.endedAt === null ? '' : `–${clock(visit.endedAt, zone)}`}
+          </span>{' '}
+          &middot; {zone}
+        </p>
 
         {/*
           Who walked the building, which is the name the **report** prints
@@ -175,93 +201,159 @@ export default async function SiteVisitRecord({
           rendering are audit facts and are not here.
 
           Native, for the reason every other select in this app is (ADR-0025):
-          the action reads this out of `FormData`.
+          the action reads this out of `FormData`. At the field target since
+          issue #118 — this screen is used one-handed.
         */}
-        <form
-          action={setConductedBy.bind(null, visit.id, projectId)}
-          className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-sm"
-        >
-          <label htmlFor="conductedById">Conducted by</label>
-          <select
-            id="conductedById"
-            name="conductedById"
-            defaultValue={visit.conductedBy.id}
-            className={selectClassName}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <form
+            action={setConductedBy.bind(null, visit.id, projectId)}
+            className="flex min-w-0 flex-wrap items-center gap-2"
           >
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" variant="ghost" size="sm">
-            Change
-          </Button>
-        </form>
+            <label
+              htmlFor="conductedById"
+              className="text-muted-foreground text-xs"
+            >
+              Conducted by
+            </label>
+            <select
+              id="conductedById"
+              name="conductedById"
+              defaultValue={visit.conductedBy.id}
+              className={fieldSelectClassName}
+            >
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            <Button type="submit" variant="ghost" className="h-11 px-3">
+              Change
+            </Button>
+          </form>
+
+          {visit.endedAt === null && (
+            <form action={end} className="sm:ml-auto">
+              <Button type="submit" variant="ghost" className="h-11 px-3">
+                End the visit
+              </Button>
+            </form>
+          )}
+        </div>
       </div>
+
+      {/*
+        Density rule 5, and the whole of bar 3's *taps to reach*. Sticky under
+        the header at 44 px; `overflow-x-auto` because five anchors do not fit
+        across a 390 px phone and wrapping them would make the bar two rows
+        tall. Plain anchors: nothing here needs JavaScript, and a jumper that
+        did would not work before hydration.
+      */}
+      <nav
+        aria-label="Sections"
+        className="bg-background sticky top-0 z-10 flex min-h-11 items-center gap-4 overflow-x-auto border-b text-xs"
+      >
+        {SECTIONS.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className="text-muted-foreground hover:text-foreground flex min-h-11 items-center whitespace-nowrap transition-colors"
+          >
+            {section.label}
+          </a>
+        ))}
+      </nav>
 
       {/*
         The per-floor schedule. Its job is to be the window every photograph
         taken between the two stamps is attributed to (issue #11), which is why
-        it reads as times rather than as a list of places.
+        it reads as times rather than as a list of places — and, since ADR-0056,
+        why each row carries its count of **unfiled** photographs and renders a
+        zero, exactly as the report's own schedule table does.
       */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Floors</h2>
-          <span className="text-muted-foreground text-sm">
-            {visit.floors.length === 0
-              ? 'none started'
-              : `${visit.floors.length} walked`}
-          </span>
-        </div>
+      <section id="floors" className="grid scroll-mt-14 gap-3">
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {visit.floors.length === 0
+                ? 'none started'
+                : `${visit.floors.length} walked`}
+            </span>
+          }
+        >
+          Floors
+        </SectionHead>
 
         {visit.floors.length > 0 && (
-          <ul className="divide-y rounded-lg border">
-            {visit.floors.map((floor) => (
-              <li
-                key={floor.id}
-                className="flex flex-wrap items-center gap-3 px-4 py-3"
-              >
-                <Badge variant="outline" className="font-mono">
-                  Floor {floor.floor}
-                </Badge>
-                <span className="text-muted-foreground text-sm tabular-nums">
-                  {clock(floor.startedAt, zone)}
-                  {floor.completedAt === null
-                    ? ''
-                    : ` – ${clock(floor.completedAt, zone)}`}
-                </span>
-                {floor.completedAt === null && (
-                  <form
-                    action={completeFloor.bind(
-                      null,
-                      floor.id,
-                      id,
-                      visitedOn,
-                      projectId,
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="text-muted-foreground text-xs font-semibold tracking-[0.06em] uppercase">
+                <th className="pr-3 pb-1.5 text-left">Floor</th>
+                <th className="pr-3 pb-1.5 text-left">Arrived</th>
+                <th className="pr-3 pb-1.5 text-left">Left</th>
+                <th className="pb-1.5 text-right">Unfiled</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visit.floors.map((floor) => (
+                <tr key={floor.id} className="border-t align-top">
+                  <td className="py-3 pr-3 font-mono">{floor.floor}</td>
+                  <td className="py-3 pr-3 tabular-nums">
+                    {clock(floor.startedAt, zone)}
+                  </td>
+                  <td className="py-3 pr-3 tabular-nums">
+                    {floor.completedAt === null ? (
+                      <form
+                        action={completeFloor.bind(
+                          null,
+                          floor.id,
+                          id,
+                          visitedOn,
+                          projectId,
+                        )}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        {/* Blank is now; filled in is a walk entered afterwards. */}
+                        <Input
+                          name="completedAt"
+                          type="time"
+                          aria-label={`Time floor ${floor.floor} was completed`}
+                          className="h-11 w-28"
+                        />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          className="h-11 px-3"
+                        >
+                          Complete
+                        </Button>
+                      </form>
+                    ) : (
+                      clock(floor.completedAt, zone)
                     )}
-                    className="ml-auto flex items-center gap-2"
-                  >
-                    {/* Blank is now; filled in is a walk entered afterwards. */}
-                    <Input
-                      name="completedAt"
-                      type="time"
-                      aria-label={`Time floor ${floor.floor} was completed`}
-                      className="w-32"
-                    />
-                    <Button type="submit" variant="ghost" size="sm">
-                      Complete
-                    </Button>
-                  </form>
-                )}
-              </li>
-            ))}
-          </ul>
+                  </td>
+                  <td className="py-3 text-right tabular-nums">
+                    {unfiled.get(floor.floor)?.length ?? 0}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
 
-        <StartFloorForm
-          submit={startFloor.bind(null, id, visitedOn, projectId)}
-        />
+        {unplaced > 0 && (
+          <p className="text-muted-foreground text-xs">
+            {unplaced === 1
+              ? '1 photograph is on no floor at all.'
+              : `${unplaced} photographs are on no floor at all.`}
+          </p>
+        )}
+
+        <Disclosure summary="Start a floor">
+          <StartFloorForm
+            submit={startFloor.bind(null, id, visitedOn, projectId)}
+          />
+        </Disclosure>
       </section>
 
       {/*
@@ -269,17 +361,25 @@ export default async function SiteVisitRecord({
         is. Becoming an issue is offered under each entry and never as part of
         recording one: the exception is a second act, and staying an
         observation is what happens if nothing more is done.
+
+        An observation is **not its own screen and does not become one** (plate
+        F-02): it is a block on the walk and a row in the report, read at the
+        Record step with its location and time as meta and its evidence visible
+        without opening anything.
       */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Observations</h2>
-          <span className="text-muted-foreground text-sm">
-            {visit.observations.length} recorded
-          </span>
-        </div>
+      <section id="observations" className="grid scroll-mt-14 gap-3">
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {visit.observations.length} recorded
+            </span>
+          }
+        >
+          Observations
+        </SectionHead>
 
         {visit.observations.length === 0 ? (
-          <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+          <p className="text-muted-foreground rounded-lg border border-dashed p-4 text-center text-xs">
             Nothing observed yet.
           </p>
         ) : (
@@ -290,41 +390,50 @@ export default async function SiteVisitRecord({
               const loose = unfiled.get(observation.floor) ?? [];
 
               return (
-                <li key={observation.id} className="space-y-2 px-4 py-3">
-                  <div className="text-muted-foreground flex flex-wrap items-baseline gap-3 text-sm">
-                    {/*
-                      The composed grammar, exactly as the field says it.
-                      Rendered by the API from the components, so this screen
-                      cannot spell it a second way.
-                    */}
-                    <span className="text-foreground font-medium">
-                      {observation.location}
-                    </span>
+                <li
+                  key={observation.id}
+                  className="grid min-h-11 gap-1.5 px-4 py-3"
+                >
+                  {/*
+                    The composed grammar, exactly as the field says it. Rendered
+                    by the API from the components, so this screen cannot spell
+                    it a second way.
+                  */}
+                  <p className="text-muted-foreground text-xs">
                     <span className="tabular-nums">
                       {clock(observation.observedAt, zone)}
-                    </span>
-                  </div>
-                  <p className="text-sm whitespace-pre-wrap">
+                    </span>{' '}
+                    &middot; {observation.location}
+                  </p>
+                  <p className="text-base whitespace-pre-wrap">
                     {observation.observed}
                   </p>
 
                   {/*
                     What evidences it (issue #113, ADR-0056), beside what it
                     evidences — the arrangement the report prints. Through the
-                    Next server, never straight at the API.
+                    Next server, never straight at the API. The filenames under
+                    the thumbnails because the name is the mechanism: a
+                    photograph bound by `issue-12` is the one fact a thumbnail
+                    cannot show.
                   */}
                   {evidence.length > 0 && (
-                    <ul className="flex flex-wrap gap-2">
-                      {evidence.map((photo) => (
-                        <li key={photo.id}>
-                          <img
-                            src={`/photos/${photo.id}/bytes`}
-                            alt={photo.filename}
-                            className="bg-muted size-16 rounded-md border object-cover"
-                          />
-                        </li>
-                      ))}
-                    </ul>
+                    <>
+                      <ul className="flex flex-wrap gap-1.5">
+                        {evidence.map((photo) => (
+                          <li key={photo.id}>
+                            <img
+                              src={`/photos/${photo.id}/bytes`}
+                              alt={photo.filename}
+                              className="bg-muted size-14 rounded-md border object-cover"
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-muted-foreground font-mono text-xs break-all">
+                        {evidence.map((photo) => photo.filename).join(' · ')}
+                      </p>
+                    </>
                   )}
 
                   {/*
@@ -346,37 +455,43 @@ export default async function SiteVisitRecord({
                   )}
 
                   {/*
-                    Promoting is the deliberate exception, so it is a small
-                    control under an observation rather than a step in
+                    Promoting is the deliberate exception, so it is a
+                    disclosure under an observation rather than a step in
                     recording one — the non-issues table is the majority case
-                    and stays the default path.
+                    and stays the default path. Behind the disclosure since
+                    issue #118: raising a finding and joining a sighting to one
+                    both **create a record**, which is density rule 1, and the
+                    plate draws an observation block as its words and its
+                    evidence with no control standing open under them.
                   */}
                   {finding === undefined ? (
-                    <div className="flex flex-wrap items-start gap-2 pt-1">
-                      <RaiseIssueForm
-                        submit={raiseIssue.bind(
-                          null,
-                          observation.id,
-                          id,
-                          projectId,
-                        )}
-                      />
-                      {issues.length > 0 && (
-                        <ReobserveForm
-                          submit={reobserveIssue.bind(
+                    <Disclosure summary="Record as an issue">
+                      <div className="flex flex-wrap items-start gap-2">
+                        <RaiseIssueForm
+                          submit={raiseIssue.bind(
                             null,
                             observation.id,
                             id,
                             projectId,
                           )}
-                          issues={issues}
                         />
-                      )}
-                    </div>
+                        {issues.length > 0 && (
+                          <ReobserveForm
+                            submit={reobserveIssue.bind(
+                              null,
+                              observation.id,
+                              id,
+                              projectId,
+                            )}
+                            issues={issues}
+                          />
+                        )}
+                      </div>
+                    </Disclosure>
                   ) : (
                     <Link
                       href={`/projects/${projectId}/issues/${finding.number}`}
-                      className="inline-flex items-center gap-2 pt-1"
+                      className="inline-flex flex-wrap items-center gap-2 justify-self-start"
                     >
                       {/*
                         The state, not just the fact: a finding closed since
@@ -390,7 +505,7 @@ export default async function SiteVisitRecord({
                       >
                         Issue {finding.number}
                       </Badge>
-                      <span className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+                      <span className="text-muted-foreground hover:text-foreground text-xs transition-colors">
                         {finding.category}
                         {finding.closedAt === null
                           ? ''
@@ -403,294 +518,70 @@ export default async function SiteVisitRecord({
             })}
           </ul>
         )}
+
+        {/*
+          Density rule 1: the record screen shows the record, and the form that
+          adds to it is a disclosure. This was the card headed "Or type an
+          observation", which sat open under the conversation — where it read as
+          an alternative to capture rather than as the other way of writing one
+          down. Under Observations, where it belongs.
+        */}
+        <Disclosure summary="Add an observation">
+          <ObservationForm
+            submit={recordObservation.bind(null, id, visitedOn, projectId)}
+          />
+        </Disclosure>
       </section>
 
       {/*
         The walk's **conversation** (issue #114, ADR-0058): what the engineer
-        captured, spoken or typed, and what the agent proposed back. Speaking
-        and typing are two ways into one record, which is why they sit in one
-        card and not two — ADR-0025 asks for field capture designed for a thumb,
-        and which hand is free is the only thing that decides between them.
+        captured, spoken or typed, and what the agent proposed back. One
+        component since issue #118 — the brief's `## The conversation panel`,
+        which ADR-0059 point 2 put there rather than in either ADR's ticket. A
+        capture is a **draft** until the engineer has read it and confirmed it,
+        so nothing here has written an observation and the list above stays what
+        was actually recorded.
       */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Capture what you see</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <VoiceRecorder
-            siteVisitId={id}
-            add={addRecording.bind(null, id, projectId)}
-          />
-          <div className="border-t pt-6">
-            <TypeATurn submit={typeATurn.bind(null, id, projectId)} />
-          </div>
-        </CardContent>
-      </Card>
+      <ConversationPanel
+        id="conversation"
+        siteVisitId={id}
+        turns={visit.conversation.turns}
+        runs={visit.conversation.runs}
+        issues={issues}
+        timeZone={zone}
+        evidencing={evidencing}
+        unfiled={unfiled}
+        add={addRecording.bind(null, id, projectId)}
+        typed={typeATurn.bind(null, id, projectId)}
+        commit={(turnId) =>
+          commitTurn.bind(null, turnId, id, visitedOn, projectId)
+        }
+        retry={(turnId) => retryTranscription.bind(null, turnId, id, projectId)}
+        bindEvidence={(observationId) =>
+          bindPhotoToObservation.bind(null, observationId, id, projectId)
+        }
+      />
 
-      {/*
-        The conversation itself. A capture is a **draft** until the engineer has
-        read it and confirmed it — so nothing here has written an observation,
-        and the list above stays what was actually recorded.
-      */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Conversation</h2>
-          {/*
-            Live over SSE, so a slow transcription and a slow model both read
-            as working rather than as broken — and so the agent's reply and the
-            drafts below appear without a reload.
-          */}
-          <ConversationProgress
-            siteVisitId={id}
-            initial={visit.conversation.turns}
-            initialRuns={visit.conversation.runs}
-          />
-        </div>
+      <section id="photographs" className="grid scroll-mt-14 gap-3">
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {visit.photos.length === 0
+                ? 'none yet'
+                : `${visit.photos.length} on this walk`}
+            </span>
+          }
+        >
+          Photographs
+        </SectionHead>
 
-        {visit.conversation.turns.length > 0 && (
-          <ul className="divide-y rounded-lg border">
-            {visit.conversation.turns.map((turn) => {
-              // The agent's turn: a proposal read beside what it answers, and
-              // never a draft anybody confirms here. Confirming happens on the
-              // capture above it, which is where `observation_id` is stamped.
-              if (turn.speaker === 'AGENT') {
-                return (
-                  <li
-                    key={turn.id}
-                    className="bg-muted/40 space-y-2 px-4 py-3"
-                  >
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Badge variant="outline">Proposed</Badge>
-                      <span className="text-muted-foreground text-sm">
-                        The agent read the capture above.
-                      </span>
-                    </div>
-                    {turn.proposal === null ? (
-                      // A field it could not propose, so it asked instead. The
-                      // answer is the next capture and never an edit to this.
-                      <p className="text-sm whitespace-pre-wrap">
-                        {turn.transcript}
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {/*
-                          The composed grammar, exactly as the API renders it —
-                          this screen cannot spell it a second way (ADR-0030).
-                          It read `Floor 3 — South stair, A` while it did,
-                          against the record's `Side A`.
-                        */}
-                        <p className="text-muted-foreground text-sm">
-                          {turn.proposal.location}
-                        </p>
-                        <p className="text-sm whitespace-pre-wrap">
-                          {turn.proposal.observed}
-                        </p>
-                        {turn.proposal.issueId !== null && (
-                          <p className="text-muted-foreground text-sm">
-                            {/*
-                              Read as another sighting, and proposed only: a
-                              sighting burns an identifier that is never given
-                              back (ADR-0031), so promoting stays the second act
-                              under the observation once it exists.
-                            */}
-                            Reads as another sighting of{' '}
-                            {issues.find(
-                              (issue) => issue.id === turn.proposal!.issueId,
-                            )?.number === undefined
-                              ? 'a finding on this job'
-                              : `Issue ${
-                                  issues.find(
-                                    (issue) =>
-                                      issue.id === turn.proposal!.issueId,
-                                  )!.number
-                                }`}
-                            .
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                );
-              }
-
-              // The engineer's capture. Where the agent has answered it, the
-              // confirm form below is seeded with what it proposed.
-              const answer = visit.conversation.turns.find(
-                (one) =>
-                  one.speaker === 'AGENT' && one.position === turn.position + 1,
-              );
-              const evidence =
-                turn.observation === null
-                  ? []
-                  : (evidencing.get(turn.observation.id) ?? []);
-              const loose =
-                turn.observation === null
-                  ? []
-                  : (unfiled.get(turn.observation.floor) ?? []);
-
-              return (
-                <li key={turn.id} className="space-y-3 px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="text-muted-foreground text-sm tabular-nums">
-                      {turn.recordedAt === null
-                        ? ''
-                        : clock(turn.recordedAt, zone)}
-                    </span>
-                    <CaptureState capture={turn} />
-                    {turn.kind === 'VOICE' && (
-                      /*
-                        Through the Next server, never straight at the API — the
-                        same reason a photograph's bytes are proxied. This is
-                        also half of what makes a failed transcription
-                        recoverable: the engineer listens and writes it down.
-                      */
-                      <audio
-                        controls
-                        preload="none"
-                        src={`/turns/${turn.id}/audio`}
-                        className="h-9 min-w-48 flex-1"
-                      />
-                    )}
-                  </div>
-
-                  {/*
-                    What was captured, verbatim — on a typed turn it is there
-                    from the first instant, and on a spoken one it arrives with
-                    the vendor. Shown above the form rather than only inside it,
-                    because the form's box is the engineer's correction and this
-                    is what they are correcting *from*.
-                  */}
-                  {turn.kind === 'TYPED' && turn.transcript !== null && (
-                    <p className="text-sm whitespace-pre-wrap">
-                      {turn.transcript}
-                    </p>
-                  )}
-
-                  {/*
-                    Offered on *queued* as well as on a failure, because a
-                    recording can sit queued with no job behind it: Redis has no
-                    volume in this stack, so a job can be lost while its row
-                    cannot. That is the case the retry route names in its own
-                    comment, and it was the one case the screen had no button
-                    for. Not offered while it is transcribing, which is a vendor
-                    genuinely working — nor on a typed turn, which never waited
-                    on one.
-                  */}
-                  {turn.kind === 'VOICE' &&
-                    (turn.failure !== null || turn.state === 'queued') &&
-                    turn.observation === null && (
-                      <div className="flex flex-wrap items-center gap-3">
-                        {turn.failure !== null && (
-                          <p className="text-destructive text-sm">
-                            {turn.failure}
-                          </p>
-                        )}
-                        <form
-                          action={retryTranscription.bind(
-                            null,
-                            turn.id,
-                            id,
-                            projectId,
-                          )}
-                        >
-                          <Button type="submit" variant="ghost" size="sm">
-                            Ask again
-                          </Button>
-                        </form>
-                      </div>
-                    )}
-
-                  {turn.observation !== null ? (
-                    <div className="space-y-2">
-                      <div className="space-y-1">
-                        <p className="text-muted-foreground text-sm">
-                          {turn.observation.location}
-                        </p>
-                        <p className="text-sm whitespace-pre-wrap">
-                          {turn.observation.observed}
-                        </p>
-                      </div>
-
-                      {/*
-                        What already evidences it, and the floor's unfiled
-                        photographs to bind — the confirmed draft's shortlist
-                        (ADR-0057 part 5, by ADR-0056's mechanism). Here as well
-                        as under the observation above, because this is the
-                        screen the engineer is looking at when they confirm.
-                      */}
-                      {evidence.length > 0 && (
-                        <ul className="flex flex-wrap gap-2">
-                          {evidence.map((photo) => (
-                            <li key={photo.id}>
-                              <img
-                                src={`/photos/${photo.id}/bytes`}
-                                alt={photo.filename}
-                                className="bg-muted size-16 rounded-md border object-cover"
-                              />
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {loose.length > 0 && (
-                        <EvidenceShortlist
-                          photos={loose}
-                          timeZone={zone}
-                          bind={bindPhotoToObservation.bind(
-                            null,
-                            turn.observation.id,
-                            id,
-                            projectId,
-                          )}
-                        />
-                      )}
-                    </div>
-                  ) : isWorking(turn) ? (
-                    <p className="text-muted-foreground text-sm">
-                      Waiting for the transcript. The audio is already stored.
-                    </p>
-                  ) : (
-                    <DraftObservationForm
-                      transcript={turn.transcript}
-                      proposal={answer?.proposal ?? null}
-                      submit={commitTurn.bind(
-                        null,
-                        turn.id,
-                        id,
-                        visitedOn,
-                        projectId,
-                      )}
-                    />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Or type an observation</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ObservationForm
-            submit={recordObservation.bind(null, id, visitedOn, projectId)}
-          />
-        </CardContent>
-      </Card>
-
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Photographs</h2>
-          <span className="text-muted-foreground text-sm">
-            {visit.photos.length === 0
-              ? 'none yet'
-              : `${visit.photos.length} on this walk`}
-          </span>
-        </div>
+        <p className="text-muted-foreground text-xs">
+          Bin each to what it evidences &mdash; the floor alone leaves it
+          unfiled.
+        </p>
 
         {unevidenced.length > 0 && (
-          <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-4">
+          <div className="border-destructive/40 bg-destructive/5 grid gap-2 rounded-lg border p-4">
             <p className="text-sm font-medium">
               {unevidenced.length === 1
                 ? 'One finding on this walk has no photograph yet.'
@@ -704,7 +595,7 @@ export default async function SiteVisitRecord({
                     className="inline-flex items-center gap-2"
                   >
                     <Badge variant="outline">Issue {finding.number}</Badge>
-                    <span className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+                    <span className="text-muted-foreground hover:text-foreground text-xs transition-colors">
                       {finding.category}
                     </span>
                   </Link>
@@ -715,75 +606,93 @@ export default async function SiteVisitRecord({
         )}
 
         {visit.photos.length > 0 && (
-          <ul className="divide-y rounded-lg border">
-            {visit.photos.map((photo) => (
-              <li
-                key={photo.id}
-                className="flex flex-wrap items-center gap-4 px-4 py-3"
-              >
-                {/*
-                  Through the Next server, never straight at the API. The bin
-                  cannot be seen to be wrong without seeing the photograph, so
-                  this is what makes a two-second correction possible at all.
-                */}
-                <img
-                  src={`/photos/${photo.id}/bytes`}
-                  alt={photo.filename}
-                  className="bg-muted size-16 shrink-0 rounded-md border object-cover"
-                />
-                <div className="min-w-48 flex-1 space-y-0.5">
-                  <p className="text-sm font-medium break-all">
-                    {photo.filename}
-                  </p>
-                  <p className="text-muted-foreground text-sm tabular-nums">
-                    {clock(photo.takenAt, zone)}
-                    {/*
-                      Unfiled is about what it evidences and not about the
-                      floor (issue #113, ADR-0056): a photograph on a floor and
-                      nothing else prints nowhere, so the floor is no longer
-                      half of what makes this worth saying. The floor's own
-                      answer is the select beside it.
-                    */}
-                    {photo.observationId === null && photo.issueNumber === null
-                      ? ' · unfiled'
-                      : ''}
-                  </p>
-                </div>
-                <PhotoBindings
-                  floor={photo.floor}
-                  floors={floors}
-                  observationId={photo.observationId}
-                  observations={visit.observations}
-                  issueNumber={photo.issueNumber}
-                  issues={issues}
-                  timeZone={zone}
-                  bindFloor={bindPhotoToFloor.bind(
-                    null,
-                    photo.id,
-                    id,
-                    projectId,
-                  )}
-                  bindEvidence={bindPhotoEvidence.bind(
-                    null,
-                    photo.id,
-                    id,
-                    projectId,
-                  )}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          <>
+            <ul className="divide-y rounded-lg border">
+              {visit.photos.map((photo) => (
+                <li
+                  key={photo.id}
+                  className="flex min-h-11 items-center gap-3 px-4 py-3"
+                >
+                  {/*
+                    Through the Next server, never straight at the API. The bin
+                    cannot be seen to be wrong without seeing the photograph, so
+                    this is what makes a two-second correction possible at all.
+                  */}
+                  <img
+                    src={`/photos/${photo.id}/bytes`}
+                    alt={photo.filename}
+                    className="bg-muted size-14 shrink-0 rounded-md border object-cover"
+                  />
+                  <div className="grid min-w-0 flex-1 gap-1.5">
+                    <p className="text-muted-foreground text-xs">
+                      <span className="font-mono break-all">
+                        {photo.filename}
+                      </span>{' '}
+                      &middot;{' '}
+                      <span className="tabular-nums">
+                        {clock(photo.takenAt, zone)}
+                      </span>
+                      {/*
+                        Unfiled is about what it evidences and not about the
+                        floor (issue #113, ADR-0056): a photograph on a floor
+                        and nothing else prints nowhere, so the floor is no
+                        longer half of what makes this worth saying. The floor's
+                        own answer is the select beside it.
+                      */}
+                      {photo.observationId === null && photo.issueNumber === null
+                        ? ' · unfiled'
+                        : ''}
+                    </p>
+                    <PhotoBindings
+                      floor={photo.floor}
+                      floors={floors}
+                      observationId={photo.observationId}
+                      observations={visit.observations}
+                      issueNumber={photo.issueNumber}
+                      issues={issues}
+                      timeZone={zone}
+                      bindFloor={bindPhotoToFloor.bind(
+                        null,
+                        photo.id,
+                        id,
+                        projectId,
+                      )}
+                      bindEvidence={bindPhotoEvidence.bind(
+                        null,
+                        photo.id,
+                        id,
+                        projectId,
+                      )}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Add the walk&rsquo;s photographs</CardTitle>
-        </CardHeader>
-        <CardContent>
+            {/*
+              Unfiled is a **count** and not a column of blanks (plate F-04),
+              rendered at zero for ADR-0038's reason: a figure that vanished
+              when it reached nought would read as one that had not loaded.
+            */}
+            <p className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+              <Badge
+                variant={unfiledOnTheWalk === 0 ? 'secondary' : 'destructive'}
+              >
+                {unfiledOnTheWalk} unfiled
+              </Badge>
+              A floor-only photograph prints nowhere.
+              {unplaced > 0 &&
+                (unplaced === 1
+                  ? ' 1 is on no floor at all.'
+                  : ` ${unplaced} are on no floor at all.`)}
+            </p>
+          </>
+        )}
+
+        <Disclosure summary="Add the walk’s photographs">
           <PhotoForm add={addPhoto.bind(null, id, projectId)} timeZone={zone} />
-        </CardContent>
-      </Card>
+        </Disclosure>
+      </section>
 
       {/*
         The write-up, last on the page because it is the last thing that
@@ -793,21 +702,22 @@ export default async function SiteVisitRecord({
         Generating again is another report and never an edit: a finding that
         had no photograph gets one, and this button is pressed a second time.
       */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Report</h2>
-          <ReportProgress siteVisitId={id} initial={visit.reports} />
-        </div>
+      <section id="report" className="grid scroll-mt-14 gap-3">
+        <SectionHead
+          aside={<ReportProgress siteVisitId={id} initial={visit.reports} />}
+        >
+          Report
+        </SectionHead>
 
         {visit.reports.length > 0 && (
           <ul className="divide-y rounded-lg border">
             {visit.reports.map((report) => (
               <li
                 key={report.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 p-3"
+                className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3"
               >
                 <ReportState report={report} />
-                <span className="text-muted-foreground text-sm">
+                <span className="text-muted-foreground text-xs tabular-nums">
                   {clock(report.createdAt, zone)}
                 </span>
                 {report.state === 'rendered' && (
@@ -815,13 +725,13 @@ export default async function SiteVisitRecord({
                     href={`/site-visit-reports/${report.id}/pdf`}
                     target="_blank"
                     rel="noopener"
-                    className="text-sm font-medium underline underline-offset-4"
+                    className="ml-auto text-sm font-medium underline underline-offset-4"
                   >
                     Open the PDF
                   </a>
                 )}
                 {report.failure !== null && (
-                  <span className="text-destructive text-sm">
+                  <span className="text-destructive text-xs">
                     {report.failure}
                   </span>
                 )}
@@ -831,7 +741,7 @@ export default async function SiteVisitRecord({
         )}
 
         <form action={generate}>
-          <Button type="submit" variant="secondary">
+          <Button type="submit" variant="secondary" className="h-11 px-4">
             {visit.reports.length === 0
               ? 'Generate the report'
               : 'Generate it again'}
@@ -839,7 +749,7 @@ export default async function SiteVisitRecord({
         </form>
       </section>
 
-      <p className="text-muted-foreground text-sm">
+      <p className="text-muted-foreground text-xs">
         Visit recorded {day(visit.createdAt, zone)}.
       </p>
     </div>

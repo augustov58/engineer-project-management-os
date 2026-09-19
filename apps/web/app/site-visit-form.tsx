@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { selectClassName } from './native-select';
+import { fieldSelectClassName } from './native-select';
 import type { AddState } from './actions';
 
 /**
@@ -81,7 +81,7 @@ export function StartFloorForm({
           required
           placeholder="3"
           aria-label="Floor to start"
-          className="min-w-32 flex-1"
+          className="h-11 min-w-32 flex-1"
         />
         {/*
           Blank is now, which is the case on the walk itself. Filled in is a
@@ -92,18 +92,23 @@ export function StartFloorForm({
           name="startedAt"
           type="time"
           aria-label="Time this floor was started"
-          className="w-32"
+          className="h-11 w-32"
         />
-        <Button type="submit" variant="secondary" disabled={pending}>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={pending}
+          className="h-11 px-4"
+        >
           Start floor
         </Button>
       </form>
-      <p className="text-muted-foreground text-sm">
+      <p className="text-muted-foreground text-xs">
         The designation without the word Floor &mdash; 3, B1, M, PH. A blank
         time means now.
       </p>
       {state.error !== undefined && (
-        <p role="alert" className="text-destructive text-sm">
+        <p role="alert" className="text-destructive text-xs">
           {state.error}
         </p>
       )}
@@ -193,25 +198,32 @@ export function ObservationFields({
   const field = useId();
 
   return (
-    <form action={action} className="space-y-4">
+    <form action={action} className="space-y-3">
       <div className="grid gap-1.5">
         <Label htmlFor={`${field}-observed`}>What you observed</Label>
+        {/*
+          The **Record** step (issue #118): what was written down is set at
+          16/24 and not at the size of the label above it. `text-base` is the
+          Textarea's own default and `md:text-sm` is what took it to 14 px on a
+          desk — this is the one field in the product where that is wrong.
+        */}
         <Textarea
           id={`${field}-observed`}
           name="observed"
           required
           rows={3}
+          className="md:text-base"
           // Uncontrolled and seeded, so the transcript is what the engineer
           // starts from and every keystroke after that is theirs.
           defaultValue={defaultObserved}
         />
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-xs">
           Most observations are not findings, and this one stays an
           observation.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label htmlFor={`${field}-floor`}>Floor</Label>
           <Input
@@ -220,8 +232,9 @@ export function ObservationFields({
             required
             placeholder="3"
             defaultValue={defaultFloor}
+            className="h-11"
           />
-          <p className="text-muted-foreground text-sm">3, B1, M, PH.</p>
+          <p className="text-muted-foreground text-xs">3, B1, M, PH.</p>
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor={`${field}-qualifier`}>Qualifier</Label>
@@ -231,8 +244,9 @@ export function ObservationFields({
             required
             placeholder="Stair B"
             defaultValue={defaultQualifier}
+            className="h-11"
           />
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground text-xs">
             A landmark, a room number with a type gloss, a circulation element,
             a program space, or an equipment tag.
           </p>
@@ -249,7 +263,7 @@ export function ObservationFields({
             onChange={(event) =>
               setAxis(event.target.value === 'sector' ? 'sector' : 'side')
             }
-            className={selectClassName}
+            className={fieldSelectClassName}
           >
             <option value="side">Side</option>
             <option value="sector">Sector</option>
@@ -260,10 +274,10 @@ export function ObservationFields({
             required
             placeholder={axis === 'side' ? 'A' : '4'}
             defaultValue={defaultAxisValue}
-            className="min-w-32 flex-1"
+            className="h-11 min-w-32 flex-1"
           />
         </div>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-xs">
           Independent axes: one or the other, never both in one string.
         </p>
       </div>
@@ -275,16 +289,21 @@ export function ObservationFields({
           one — and one less control to hit on a phone.
         */}
         <Label htmlFor={`${field}-observedAt`}>Observed at</Label>
-        <Input id={`${field}-observedAt`} name="observedAt" type="time" />
-        <p className="text-muted-foreground text-sm">{timeHint}</p>
+        <Input
+          id={`${field}-observedAt`}
+          name="observedAt"
+          type="time"
+          className="h-11 w-32"
+        />
+        <p className="text-muted-foreground text-xs">{timeHint}</p>
       </div>
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" disabled={pending} className="h-11 px-4">
           {submitLabel}
         </Button>
         {error !== undefined && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-xs">
             {error}
           </p>
         )}
