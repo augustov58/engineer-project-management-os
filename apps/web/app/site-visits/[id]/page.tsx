@@ -731,7 +731,7 @@ export default async function SiteVisitRecord({
                   </a>
                 )}
                 {report.failure !== null && (
-                  <span className="text-destructive text-xs">
+                  <span className="text-destructive text-sm">
                     {report.failure}
                   </span>
                 )}

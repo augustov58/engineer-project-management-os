@@ -265,7 +265,7 @@ export function VoiceRecorder({
       )}
 
       {error !== undefined && (
-        <p role="alert" className="text-destructive text-xs">
+        <p role="alert" className="text-destructive text-sm">
           {error}
         </p>
       )}
@@ -515,7 +515,7 @@ export function TypeATurn({
         {pending ? 'Sending…' : 'Send'}
       </Button>
       {state.error !== undefined && (
-        <p role="alert" className="text-destructive text-xs">
+        <p role="alert" className="text-destructive text-sm">
           {state.error}
         </p>
       )}

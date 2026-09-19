@@ -136,7 +136,7 @@ export function PhotoForm({
               : 'Add the photograph'}
         </Button>
         {state.error !== undefined && (
-          <p role="alert" className="text-destructive text-xs">
+          <p role="alert" className="text-destructive text-sm">
             {state.error}
           </p>
         )}

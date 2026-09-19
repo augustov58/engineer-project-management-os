@@ -130,14 +130,19 @@ export function ConversationPanel({
                   ) : (
                     <div className="grid gap-1.5">
                       {/*
+                        Labelled, as the plate draws them: a proposal is two
+                        fields and the engineer is about to confirm both, so the
+                        location is not left to be told apart from the words by
+                        its size alone.
+
                         The composed grammar, exactly as the API renders it —
                         this screen cannot spell it a second way (ADR-0030). It
                         read `Floor 3 — South stair, A` while it did, against
                         the record's `Side A`.
                       */}
-                      <p className="text-muted-foreground text-xs">
-                        {turn.proposal.location}
-                      </p>
+                      <p className="text-muted-foreground text-xs">Location</p>
+                      <p className="text-base">{turn.proposal.location}</p>
+                      <p className="text-muted-foreground text-xs">Observed</p>
                       <p className="text-base whitespace-pre-wrap">
                         {turn.proposal.observed}
                       </p>
@@ -260,8 +265,14 @@ export function ConversationPanel({
                   (turn.failure !== null || turn.state === 'queued') &&
                   turn.observation === null && (
                     <div className="flex flex-wrap items-center gap-2">
+                      {/*
+                        A failure the engineer has to read and act on, not the
+                        Meta step: every refusal in this product is Body, 14 px,
+                        and this is the vendor's own words about a recording
+                        that has to be written up by hand.
+                      */}
                       {turn.failure !== null && (
-                        <p className="text-destructive text-xs">
+                        <p className="text-destructive text-sm">
                           {turn.failure}
                         </p>
                       )}
@@ -346,13 +357,25 @@ export function ConversationPanel({
           <div className="sm:w-56 sm:shrink-0">
             <VoiceRecorder siteVisitId={siteVisitId} add={add} />
           </div>
+          {/* The plate's `or`: one bar offering two ways into one record. */}
+          <p className="text-muted-foreground self-center text-xs">or</p>
           <div className="min-w-0 flex-1">
             <TypeATurn submit={typed} />
           </div>
         </div>
+        {/*
+          One hint for both halves, which is why the two static sentences that
+          used to sit under the two controls are gone. It carries **both** of
+          their promises: the one the plate draws, and the recorder's own — that
+          a capture is a draft the engineer corrects, so a misheard word never
+          becomes the record. That second one is ADR-0057's whole thesis and
+          dropping it to match the drawn copy would have deleted it from the
+          product.
+        */}
         <p className="text-muted-foreground text-xs">
-          Spoken or typed, it is one capture. Confirming is yours; the agent
-          never writes the record.
+          Spoken or typed, it is one capture, and a draft you correct before it
+          is recorded &mdash; a misheard word never becomes the record.
+          Confirming is yours; the agent never writes it.
         </p>
       </div>
     </section>

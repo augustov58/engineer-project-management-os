@@ -108,7 +108,7 @@ export function StartFloorForm({
         time means now.
       </p>
       {state.error !== undefined && (
-        <p role="alert" className="text-destructive text-xs">
+        <p role="alert" className="text-destructive text-sm">
           {state.error}
         </p>
       )}
@@ -303,7 +303,7 @@ export function ObservationFields({
           {submitLabel}
         </Button>
         {error !== undefined && (
-          <p role="alert" className="text-destructive text-xs">
+          <p role="alert" className="text-destructive text-sm">
             {error}
           </p>
         )}
