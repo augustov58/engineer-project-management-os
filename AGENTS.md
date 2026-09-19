@@ -51,9 +51,10 @@ as amended by ADR-0058) — a walk has exactly one, created with it; `voice_capt
 `turns` under it, a capture is **spoken or typed**, and a typed one queues a run whose reply
 is a turn carrying the draft or a question. The run is an `agent_runs` row naming its
 conversation — the link, not the `kind` column ADR-0040 refused. **Confirming is still the
-engineer's**, and the forms are unchanged. And **the design system**
+engineer's**, and the forms are unchanged. **the design system**
 (#117, ADR-0059 point 4) — the brief's tokens, the dark theme on with a `users.theme` override,
-every screen measured in both themes.
+every screen measured in both themes; and **the field screens redesigned to the plates** (#118,
+ADR-0059 point 3), which changed **no route**.
 `/healthz` is the platform check (ADR-0045); the per-slice record is
 [docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051). Work one ticket at a
 time, and only when asked.

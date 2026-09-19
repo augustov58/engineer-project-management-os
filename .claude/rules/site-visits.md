@@ -165,3 +165,22 @@ apply to every path stay in `AGENTS.md`.
   bound is there because a portrait phone photograph is otherwise a page each. Every value
   printed is **HTML-escaped** — what was observed is free text the engineer spoke, and this
   is the one place in the product where that text becomes markup.
+- An **observation is not its own screen and does not become one** (issue #118, ADR-0059
+  point 3, plate F-02): it is a block on the walk and a row in the report. What the redesign
+  asks of that block is four things and no route — its words at the **Record** step, 16/24;
+  its location in the glossary's grammar, still rendered by the API; its time in the project's
+  zone; and its evidence visible without opening anything, thumbnails and the filenames under
+  them, because the name is the mechanism and a thumbnail cannot show it.
+- **Promoting is behind a disclosure**, not standing open under every observation (density
+  rule 1): raising a finding and joining a sighting to one both create a record, and the
+  non-issues table is still the majority case. The plate draws an observation block as its
+  words and its evidence with nothing else under them.
+- The per-floor schedule reads as a **table** — Floor, Arrived, Left, Unfiled — carrying each
+  floor's count of unfiled photographs and rendering a zero, which is the report's own
+  schedule table arriving on the screen (ADR-0056, ADR-0038's reasoning). Under it, the count
+  of photographs that binned to **no floor at all**, which the report prints as one line under
+  its table and which has no row anywhere.
+- F-02 also draws a **correction affordance** — *Correct what was observed*, while the visit
+  has had no report rendered. That is ADR-0059 decision 3, it is the first PUT or PATCH in a
+  117-route API, and it needs its own ADR and ticket: **it is deliberately not built**, and
+  nothing on these screens edits a record.

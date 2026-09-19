@@ -7,6 +7,7 @@ paths:
   - "apps/api/test/conversations.test.ts"
   - "apps/api/prisma/schema.prisma"
   - "apps/web/app/conversation.tsx"
+  - "apps/web/app/conversation-panel.tsx"
   - "apps/web/app/recordings.ts"
   - "apps/web/app/turns/**"
   - "apps/web/app/site-visits/*/conversation/**"
@@ -139,3 +140,29 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
 - A proposed sighting is **proposed and never promoted**: a sighting burns an identifier that
   is never given back (ADR-0031), so it stays the engineer's second act under the observation.
   An id naming a finding on another job is a 404 at the route, not a foreign-key 500.
+
+## The panel, redesigned (issue #118, ADR-0059 point 3)
+
+- The panel is **one component**, `apps/web/app/conversation-panel.tsx`, lifted out of the
+  847-line walk screen because ADR-0058 needs it on two records and ADR-0059 point 2 put the
+  component in the design brief rather than in either ADR's ticket. **Only the visit is
+  wired.** The slot that would differ between the two contexts is the commit — an observation
+  on a visit, an assumption record on a project — and it is deliberately **not
+  parameterised** until the project chat's ticket gives it a second caller. A server
+  component: every live part of it is already its own client island, and the turns have to be
+  in the server's first paint (ADR-0028).
+- **The commit sits under the agent turn that proposed it**, which is the brief's anatomy and
+  a change from where it was. What it writes is still the *engineer's* capture — the confirm
+  route refuses an agent turn by name — so the form is rendered under the answer and bound to
+  the turn above it. Where there is no answer, the spoken path and a run that failed alike,
+  it stays under the capture: a failed capture is still committable, and that is what stops a
+  dead vendor stopping the walk being written up.
+- **Record, and type, are one bar** at the foot of the panel. They were a card with a rule
+  across it; spoken and typed are one record (ADR-0057) and the bar says so by being one
+  control group. The two static sentences under the two controls became **one** hint under
+  the bar, for the same reason — two copies of *the agent proposes, your confirm records* said
+  it twice. What is left under the recorder is the state that is not static: what this device
+  is still holding, and only when it is holding something.
+- A turn's words are the **Record** step, 16/24 (`text-base`), and the box that types one
+  carries `md:text-base` — the Textarea's own default drops to 14 px at a desk, and a turn is
+  the record and not the chrome around it.
