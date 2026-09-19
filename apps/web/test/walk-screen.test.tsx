@@ -325,3 +325,31 @@ test('the commit sits under the agent turn that proposed, and nowhere else', asy
     'engineer',
   ]);
 });
+
+test('evidence reads the same under an observation and under its capture', async () => {
+  // Two screens show one observation's evidence — under the observation, and
+  // under the capture it was confirmed from — and issue #118 first wrote them
+  // as two renderings, which is how one came to print the filenames and the
+  // other not. The filename is not decoration: it is the mechanism a
+  // photograph binds to a finding by, and the one fact a thumbnail cannot show.
+  const evidenced = { ...photo, observationId: observation.id };
+  const confirmed = {
+    ...capture(1),
+    observation,
+  };
+
+  vi.mocked(api.getSiteVisit).mockResolvedValue({
+    ...visit,
+    photos: [evidenced],
+    conversation: { ...visit.conversation, turns: [confirmed] },
+  });
+  const root = await paint();
+
+  for (const section of ['#observations', '#conversation']) {
+    const where = root.querySelector(section) as HTMLElement;
+    expect(
+      [...where.querySelectorAll('img')].map((img) => img.getAttribute('alt')),
+    ).toEqual([photo.filename]);
+    expect(where.textContent).toContain(photo.filename);
+  }
+});

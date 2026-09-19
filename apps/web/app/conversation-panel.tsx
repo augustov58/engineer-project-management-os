@@ -7,6 +7,7 @@ import {
   TypeATurn,
   VoiceRecorder,
 } from './conversation';
+import { Evidence } from './evidence';
 import { EvidenceShortlist } from './photo-form';
 import { SectionHead } from './section-head';
 import { clock } from './wall-clock';
@@ -18,6 +19,18 @@ import {
   type Photo,
   type Turn,
 } from './api';
+
+/**
+ * The finding a proposal reads as another sighting of, named.
+ *
+ * The register is scanned once and not twice, and the fallback is the sentence
+ * rather than a blank: a proposal naming a finding this screen cannot see is
+ * still a proposal about a finding.
+ */
+function sighted(issues: Issue[], issueId: string): string {
+  const found = issues.find((issue) => issue.id === issueId);
+  return found === undefined ? 'a finding on this job' : `Issue ${found.number}`;
+}
 
 /**
  * The walk's conversation, as one component (issue #118; the approved design
@@ -39,7 +52,7 @@ import {
  * turns have to be in the server's first paint (ADR-0028).
  */
 export function ConversationPanel({
-  id,
+  anchor,
   siteVisitId,
   turns,
   runs,
@@ -53,8 +66,8 @@ export function ConversationPanel({
   retry,
   bindEvidence,
 }: {
-  /** The jumper's anchor. */
-  id: string;
+  /** The jumper's anchor — a fragment name, never the visit's id. */
+  anchor: string;
   siteVisitId: string;
   /** In `position` order, which is the order the API returns them in. */
   turns: Turn[];
@@ -80,8 +93,12 @@ export function ConversationPanel({
   retry: (turnId: string) => (formData: FormData) => void;
   bindEvidence: (observationId: string) => (formData: FormData) => void;
 }) {
+  // Read once, so the `position` ± 1 pairing below is a lookup rather than a
+  // scan of every turn for every turn.
+  const byPosition = new Map(turns.map((turn) => [turn.position, turn]));
+
   return (
-    <section id={id} className="grid scroll-mt-14 gap-3">
+    <section id={anchor} className="grid scroll-mt-14 gap-3">
       <SectionHead
         aside={
           /*
@@ -102,15 +119,23 @@ export function ConversationPanel({
       {turns.length > 0 && (
         <ul className="divide-y rounded-lg border">
           {turns.map((turn) => {
+            /*
+              The capture an agent turn answers, and the answer to a capture:
+              one convention, `position` ± 1, read out of `byPosition` above.
+              It was written twice in opposite directions, each `find` running
+              inside this `map` — two places for the pairing rule to drift, and
+              a scan per turn.
+            */
+            const neighbour = (offset: number, speaker: Turn['speaker']) => {
+              const found = byPosition.get(turn.position + offset);
+              return found?.speaker === speaker ? found : undefined;
+            };
             // The agent's turn: a proposal read beside what it answers, and
             // the slot the **commit** sits in. The confirm is still stamped on
             // the engineer's capture — the route refuses an agent turn by name
             // — so the form is rendered here and bound to the turn below.
             if (turn.speaker === 'AGENT') {
-              const answered = turns.find(
-                (one) =>
-                  one.speaker === 'ENGINEER' && one.position === turn.position - 1,
-              );
+              const answered = neighbour(-1, 'ENGINEER');
 
               return (
                 <li key={turn.id} className="bg-muted/40 grid gap-2 px-4 py-3">
@@ -129,6 +154,7 @@ export function ConversationPanel({
                     </p>
                   ) : (
                     <div className="grid gap-1.5">
+                      {/* Named once: the same scan ran twice, under two `!`s. */}
                       {/*
                         Labelled, as the plate draws them: a proposal is two
                         fields and the engineer is about to confirm both, so the
@@ -155,16 +181,7 @@ export function ConversationPanel({
                             under the observation once it exists.
                           */}
                           Reads as another sighting of{' '}
-                          {issues.find(
-                            (issue) => issue.id === turn.proposal!.issueId,
-                          )?.number === undefined
-                            ? 'a finding on this job'
-                            : `Issue ${
-                                issues.find(
-                                  (issue) => issue.id === turn.proposal!.issueId,
-                                )!.number
-                              }`}
-                          .
+                          {sighted(issues, turn.proposal.issueId)}.
                         </p>
                       )}
                     </div>
@@ -201,10 +218,7 @@ export function ConversationPanel({
             // path, a run that failed, or a turn that asked a question rather
             // than proposing — it is here, because a failed capture is still
             // committable and a question is answered by the next capture.
-            const answer = turns.find(
-              (one) =>
-                one.speaker === 'AGENT' && one.position === turn.position + 1,
-            );
+            const answer = neighbour(1, 'AGENT');
             const proposed = answer !== undefined && answer.proposal !== null;
             const evidence =
               turn.observation === null
@@ -304,19 +318,7 @@ export function ConversationPanel({
                       as under the observation above, because this is the screen
                       the engineer is looking at when they confirm.
                     */}
-                    {evidence.length > 0 && (
-                      <ul className="flex flex-wrap gap-1.5">
-                        {evidence.map((photo) => (
-                          <li key={photo.id}>
-                            <img
-                              src={`/photos/${photo.id}/bytes`}
-                              alt={photo.filename}
-                              className="bg-muted size-14 rounded-md border object-cover"
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <Evidence photos={evidence} />
                     {loose.length > 0 && (
                       <EvidenceShortlist
                         photos={loose}

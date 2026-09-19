@@ -29,6 +29,7 @@ import {
 } from '../../api';
 import { ConversationPanel } from '../../conversation-panel';
 import { Disclosure } from '../../disclosure';
+import { Evidence, isUnfiled } from '../../evidence';
 import { fieldSelectClassName } from '../../native-select';
 import { RaiseIssueForm, ReobserveForm } from '../../issue-form';
 import { SectionHead } from '../../section-head';
@@ -136,24 +137,26 @@ export default async function SiteVisitRecord({
   // under its schedule table, because ADR-0056 has no row for these and a
   // count nobody can see is the silence it is against.
   let unplaced = 0;
+  // Every photograph on this walk that evidences nothing, floor or no floor.
+  let unfiledOnTheWalk = 0;
   for (const photo of visit.photos) {
     if (photo.observationId !== null) {
       evidencing.set(photo.observationId, [
         ...(evidencing.get(photo.observationId) ?? []),
         photo,
       ]);
-    } else if (photo.issueNumber === null && photo.floor !== null) {
-      unfiled.set(photo.floor, [...(unfiled.get(photo.floor) ?? []), photo]);
-    } else if (photo.issueNumber === null) {
+      continue;
+    }
+    if (!isUnfiled(photo)) {
+      continue;
+    }
+    unfiledOnTheWalk += 1;
+    if (photo.floor === null) {
       unplaced += 1;
+    } else {
+      unfiled.set(photo.floor, [...(unfiled.get(photo.floor) ?? []), photo]);
     }
   }
-
-  /** Every photograph on this walk that evidences nothing, floor or no floor. */
-  const unfiledOnTheWalk =
-    visit.photos.filter(
-      (photo) => photo.observationId === null && photo.issueNumber === null,
-    ).length;
 
   async function end() {
     'use server';
@@ -409,32 +412,8 @@ export default async function SiteVisitRecord({
                     {observation.observed}
                   </p>
 
-                  {/*
-                    What evidences it (issue #113, ADR-0056), beside what it
-                    evidences — the arrangement the report prints. Through the
-                    Next server, never straight at the API. The filenames under
-                    the thumbnails because the name is the mechanism: a
-                    photograph bound by `issue-12` is the one fact a thumbnail
-                    cannot show.
-                  */}
-                  {evidence.length > 0 && (
-                    <>
-                      <ul className="flex flex-wrap gap-1.5">
-                        {evidence.map((photo) => (
-                          <li key={photo.id}>
-                            <img
-                              src={`/photos/${photo.id}/bytes`}
-                              alt={photo.filename}
-                              className="bg-muted size-14 rounded-md border object-cover"
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="text-muted-foreground font-mono text-xs break-all">
-                        {evidence.map((photo) => photo.filename).join(' · ')}
-                      </p>
-                    </>
-                  )}
+                  {/* One rendering, shared with the panel — see `evidence.tsx`. */}
+                  <Evidence photos={evidence} />
 
                   {/*
                     The unfiled photographs on this observation's floor, if
@@ -543,7 +522,7 @@ export default async function SiteVisitRecord({
         was actually recorded.
       */}
       <ConversationPanel
-        id="conversation"
+        anchor="conversation"
         siteVisitId={id}
         turns={visit.conversation.turns}
         runs={visit.conversation.runs}
@@ -639,9 +618,7 @@ export default async function SiteVisitRecord({
                         longer half of what makes this worth saying. The floor's
                         own answer is the select beside it.
                       */}
-                      {photo.observationId === null && photo.issueNumber === null
-                        ? ' · unfiled'
-                        : ''}
+                      {isUnfiled(photo) ? ' · unfiled' : ''}
                     </p>
                     <PhotoBindings
                       floor={photo.floor}

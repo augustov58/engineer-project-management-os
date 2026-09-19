@@ -13,6 +13,7 @@ paths:
   - "apps/api/test/projects.test.ts"
   - "apps/api/prisma/schema.prisma"
   - "apps/web/app/site-visit-form.tsx"
+  - "apps/web/app/evidence.tsx"
   - "apps/web/app/site-visits/**"
   - "apps/web/app/site-visit-reports/**"
   - "apps/web/app/issue-form.tsx"
