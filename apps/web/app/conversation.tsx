@@ -617,10 +617,20 @@ export function ChatProgress({
  */
 export function ConfirmAssumptionRecord({
   submit,
+  turnId,
   proposal,
   submissions,
 }: {
   submit: (previous: AddState, formData: FormData) => Promise<AddState>;
+  /**
+   * The turn this proposal is on, and the only thing on the page unique to this
+   * form. The ids were keyed on the **submission** and two proposals against
+   * one issuance — an ordinary second ask — put four duplicated ids on the page,
+   * so every label focused the first form's field. That is the `id="party"`
+   * defect the register entry already carries, and it is not worth having
+   * twice.
+   */
+  turnId: string;
   proposal: RecordProposal;
   /** The job's issuances, so the record can be pointed at the right one. */
   submissions: { id: string; revision: string; phaseName: string }[];
@@ -631,13 +641,13 @@ export function ConfirmAssumptionRecord({
     <form action={action} className="grid gap-3">
       <div className="grid gap-1.5">
         <label
-          htmlFor={`submission-${proposal.submissionId}`}
+          htmlFor={`submission-${turnId}`}
           className="text-muted-foreground text-xs"
         >
           Against which issuance
         </label>
         <select
-          id={`submission-${proposal.submissionId}`}
+          id={`submission-${turnId}`}
           name="submissionId"
           defaultValue={proposal.submissionId}
           className={selectClassName}
@@ -652,13 +662,13 @@ export function ConfirmAssumptionRecord({
 
       <div className="grid gap-1.5">
         <label
-          htmlFor={`assumptions-${proposal.submissionId}`}
+          htmlFor={`assumptions-${turnId}`}
           className="text-muted-foreground text-xs"
         >
           Assumptions
         </label>
         <Textarea
-          id={`assumptions-${proposal.submissionId}`}
+          id={`assumptions-${turnId}`}
           name="assumptions"
           defaultValue={proposal.assumptions}
           rows={6}
@@ -670,13 +680,13 @@ export function ConfirmAssumptionRecord({
 
       <div className="grid gap-1.5">
         <label
-          htmlFor={`flags-${proposal.submissionId}`}
+          htmlFor={`flags-${turnId}`}
           className="text-muted-foreground text-xs"
         >
           Flags / verify
         </label>
         <Textarea
-          id={`flags-${proposal.submissionId}`}
+          id={`flags-${turnId}`}
           name="flags"
           defaultValue={proposal.flags}
           rows={5}
@@ -688,13 +698,13 @@ export function ConfirmAssumptionRecord({
 
       <div className="grid gap-1.5">
         <label
-          htmlFor={`edition-${proposal.submissionId}`}
+          htmlFor={`edition-${turnId}`}
           className="text-muted-foreground text-xs"
         >
           Code edition
         </label>
         <Input
-          id={`edition-${proposal.submissionId}`}
+          id={`edition-${turnId}`}
           name="codeEdition"
           defaultValue={proposal.codeEdition}
           required

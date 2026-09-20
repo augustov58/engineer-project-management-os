@@ -195,11 +195,18 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
   issue #121**, and almost all of the difference turned out to be **data rather than props**:
   a project turn has no `kind`, so it renders no audio control, no capture state and no *Ask
   again*, and an agent turn carries one proposal shape or the other, so which commit sits
-  under it is read off the turn. Three things are genuinely the caller's — the live summary,
-  whose words differ (a walk counts captures and transcriptions; a project has no vendor), the
-  recorder, which is a walk's, and the bound commit. A server component: every live part of it
-  is already its own client island, and the turns have to be in the server's first paint
-  (ADR-0028).
+  under it is read off the turn. What is genuinely the caller's is the live summary, whose
+  words differ (a walk counts captures and transcriptions; a project has no vendor), the bar's
+  copy and its one hint, and **one optional `walk` object** carrying the five things only a
+  walk has — the visit's id, the two evidence maps, `add`, `commit`, `retry` and
+  `bindEvidence`. `walk === undefined` is the whole of *this is a project's conversation*;
+  there is no second flag beside it, and the project record passes no inert value to satisfy a
+  shape it has no part in. A server component: every live part of it is already its own client
+  island, and the turns have to be in the server's first paint (ADR-0028).
+- The confirm form's field ids are keyed on the **turn** and never on the submission. Two
+  proposals against one issuance — an ordinary second ask — put four duplicated ids on the
+  page, and every label then focuses the first form's field. That is the pre-existing
+  `id="party"` defect on a register entry, and it is not worth having twice.
 - **The project bar is typed only**, which is plate D-02 and the record rather than the
   drawing: a project conversation has no capture machinery and nothing transcribes for it, so
   a microphone there would be a control with no route behind it. Plate F-03's *"one capture bar

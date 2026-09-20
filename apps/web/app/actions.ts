@@ -3,7 +3,12 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { apiFetch, apiPath, getProject } from './api';
+import {
+  apiFetch,
+  apiPath,
+  getProject,
+  listProjectConversations,
+} from './api';
 import { chosenEvidence } from './photo-evidence';
 import { instantFrom } from './wall-clock';
 
@@ -1241,6 +1246,17 @@ export async function typeATurn(
  * It opens the conversation when there is none, which is what lets the panel be
  * on the page before anybody has asked anything: a project has any number of
  * conversations and none until one is wanted, and a GET may not write one.
+ *
+ * **It reads before it opens, and that is what keeps the resend rule reachable
+ * on the very first question.** The id is bound when the page renders, and a
+ * send that failed does not re-render it — so a retry after a lost response
+ * still arrives here with `null`. Opening on the strength of that argument
+ * alone made the second attempt a second *conversation*, where the key is
+ * unique per conversation and the rule could not fire: two turns saying the
+ * same thing, two paid runs, and the first conversation hidden behind the
+ * newest-first read. Reading first means the retry finds what the first attempt
+ * opened and lands its turn under the same key, which the API answers with the
+ * row it already has.
  */
 export async function askOnProject(
   projectId: string,
@@ -1248,7 +1264,7 @@ export async function askOnProject(
   previous: AddState,
   formData: FormData,
 ): Promise<AddState> {
-  let into = conversationId;
+  let into = conversationId ?? (await listProjectConversations(projectId))[0]?.id ?? null;
   if (into === null) {
     const opened = await send(`/projects/${projectId}/conversations`);
     const refused = await refusal(opened, 201);

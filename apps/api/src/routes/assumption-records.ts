@@ -17,6 +17,7 @@ import {
   type RouteDependencies,
   instant,
   isUniqueViolation,
+  violates,
 } from '../http.js';
 import {
   type Refusal,
@@ -45,7 +46,7 @@ import { actorOf, callerOf } from '../gate.js';
  * There is no `submissionId` here: which issuance a record justified is the
  * route it was captured on, not something a body may assert.
  */
-const assumptionRecordBodySchema = {
+export const assumptionRecordBodySchema = {
   type: 'object',
   required: ['assumptions', 'flags', 'codeEdition'],
   additionalProperties: false,
@@ -292,12 +293,14 @@ export function assumptionRecordRoutes(
           return created;
         })
         .catch((error: unknown) => {
-          // Narrowed to the turn, and the only constraint this insert touches
-          // that anything can collide with: one proposal, at most one record.
-          // A double tap on the confirm writes nothing rather than capturing
-          // the same blocks twice, which is what `turns.observation_id`'s
-          // unique does on the other record.
-          if (isUniqueViolation(error)) {
+          // **Narrowed to the turn**, and not an unqualified unique check:
+          // `http.ts` says why the named form exists — an unqualified one would
+          // answer this sentence to a collision that had nothing to do with a
+          // proposal, and the paste path, which has no proposal at all, would
+          // read "that proposal has already been confirmed". One proposal, at
+          // most one record, which is what `turns.observation_id`'s unique does
+          // on the other record.
+          if (violates(error, 'turn_id')) {
             return null;
           }
           throw error;

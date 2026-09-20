@@ -341,7 +341,6 @@ export default async function ProjectRecord({
         */}
         <ConversationPanel
           anchor="conversation"
-          siteVisitId={null}
           turns={conversation?.turns ?? []}
           live={
             <ChatProgress
@@ -352,9 +351,6 @@ export default async function ProjectRecord({
           }
           issues={issues}
           timeZone={project.timezone}
-          evidencing={new Map()}
-          unfiled={new Map()}
-          add={() => Promise.resolve(undefined)}
           typed={askOnProject.bind(null, id, conversation?.id ?? null)}
           typedPlaceholder="Ask about this job…"
           typedLabel="What you want to know"
@@ -365,7 +361,6 @@ export default async function ProjectRecord({
               capture it.
             </>
           }
-          commit={() => () => Promise.resolve({ added: 0 })}
           confirmRecord={(turnId) =>
             confirmAssumptionRecord.bind(null, turnId, id)
           }
@@ -374,8 +369,6 @@ export default async function ProjectRecord({
             revision: set.revision,
             phaseName: phaseName.get(set.phaseId) ?? '',
           }))}
-          retry={() => () => {}}
-          bindEvidence={() => () => {}}
         />
 
         {/*

@@ -55,42 +55,20 @@ function sighted(issues: Issue[], issueId: string): string {
  * part of it is already its own client island, and the turns have to be in the
  * server's first paint (ADR-0028).
  */
-export function ConversationPanel({
-  anchor,
-  siteVisitId,
-  turns,
-  live,
-  issues,
-  timeZone,
-  evidencing,
-  unfiled,
-  add,
-  typed,
-  typedPlaceholder,
-  typedLabel,
-  hint,
-  commit,
-  confirmRecord,
-  submissions = [],
-  retry,
-  bindEvidence,
-}: {
-  /** The jumper's anchor — a fragment name, never the record's id. */
-  anchor: string;
-  /**
-   * The walk, or **null** on a project's conversation. It is what the recorder
-   * holds its audio under, and it is the whole of *is this a walk* on this
-   * screen — no second flag, which would be a second place the same fact lived.
-   */
-  siteVisitId: string | null;
-  /** In `position` order, which is the order the API returns them in. */
-  turns: Turn[];
-  /** The head's live summary: each screen's own words over the same stream. */
-  live: ReactNode;
-  /** The job's register, so a proposed sighting reads as the finding it names. */
-  issues: Issue[];
-  /** The zone of the building, which is what these times are read in. */
-  timeZone: string;
+/**
+ * What a **walk** brings to the panel and a project does not: the recording, the
+ * evidence and the commit that writes an observation (issue #121).
+ *
+ * One optional object rather than six optional props, and `walk === undefined`
+ * is the whole of *this is a project's conversation* — no second flag beside it.
+ * They were six required props before, and the project record passed six inert
+ * values to satisfy a shape it has no part in: an empty `Map`, an `add` that
+ * resolves, a `commit` that returns nothing. Six lies at a call site are six
+ * things a reader has to check are lies, where an absent object says what it is.
+ */
+interface OnAWalk {
+  /** What the recorder holds its audio under. */
+  siteVisitId: string;
   /** What evidences each observation, keyed by the observation. */
   evidencing: Map<string, Photo[]>;
   /** What is unfiled on each floor, keyed by the floor's value. */
@@ -100,15 +78,45 @@ export function ConversationPanel({
     recordedAt: string,
     audio: File,
   ) => Promise<CaptureRefusal | undefined>;
+  /** Bound per turn: the confirm writes the observation onto that capture. */
+  commit: (
+    turnId: string,
+  ) => (previous: AddState, formData: FormData) => Promise<AddState>;
+  retry: (turnId: string) => (formData: FormData) => void;
+  bindEvidence: (observationId: string) => (formData: FormData) => void;
+}
+
+export function ConversationPanel({
+  anchor,
+  walk,
+  turns,
+  live,
+  issues,
+  timeZone,
+  typed,
+  typedPlaceholder,
+  typedLabel,
+  hint,
+  confirmRecord,
+  submissions = [],
+}: {
+  /** The jumper's anchor — a fragment name, never the record's id. */
+  anchor: string;
+  /** The walk this conversation is on, or absent on a project's. */
+  walk?: OnAWalk;
+  /** In `position` order, which is the order the API returns them in. */
+  turns: Turn[];
+  /** The head's live summary: each screen's own words over the same stream. */
+  live: ReactNode;
+  /** The job's register, so a proposed sighting reads as the finding it names. */
+  issues: Issue[];
+  /** The zone of the building, which is what these times are read in. */
+  timeZone: string;
   typed: (previous: AddState, formData: FormData) => Promise<AddState>;
   typedPlaceholder?: string;
   typedLabel?: string;
   /** The one sentence under the bar, which says what this panel commits. */
   hint: ReactNode;
-  /** Bound per turn: the confirm writes the observation onto that capture. */
-  commit: (
-    turnId: string,
-  ) => (previous: AddState, formData: FormData) => Promise<AddState>;
   /**
    * Bound per turn: the confirm writes the assumption record the agent
    * proposed on **that** turn. Absent on a walk, which proposes none.
@@ -118,8 +126,6 @@ export function ConversationPanel({
   ) => (previous: AddState, formData: FormData) => Promise<AddState>;
   /** The job's issuances, so a proposed record can be pointed at one. */
   submissions?: { id: string; revision: string; phaseName: string }[];
-  retry: (turnId: string) => (formData: FormData) => void;
-  bindEvidence: (observationId: string) => (formData: FormData) => void;
 }) {
   // Read once, so the `position` ± 1 pairing below is a lookup rather than a
   // scan of every turn for every turn.
@@ -162,7 +168,7 @@ export function ConversationPanel({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">Proposed</Badge>
                     <span className="text-muted-foreground text-xs">
-                      {siteVisitId === null
+                      {walk === undefined
                         ? 'The agent read the job.'
                         : 'The agent read the capture above.'}
                     </span>
@@ -264,6 +270,7 @@ export function ConversationPanel({
                     turn.assumptionRecord === null &&
                     confirmRecord !== undefined && (
                       <ConfirmAssumptionRecord
+                        turnId={turn.id}
                         proposal={turn.proposedAssumptionRecord}
                         submissions={submissions}
                         submit={confirmRecord(turn.id)}
@@ -284,12 +291,13 @@ export function ConversationPanel({
                     though the question were the draft.
                   */}
                   {turn.proposal !== null &&
+                    walk !== undefined &&
                     answered !== undefined &&
                     answered.observation === null && (
                       <DraftObservationForm
                         transcript={answered.transcript}
                         proposal={turn.proposal}
-                        submit={commit(answered.id)}
+                        submit={walk.commit(answered.id)}
                       />
                     )}
                 </li>
@@ -304,13 +312,13 @@ export function ConversationPanel({
             const answer = neighbour(1, 'AGENT');
             const proposed = answer !== undefined && answer.proposal !== null;
             const evidence =
-              turn.observation === null
+              turn.observation === null || walk === undefined
                 ? []
-                : (evidencing.get(turn.observation.id) ?? []);
+                : (walk.evidencing.get(turn.observation.id) ?? []);
             const loose =
-              turn.observation === null
+              turn.observation === null || walk === undefined
                 ? []
-                : (unfiled.get(turn.observation.floor) ?? []);
+                : (walk.unfiled.get(turn.observation.floor) ?? []);
 
             return (
               <li key={turn.id} className="grid min-h-11 gap-2 px-4 py-3">
@@ -364,6 +372,7 @@ export function ConversationPanel({
                   waited on one.
                 */}
                 {turn.kind === 'VOICE' &&
+                  walk !== undefined &&
                   (turn.failure !== null || turn.state === 'queued') &&
                   turn.observation === null && (
                     <div className="flex flex-wrap items-center gap-2">
@@ -378,7 +387,7 @@ export function ConversationPanel({
                           {turn.failure}
                         </p>
                       )}
-                      <form action={retry(turn.id)}>
+                      <form action={walk.retry(turn.id)}>
                         <Button
                           type="submit"
                           variant="ghost"
@@ -390,7 +399,7 @@ export function ConversationPanel({
                     </div>
                   )}
 
-                {siteVisitId === null ? null : turn.observation !== null ? (
+                {walk === undefined ? null : turn.observation !== null ? (
                   <div className="grid gap-1.5">
                     <p className="text-muted-foreground text-xs">
                       {turn.observation.location}
@@ -411,7 +420,7 @@ export function ConversationPanel({
                       <EvidenceShortlist
                         photos={loose}
                         timeZone={timeZone}
-                        bind={bindEvidence(turn.observation.id)}
+                        bind={walk.bindEvidence(turn.observation.id)}
                       />
                     )}
                   </div>
@@ -424,7 +433,7 @@ export function ConversationPanel({
                     <DraftObservationForm
                       transcript={turn.transcript}
                       proposal={null}
-                      submit={commit(turn.id)}
+                      submit={walk.commit(turn.id)}
                     />
                   )
                 )}
@@ -451,10 +460,10 @@ export function ConversationPanel({
             no instant, no audio — and nothing transcribes for it. A microphone
             on this bar would be a control with no route behind it.
           */}
-          {siteVisitId !== null && (
+          {walk !== undefined && (
             <>
               <div className="sm:w-56 sm:shrink-0">
-                <VoiceRecorder siteVisitId={siteVisitId} add={add} />
+                <VoiceRecorder siteVisitId={walk.siteVisitId} add={walk.add} />
               </div>
               {/* The plate's `or`: one bar offering two ways into one record. */}
               <p className="text-muted-foreground self-center text-xs">or</p>

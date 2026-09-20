@@ -70,6 +70,7 @@ import {
   observationBodySchema,
   observationData,
 } from './site-visits.js';
+import { assumptionRecordBodySchema } from './assumption-records.js';
 
 /**
  * The audio types the boundary admits, byte-exact and closed.
@@ -267,24 +268,33 @@ const askBodySchema = {
  * screen either shows a record to confirm or an answer to read, and a body
  * carrying both would leave which one it is to whoever read it next.
  *
- * The caps are the record's own, so a proposal that could not be confirmed is
- * refused where it is made rather than where it is answered: `assumptions` and
- * `flags` at 4,000 each and `codeEdition` at 200 are
- * `assumptionRecordBodySchema`'s figures, and the answer's 8,400 is the two
- * blocks quoted whole plus a sentence — which is precisely what the ticket asks
- * an answer to carry when no submission has been named.
+ * **The three caps are the record's own and imported, never restated.** A
+ * proposal the confirm route would then refuse is a refusal discovered at the
+ * wrong end, and two copies of a figure are two figures — the reason
+ * `raisedFlagBodySchema` reads `openItemBodySchema.properties` and the reason
+ * the draft observation's branch above is built from `observationBodySchema`.
+ * Read across a module boundary at load, which is safe while
+ * `routes/assumption-records.ts` imports no route module that leads back here;
+ * a cycle would be a `ReferenceError` at load and not a silently `undefined`
+ * schema.
+ *
+ * The answer's own 8,400 is this file's, being a bound on a **turn** and on
+ * nothing the record has: the two blocks quoted whole plus a sentence, which is
+ * precisely what the ticket asks an answer to carry when no submission has been
+ * named.
  */
-const RECORD_BLOCK_MAX = 4_000;
-const CODE_EDITION_MAX = 200;
 const ANSWER_MAX = 8_400;
+
+const { assumptions, flags, codeEdition } =
+  assumptionRecordBodySchema.properties;
 
 const recordProposalBodySchema = {
   type: 'object',
   properties: {
     submissionId: { type: 'string', format: 'uuid' },
-    assumptions: { type: 'string', pattern: '\\S', maxLength: RECORD_BLOCK_MAX },
-    flags: { type: 'string', pattern: '\\S', maxLength: RECORD_BLOCK_MAX },
-    codeEdition: { type: 'string', pattern: '\\S', maxLength: CODE_EDITION_MAX },
+    assumptions,
+    flags,
+    codeEdition,
     answer: { type: 'string', pattern: '\\S', maxLength: ANSWER_MAX },
   },
   oneOf: [

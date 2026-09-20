@@ -58,8 +58,8 @@ every screen measured in both themes; and **the screens redesigned to the plates
 point 3** and changed no route. And **the project chat** (#121, ADR-0058 part 4) — a
 conversation on a project that reads through the routes, asks any registered helper and
 proposes an **assumption record**, confirmed by the route that already wrote one with the turn
-on it as provenance. The first run allowed a helper; thirteen tools, asserted exactly.
-**ADR-0058 is built whole** save part 6, refused with its trigger.
+on it as provenance. The first run allowed a helper; thirteen tools, asserted exactly. **ADR-0058 is built** save part 6, refused with its
+trigger, and part 4's *one registry* sentence, declined with its reason in the ADR.
 `/healthz` is the platform check (ADR-0045); the per-slice record is
 [docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051). Work one ticket at a
 time, and only when asked.

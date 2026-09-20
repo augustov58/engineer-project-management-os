@@ -524,7 +524,6 @@ export default async function SiteVisitRecord({
       */}
       <ConversationPanel
         anchor="conversation"
-        siteVisitId={id}
         turns={visit.conversation.turns}
         live={
           <ConversationProgress
@@ -535,9 +534,6 @@ export default async function SiteVisitRecord({
         }
         issues={issues}
         timeZone={zone}
-        evidencing={evidencing}
-        unfiled={unfiled}
-        add={addRecording.bind(null, id, projectId)}
         typed={typeATurn.bind(null, id, projectId)}
         hint={
           <>
@@ -546,13 +542,18 @@ export default async function SiteVisitRecord({
             Confirming is yours; the agent never writes it.
           </>
         }
-        commit={(turnId) =>
-          commitTurn.bind(null, turnId, id, visitedOn, projectId)
-        }
-        retry={(turnId) => retryTranscription.bind(null, turnId, id, projectId)}
-        bindEvidence={(observationId) =>
-          bindPhotoToObservation.bind(null, observationId, id, projectId)
-        }
+        walk={{
+          siteVisitId: id,
+          evidencing,
+          unfiled,
+          add: addRecording.bind(null, id, projectId),
+          commit: (turnId: string) =>
+            commitTurn.bind(null, turnId, id, visitedOn, projectId),
+          retry: (turnId: string) =>
+            retryTranscription.bind(null, turnId, id, projectId),
+          bindEvidence: (observationId: string) =>
+            bindPhotoToObservation.bind(null, observationId, id, projectId),
+        }}
       />
 
       <section id="photographs" className="grid scroll-mt-14 gap-3">
