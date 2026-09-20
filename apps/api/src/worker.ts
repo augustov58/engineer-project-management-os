@@ -238,14 +238,23 @@ export function buildWorker({
       return;
     }
 
+    // Read once and used twice: the row says the rendering started here and
+    // the document's running footer prints the same instant (issue #119), so
+    // the record and the page it is a record of cannot disagree about when.
+    const renderingSince = timeSource.now();
     await prisma.siteVisitReport.update({
       where: { id: report.id },
-      data: { renderingSince: timeSource.now() },
+      data: { renderingSince },
     });
 
     try {
       const pdf = await renderPdf(
-        await composeReport(prisma, objectStore, report.siteVisitId),
+        await composeReport(
+          prisma,
+          objectStore,
+          report.siteVisitId,
+          renderingSince,
+        ),
       );
 
       // Bytes first, then the row that points at them — ADR-0032's order, and

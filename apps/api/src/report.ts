@@ -39,6 +39,29 @@ export function issueIdentifier(number: number): string {
 const NONE = '—';
 
 /**
+ * A day with its month said out loud, which is how this document prints one
+ * (issue #119).
+ *
+ * `dayIn` is the ISO face and stays the wire's: `visitedOn` is a field a screen
+ * parses. This is the artifact that leaves the product, read by an owner and a
+ * contractor who were not on the walk, and `2026-07-23` is a column. Written
+ * here rather than in `zone.ts` because one record reads it, which is
+ * ADR-0033's rule for where a thing lives; it moves into the leaf when a second
+ * one reaches for it.
+ *
+ * `en-GB` for `23 July 2026` — day first and no comma, which is the form that
+ * is unambiguous to a reader of either convention.
+ */
+function longDayIn(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(instant);
+}
+
+/**
  * Text into HTML. Every value printed below goes through here.
  *
  * What was observed is free text the engineer spoke or typed, a qualifier is
@@ -78,7 +101,20 @@ const STYLESHEET = `
     margin: 0;
     font-size: 9pt;
     letter-spacing: 0.09em;
-    text-transform: uppercase;
+    /*
+     * Not uppercased, and this is the second property found to reach the PDF's
+     * text layer rather than only its glyphs (issue #119). The job printed as
+     * 'MERCY GENERAL — 4TH FLOOR ICU RENOVATION' and came back out of the
+     * finished document that way, so a reader searching the issued report for
+     * the name as written found nothing — while the footer printed the same
+     * name in its own case, leaving one document spelling the job two ways.
+     * Exactly ADR-0035's letter-spacing finding, arriving through
+     * 'text-transform': a screen's CSS habits do not carry to a document.
+     *
+     * The column headings below keep theirs. They are labels and not names —
+     * nobody searches an issued report for the word "Arrived" — and at 8pt the
+     * small caps are what separates a heading row from the rule under it.
+     */
     color: #5c5651;
   }
   h1 { margin: 2pt 0 0; font-size: 19pt; font-weight: 600; letter-spacing: -0.01em; }
@@ -105,6 +141,14 @@ const STYLESHEET = `
     color: #3d3833;
     border-bottom: 0.5pt solid #cdc7c0;
     padding-bottom: 3pt;
+    /*
+     * Kept with what it heads (issue #119). "Issues" printed alone at the foot
+     * of page 1 with its rule drawn under it, a quarter of a page of white
+     * below it and the first finding overleaf — which reads as a page that
+     * failed to print. '.finding h3' has had this since issue #13; the section
+     * heads above it did not.
+     */
+    break-after: avoid;
   }
   section { break-inside: auto; }
   table { width: 100%; border-collapse: collapse; }
@@ -121,11 +165,22 @@ const STYLESHEET = `
   }
   td { padding: 4pt 8pt 4pt 0; border-top: 0.5pt solid #e4dfd9; vertical-align: top; }
   td:last-child, th:last-child { padding-right: 0; }
-  .at { white-space: nowrap; width: 12%; font-variant-numeric: tabular-nums; }
-  .where { width: 28%; }
+  .at { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /*
+   * The schedule is four narrow columns and is sized to them (issue #119,
+   * plate R-01). At full width the unfiled count sat against the right margin,
+   * about 12cm of white from the floor it counts, which is far enough that a
+   * reader tracks it against the wrong row. The observation table below is the
+   * opposite case and keeps the full measure: its Observed column is prose and
+   * wants every millimetre.
+   */
+  .schedule { width: auto; }
+  .schedule th, .schedule td { padding-right: 22pt; }
   /* The unfiled count on a floor's row: a number, read down the column. */
-  .count { white-space: nowrap; width: 10%; text-align: right; font-variant-numeric: tabular-nums; }
+  .count { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
   th.count { text-align: right; }
+  .observations .at { width: 12%; }
+  .observations .where { width: 28%; }
   .nothing { color: #5c5651; font-style: italic; margin: 0; }
   /*
    * The photographs that landed on no floor at all, under the schedule rather
@@ -151,21 +206,45 @@ const STYLESHEET = `
     padding: 0 4pt;
     margin-left: 4pt;
   }
-  .sighting { margin: 5pt 0 0; padding-left: 10pt; border-left: 1.5pt solid #e4dfd9; }
+  /*
+   * Never split from the location that labels it (issue #119). A finding
+   * taller than a page has to break somewhere and 'break-inside: avoid-page'
+   * on '.finding' cannot stop it; what it can do is break between sightings.
+   * Without this the page ended with a bare '10:35 · Floor 1 — Corridor 1A,
+   * Side A' and the words it labelled started the next one.
+   */
+  .sighting { margin: 5pt 0 0; padding-left: 10pt; border-left: 1.5pt solid #e4dfd9; break-inside: avoid; }
   .sighting p { margin: 0; }
   .sighting .at, .sighting .where { display: inline; width: auto; color: #5c5651; font-size: 9.5pt; }
-  .evidence { margin-top: 7pt; display: flex; flex-wrap: wrap; gap: 6pt; }
-  .evidence figure { margin: 0; width: 30%; break-inside: avoid; }
+  .evidence { margin-top: 7pt; display: flex; flex-wrap: wrap; gap: 6pt; align-items: flex-start; }
   /*
-   * Bounded in both directions. Width alone leaves a portrait photograph off a
-   * phone — which is most of them — as tall as it is narrow, and three of them
-   * under one finding would be a page each. Containing rather than covering
-   * keeps the aspect ratio, so evidence is never stretched to fill its box.
+   * As wide as its photograph and no wider. A fixed column width drew the
+   * border around the *box* rather than the picture, so a portrait sat in the
+   * left two-thirds of an empty frame; sizing off the height instead means the
+   * rule hugs the image whatever shape it is. 32% is a 4:3 landscape at the
+   * height below, which is the widest thing a phone produces.
+   */
+  .evidence figure { margin: 0; max-width: 32%; break-inside: avoid; }
+  /*
+   * One box, and every figure in a row gets the same one (issue #119). The
+   * bound used to be 'max-height' alone, so a figure was as tall as its own
+   * photograph and the captions under a row of three sat at three different
+   * heights — worst where a portrait stood between two landscapes, which is
+   * what a walk produces. A fixed box puts the filenames on one line, which is
+   * how a row of evidence is read: the name is the mechanism.
+   *
+   * 45mm rather than ADR-0035's 70mm, and inside it. 70mm was the bound that
+   * stopped a portrait photograph off a phone being a page of its own; read as
+   * issued output it is still nearly half the page for one picture, under a
+   * finding whose subject is the words above it. Containing rather than
+   * covering keeps the aspect ratio, so evidence is never stretched to fill
+   * its box.
    */
   .evidence img {
-    width: 100%;
-    height: auto;
-    max-height: 70mm;
+    display: block;
+    height: 45mm;
+    width: auto;
+    max-width: 100%;
     object-fit: contain;
     border: 0.5pt solid #cdc7c0;
   }
@@ -176,18 +255,38 @@ const STYLESHEET = `
    * three others has a quarter of the page, and a figure sized for a finding
    * would push the row it is in onto a page of its own.
    */
-  .shown { width: 22%; }
+  .observations .shown { width: 22%; }
   .shown .evidence { margin-top: 0; gap: 4pt; }
-  .shown .evidence figure { width: 100%; }
-  .shown .evidence img { max-height: 35mm; }
-  footer {
-    margin-top: 22pt;
-    padding-top: 6pt;
-    border-top: 0.5pt solid #cdc7c0;
-    font-size: 8.5pt;
-    color: #5c5651;
-  }
+  .shown .evidence figure { max-width: 100%; }
+  .shown .evidence img { height: 30mm; }
 `;
+
+/**
+ * The running footer, which is Chrome's and not the stylesheet's.
+ *
+ * It has to be a `footerTemplate` (issue #119): Chrome implements no `@page`
+ * margin boxes, so there is no CSS that puts a page number on every sheet.
+ * What was here instead was a `<footer>` element, which flows — so it printed
+ * once, at the end, and pages two and three carried neither the job nor a
+ * number. A report is printed, separated, scanned and forwarded, and a page of
+ * findings that says none of those things is a sheet nobody can file.
+ *
+ * Its own document, so its own font stack and its own inline styles; the 16mm
+ * side padding is `@page`'s margin, which the template does not inherit.
+ *
+ * **Both halves arrive escaped**, unlike `figure` below, which escapes what it
+ * is given. The two contracts differ because this one is handed a sentence
+ * composed out of several values and that one is handed a row: escaping here
+ * would have to happen before the composing anyway, and escaping twice would
+ * print `&amp;` in a job name. Said out loud because one file holding two
+ * helpers with opposite contracts is how an unescaped value eventually gets in.
+ */
+function runningFooter(about: string, rendering: string): string {
+  return `<div style="width:100%;padding:0 16mm;font:7.5pt/1.4 'Iowan Old Style',Palatino,Georgia,'Times New Roman',serif;color:#5c5651;display:flex;justify-content:space-between;gap:8mm;">
+  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${about}</span>
+  <span style="white-space:nowrap">${rendering} · page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+</div>`;
+}
 
 /** The walk, everything it produced, and the job it was against. */
 const visitInclude = {
@@ -304,6 +403,14 @@ type Printed = {
  * `observation_id` and `issue_id` — and `issue_observations`' composite key
  * makes an observation appear under a finding once, so the sightings cannot
  * contribute the same photograph twice either.
+ *
+ * Since issue #119 the union is what the page **prints** and no longer how it
+ * **groups**: a photograph its sighting carries prints inside that sighting and
+ * one stamped to the finding prints under the finding, because a reader given
+ * the union as one row could not tell which look produced which picture. The
+ * two halves are the same two this reads, so nothing is added or dropped and
+ * the order within each stays `inTheOrderTaken`'s. What this list is still for
+ * is the bytes: every photograph the page will show, fetched once.
  */
 function evidenceFor(finding: {
   photos: Printed[];
@@ -321,6 +428,15 @@ function all(html: string[]): string {
 }
 
 /**
+ * A document and the footer that runs under every page of it.
+ *
+ * Two strings rather than one because the footer is not part of the page:
+ * Chrome renders it into the `@page` margin from a template of its own, which
+ * is the only way a page number reaches a sheet.
+ */
+export type Composed = { html: string; footer: string };
+
+/**
  * The walk, rendered.
  *
  * Reads the record and returns the document as HTML. The photographs are
@@ -334,12 +450,19 @@ function all(html: string[]): string {
  * would build a very large string here; the walks this is for have a handful
  * per finding, and the honest fix when that stops being true is to stream them
  * into the renderer rather than to link them.
+ *
+ * `renderingSince` is the instant the worker stamped on the row before calling
+ * this, and the footer prints it: a report is a record of a rendering
+ * (ADR-0035), and the one fact that tells two renderings of the same walk
+ * apart is when each was made. Taken as an argument and never read off a clock
+ * here, so the page and the row cannot say different things (ADR-0022).
  */
 export async function composeReport(
   prisma: PrismaClient,
   objectStore: ObjectStore,
   siteVisitId: string,
-): Promise<string> {
+  renderingSince: Date,
+): Promise<Composed> {
   const visit = await prisma.siteVisit.findUnique({
     where: { id: siteVisitId },
     include: visitInclude,
@@ -433,7 +556,7 @@ export async function composeReport(
    * printed page could only agree with the screen while both were wrong the same
    * way (issue #97).
    */
-  const day = (instant: Date) => dayIn(instant, project.timezone);
+  const dayInWords = (instant: Date) => longDayIn(instant, project.timezone);
   const clock = (instant: Date) => clockIn(instant, project.timezone);
 
   // A walk that is still under way is a real state to render a report from:
@@ -441,8 +564,8 @@ export async function composeReport(
   // over, and the schedule below says the same thing about a floor.
   const when =
     visit.endedAt === null
-      ? `${day(visit.startedAt)} · from ${clock(visit.startedAt)}, still under way`
-      : `${day(visit.startedAt)} · ${clock(visit.startedAt)}–${clock(visit.endedAt)}`;
+      ? `${dayInWords(visit.startedAt)} · from ${clock(visit.startedAt)}, still under way`
+      : `${dayInWords(visit.startedAt)} · ${clock(visit.startedAt)}–${clock(visit.endedAt)}`;
 
   // The zone, once and in the header (ADR-0054). Every time below it is in
   // this frame, so saying so beside each one would be saying it forty times;
@@ -466,11 +589,30 @@ export async function composeReport(
         <figcaption>${escape(photo.filename)}</figcaption>
       </figure>`;
 
-  return `<!doctype html>
+  /**
+   * A row of evidence, or nothing at all where there is none to show.
+   *
+   * The three places a page shows photographs — a non-issue's cell, a
+   * sighting, a finding — and one shape, so a row cannot come to be spelled
+   * differently depending on what it hangs under.
+   */
+  const shownUnder = (photos: { id: string; filename: string }[]) =>
+    photos.length === 0
+      ? ''
+      : `
+      <div class="evidence">${all(photos.map(figure))}
+      </div>`;
+
+  const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>${escape(`${project.projectNumber} site visit report ${day(visit.startedAt)}`)}</title>
+<!--
+  The ISO face here and nowhere else on the page. A title is what a viewer puts
+  in its window and what a folder of these sorts by, which is the one reading
+  of a date that wants the columns.
+-->
+<title>${escape(`${project.projectNumber} site visit report ${dayIn(visit.startedAt, project.timezone)}`)}</title>
 <style>${STYLESHEET}</style>
 </head>
 <body>
@@ -486,7 +628,16 @@ export async function composeReport(
   ${
     visit.floors.length === 0
       ? '<p class="nothing">No floors were recorded on the schedule.</p>'
-      : `<table>
+      : /*
+         * The designation bare, under a column that already says the word
+         * (issue #119, plate R-01). ADR-0030's rule is that the column holds
+         * `3` and the render supplies the word; here the table heading is the
+         * render supplying it, and `Floor 4` under `FLOOR` says it twice. The
+         * sightings below are the other case and still spell it in full, since
+         * `Floor 3 — Corridor 3A, Side A` is a sentence with no heading over
+         * it.
+         */
+        `<table class="schedule">
     <thead><tr><th class="at">Arrived</th><th class="at">Left</th><th>Floor</th><th class="count">Unfiled</th></tr></thead>
     <tbody>${all(
       visit.floors.map(
@@ -494,7 +645,7 @@ export async function composeReport(
       <tr>
         <td class="at">${clock(floor.startedAt)}</td>
         <td class="at">${floor.completedAt === null ? NONE : clock(floor.completedAt)}</td>
-        <td>Floor ${escape(floor.floor)}</td>
+        <td>${escape(floor.floor)}</td>
         <td class="count">${unfiled.get(floor.floor) ?? 0}</td>
       </tr>`,
       ),
@@ -514,7 +665,7 @@ export async function composeReport(
   ${
     nonIssues.length === 0
       ? '<p class="nothing">Every observation made on this visit became an issue.</p>'
-      : `<table>
+      : `<table class="observations">
     <thead><tr><th class="at">Time</th><th class="where">Location</th><th>Observed</th>${anyEvidence ? '<th class="shown">Evidence</th>' : ''}</tr></thead>
     <tbody>${all(
       nonIssues.map(
@@ -525,12 +676,7 @@ export async function composeReport(
         <td>${escape(observation.observed)}</td>${
           anyEvidence
             ? `
-        <td class="shown">${
-          observation.photos.length === 0
-            ? ''
-            : `<div class="evidence">${all(observation.photos.map(figure))}
-        </div>`
-        }</td>`
+        <td class="shown">${shownUnder(observation.photos)}</td>`
             : ''
         }
       </tr>`,
@@ -558,27 +704,44 @@ export async function composeReport(
         ({ observation }) => `
     <div class="sighting">
       <p><span class="at">${clock(observation.observedAt)}</span> · <span class="where">${escape(renderLocation(observation))}</span></p>
-      <p>${escape(observation.observed)}</p>
+      <p>${escape(observation.observed)}</p>${shownUnder(observation.photos)}
     </div>`,
       ),
-    )}
-    ${
-      (derived.get(finding.id) ?? []).length === 0
-        ? ''
-        : `<div class="evidence">${all(
-            (derived.get(finding.id) ?? []).map(figure),
-          )}
-    </div>`
+    )}${
+      /*
+       * What is stamped to the finding itself, under every sighting because it
+       * belongs to none of them (issue #119). The other half of ADR-0056's
+       * union prints above, inside the sighting that carries it: a photograph
+       * bound to an observation evidences *that look*, and the page used to
+       * print both halves as one row after the last sighting, where a reader
+       * could not tell which look produced which picture.
+       */
+      shownUnder(finding.photos)
     }
   </article>`,
           ),
         )
   }
 </section>
-
-<footer>
-  ${escape(`${project.projectNumber} — ${project.name}`)}. Site visit of ${escape(day(visit.startedAt))}.
-</footer>
 </body>
 </html>`;
+
+  return {
+    html,
+    footer: runningFooter(
+      // What a loose sheet needs to be filed: the job it is about and the walk
+      // it is of. Both are already on page one; a report is printed, separated
+      // and scanned, and the sheet that carries a finding is the one most
+      // likely to travel on its own.
+      escape(
+        `${project.projectNumber} · ${project.name} · site visit of ${dayInWords(visit.startedAt)}`,
+      ),
+      // No zone beside it, though plate R-01 draws one. The header states the
+      // frame once and it governs every time in the document, this one
+      // included (ADR-0054); on a footer that runs, naming it again would name
+      // it once per page, which is the repetition that rule exists to stop.
+      // The plate draws a single sheet and could not have said so.
+      escape(`Rendered ${dayInWords(renderingSince)} ${clock(renderingSince)}`),
+    ),
+  };
 }
