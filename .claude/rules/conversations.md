@@ -154,10 +154,15 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
   run's eight reads, `documents_list`, every helper route, and `assumption_record_propose`.
   The reads are `projectReadTools` and **not a copy of them** — *every read the memory agent
   has* is a sentence about one list, so a ninth added there reaches the chat without anybody
-  remembering. That is as far as part 4's *"both tool lists are generated from one registry"*
-  is taken: the walk's three stay written out, its `issues_list` carrying a different
-  description, and sharing the entry would rewrite a built run's prompt surface. A test
-  asserts each list exactly and that they differ.
+  remembering. Part 4's *"both tool lists are generated from one registry"* is **narrowed to
+  the chat's** by a dated amendment on ADR-0058 itself: the walk's three stay written out, its
+  `issues_list` carrying a different description, and sharing the entry would rewrite a built
+  run's prompt surface. A test asserts each list exactly and that they differ.
+- **`/projects/:id/issues` is spelled in two places** — `projectReadTools` and
+  `captureRunTools` — and that is the cost the amendment names. Renaming that route silently
+  404s the walk's tool at a model provider with nothing failing here. **That is the trigger**:
+  the first change to a shared read's path, or a second genuinely shared entry between the two
+  lists, and the registry is worth building with a per-run description override.
 - The conversation reaches the chat run under `CHAT_DIRECTIVE`, which is a **third** sentence
   and not a generalisation: changing `CAPTURE_DIRECTIVE`'s noun would rewrite the prompt a
   built run is already given. All three are `EXTRACTION_DIRECTIVE`'s wording with the noun

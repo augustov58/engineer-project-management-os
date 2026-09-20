@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it. What is planned beyond the MVP is the five deferred items with named triggers.
-- `docs/adr/` - decision records 0001-0061. `docs/adr/README.md` is the index and **the only place with a status for every one**: in the files 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, and **0012-0019 carry none**. Six are superseded and six Accepted with a qualifier; **none is Proposed** since 0020, 2026-09-01.
+- `docs/adr/` - decision records 0001-0061. `docs/adr/README.md` is the index and **the only place with a status for every one**: in the files 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, and **0012-0019 carry none**. Six are superseded and **seven** Accepted with a qualifier — 0058's part 4 is the seventh, narrowed by issue #121 that built it, and the one qualified by a ticket rather than by another record; **none is Proposed** since 0020, 2026-09-01.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -59,7 +59,8 @@ point 3** and changed no route. And **the project chat** (#121, ADR-0058 part 4)
 conversation on a project that reads through the routes, asks any registered helper and
 proposes an **assumption record**, confirmed by the route that already wrote one with the turn
 on it as provenance. The first run allowed a helper; thirteen tools, asserted exactly. **ADR-0058 is built** save part 6, refused with its
-trigger, and part 4's *one registry* sentence, declined with its reason in the ADR.
+trigger; part 4's *one registry* sentence is **narrowed to the chat's list** by a dated
+amendment on that record, with its reason and its trigger.
 `/healthz` is the platform check (ADR-0045); the per-slice record is
 [docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051). Work one ticket at a
 time, and only when asked.
