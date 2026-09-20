@@ -53,7 +53,8 @@ is a turn carrying the draft or a question. The run is an `agent_runs` row namin
 conversation — the link, not the `kind` column ADR-0040 refused. **Confirming is still the
 engineer's**, and the forms are unchanged. And **the design system**
 (#117, ADR-0059 point 4) — the brief's tokens, the dark theme on with a `users.theme` override,
-every screen measured in both themes.
+every screen measured in both themes; and **the field screens redesigned to the plates** (#118,
+ADR-0059 point 3), which changed **no route**.
 `/healthz` is the platform check (ADR-0045); the per-slice record is
 [docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051). Work one ticket at a
 time, and only when asked.

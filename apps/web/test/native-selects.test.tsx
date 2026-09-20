@@ -22,6 +22,20 @@ afterEach(cleanup);
 /** `app/native-select.ts` is where the styling is defined, not used. */
 const definition = 'app/native-select.ts';
 
+/**
+ * The two shared stylings, which are two heights and not two designs (issue
+ * #118): `selectClassName` is 32 px at the desk and `fieldSelectClassName`
+ * 44 px on the walk, which is the design brief's density rule 6. A file may
+ * import either or both; what this sweep holds is that a `<select>` carries one
+ * of them and not a class string somebody wrote by hand.
+ */
+const shared = ['selectClassName', 'fieldSelectClassName'] as const;
+
+/** `\bselectClassName\b`, so `fieldSelectClassName` is not counted twice. */
+function mentions(text: string, name: string): number {
+  return occurrences(text, new RegExp(`(?<![A-Za-z])${name}(?![A-Za-z])`));
+}
+
 test('every select carries the shared native styling', () => {
   const wrong: string[] = [];
 
@@ -33,10 +47,13 @@ test('every select carries the shared native styling', () => {
     if (selects === 0) {
       continue;
     }
-    // One mention is the import; the rest are the `className`s. A `<select>`
-    // that grew without one is a control styled by hand, and the next one
-    // after it is a shadcn component nobody argued for.
-    const styled = occurrences(source.text, /selectClassName/) - 1;
+    // One mention of each name a file imports is the import; the rest are the
+    // `className`s. A `<select>` that grew without one is a control styled by
+    // hand, and the next one after it is a shadcn component nobody argued for.
+    const styled = shared.reduce((total, name) => {
+      const found = mentions(source.text, name);
+      return total + (found === 0 ? 0 : found - 1);
+    }, 0);
     if (styled !== selects) {
       wrong.push(`${source.path}: ${selects} selects, ${styled} styled`);
     }

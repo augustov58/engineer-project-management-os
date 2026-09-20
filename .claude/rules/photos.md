@@ -6,6 +6,7 @@ paths:
   - "apps/api/prisma/schema.prisma"
   - "apps/web/app/photo-form.tsx"
   - "apps/web/app/photo-evidence.ts"
+  - "apps/web/app/evidence.tsx"
   - "apps/web/app/photos/**"
   - "apps/web/app/wall-clock.ts"
   - "apps/web/app/site-visits/*/page.tsx"
@@ -116,3 +117,18 @@ apply to every path stay in `AGENTS.md`.
   Next decodes `%2F` and `%23` out of a path segment before the handler sees it, so
   interpolating it raw made the Next server an open GET proxy for every API route — verified,
   fixed, and verified again against the fix (ADR-0032).
+- On the screen, **both binding selects are 44 px** and neither has a confirm button beside it
+  (issue #118, density rule 6, plate F-04). The evidence select is the control **bar 3
+  actually measures** and it was `h-8`, 32 px, at the baseline; the floor select is beside it
+  and stays its own, for the reason above. `fieldSelectClassName` is the styling, not
+  `selectClassName` — see `.claude/rules/web.md` for why there are two.
+- **One rendering of an observation's evidence**, `apps/web/app/evidence.tsx`, and one
+  `isUnfiled` predicate beside it. The walk screen and the conversation panel both show it —
+  under the observation, and under the capture it was confirmed from — and writing them
+  separately is how one of them came to print the filenames and the other not. The filenames
+  are not decoration: the name is the mechanism, and it is the one fact a thumbnail cannot
+  show.
+- **Unfiled is a count and not a column of blanks**, said once under the list and rendered at
+  zero (ADR-0038's reasoning): a figure that vanished when it reached nought would read as one
+  that had not loaded, and the report's Evidence column is the opposite answer for the
+  opposite reason. The per-floor counts are in the Floors table above it.

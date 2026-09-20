@@ -3,7 +3,7 @@
 import { useActionState, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { selectClassName } from './native-select';
+import { fieldSelectClassName } from './native-select';
 import { EVIDENCES_NOTHING, evidenceValue } from './photo-evidence';
 import { clock } from './wall-clock';
 import type { AddState } from './actions';
@@ -83,7 +83,7 @@ export function PhotoForm({
   }
 
   return (
-    <form action={submit} className="space-y-4">
+    <form action={submit} className="space-y-3">
       <div className="grid gap-1.5">
         <Label htmlFor="photos">Photographs</Label>
         {/*
@@ -99,9 +99,9 @@ export function PhotoForm({
           multiple
           accept={ACCEPT}
           onChange={(event) => setChosen(Array.from(event.target.files ?? []))}
-          className="file:text-foreground file:bg-transparent file:border-0 file:text-sm file:font-medium border-input w-full rounded-lg border bg-transparent px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="file:text-foreground file:bg-transparent file:border-0 file:text-sm file:font-medium border-input h-11 w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         />
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-xs">
           Each one bins to a floor by its time against the schedule above, and
           to a finding by its name — <code>issue-12</code>, <code>ISS-12</code>{' '}
           or <code>iss_12</code> anywhere in it. Anything neither mechanism can
@@ -110,7 +110,7 @@ export function PhotoForm({
       </div>
 
       {chosen.length > 0 && (
-        <ul className="divide-y rounded-lg border text-sm">
+        <ul className="divide-y rounded-lg border text-xs">
           {chosen.map((file, index) => (
             <li
               // Two files of the same name can be picked from two folders, so
@@ -127,8 +127,8 @@ export function PhotoForm({
         </ul>
       )}
 
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" disabled={pending} className="h-11 px-4">
           {pending
             ? 'Adding…'
             : chosen.length > 1
@@ -183,15 +183,15 @@ export function PhotoBindings({
   bindEvidence: (formData: FormData) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <form action={bindFloor}>
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+      <form action={bindFloor} className="min-w-0">
         {/* Native, because the action reads this out of FormData (ADR-0025). */}
         <select
           name="floor"
           aria-label="The floor this photograph was taken on"
           defaultValue={floor ?? ''}
           onChange={(event) => event.currentTarget.form?.requestSubmit()}
-          className={selectClassName}
+          className={`${fieldSelectClassName} w-full`}
         >
           <option value="">No floor</option>
           {floors.map((named) => (
@@ -207,13 +207,13 @@ export function PhotoBindings({
         </select>
       </form>
 
-      <form action={bindEvidence}>
+      <form action={bindEvidence} className="min-w-0">
         <select
           name="evidences"
           aria-label="What this photograph is evidence of"
           defaultValue={evidenceValue({ observationId, issueNumber })}
           onChange={(event) => event.currentTarget.form?.requestSubmit()}
-          className={selectClassName}
+          className={`${fieldSelectClassName} w-full`}
         >
           {/* Unfiled, and named as the report names it: a photograph on a floor
               and nothing else prints nowhere. */}
@@ -284,7 +284,7 @@ export function EvidenceShortlist({
         aria-label="An unfiled photograph from this floor"
         defaultValue=""
         onChange={(event) => event.currentTarget.form?.requestSubmit()}
-        className={selectClassName}
+        className={`${fieldSelectClassName} w-full`}
       >
         <option value="" disabled>
           {photos.length === 1
