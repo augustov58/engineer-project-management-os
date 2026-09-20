@@ -58,6 +58,7 @@ vi.mock('../app/api', async (importOriginal) => {
     'listIngestedDocuments',
     'listExtractions',
     'listUsers',
+    'listProjectConversations',
     'listAssumptionRecords',
     'listSubmissionDocuments',
     'listRegisterEntryDocuments',
@@ -119,6 +120,96 @@ const resolvedItem = openItem('item-resolved', {
   resolvedAt: '2026-09-18T09:00:00.000Z',
   resolutionNote: 'Confirmed steel',
 });
+
+/** The issuance a proposed assumption record would be bound to (issue #121). */
+const submission: api.Submission = {
+  id: 'submission-1',
+  projectId: project.id,
+  phaseId: 'phase-1',
+  issuedAt: '2026-09-15T09:00:00.000Z',
+  recipient: 'Wren Alcott',
+  recipientRole: 'EOR',
+  revision: 'Rev 1',
+  sheetList: 'E0.01',
+  createdAt: '2026-09-15T09:00:00.000Z',
+  issuedProvisional: false,
+  currentlyProvisional: false,
+  supersedesId: null,
+  supersededById: null,
+};
+
+/** A question, and the record the agent proposed in answer (issue #121). */
+const conversation: api.Conversation = {
+  id: 'conversation-1',
+  projectId: project.id,
+  siteVisitId: null,
+  createdAt: '2026-09-20T12:00:00.000Z',
+  runs: [
+    {
+      id: 'run-1',
+      createdAt: '2026-09-20T12:00:00.000Z',
+      failure: null,
+      state: 'finished',
+    },
+  ],
+  turns: [
+    {
+      id: 'turn-1',
+      conversationId: 'conversation-1',
+      speaker: 'ENGINEER',
+      position: 1,
+      kind: null,
+      captureKey: 'a-key',
+      recordedAt: null,
+      contentType: null,
+      byteSize: null,
+      transcribingSince: null,
+      transcript: 'size the 75 kVA transformer for Rev 1',
+      transcribedAt: null,
+      failedAt: null,
+      failure: null,
+      createdAt: '2026-09-20T12:00:00.000Z',
+      agentRunId: null,
+      state: 'transcribed',
+      proposal: null,
+      proposedAssumptionRecord: null,
+    assumptionRecord: null,
+      observation: null,
+    },
+    {
+      id: 'turn-2',
+      conversationId: 'conversation-1',
+      speaker: 'AGENT',
+      position: 2,
+      kind: null,
+      captureKey: null,
+      recordedAt: null,
+      contentType: null,
+      byteSize: null,
+      transcribingSince: null,
+      transcript: null,
+      transcribedAt: null,
+      failedAt: null,
+      failure: null,
+      createdAt: '2026-09-20T12:00:05.000Z',
+      agentRunId: 'run-1',
+      state: 'transcribed',
+      proposal: null,
+      // Real helper output, two leading spaces and sigils and all, because a
+      // test about showing something verbatim should show the thing.
+      proposedAssumptionRecord: {
+        submissionId: 'submission-1',
+        assumptions:
+          '  - 25% spare: 100.0 x 1.25 = 125.0 kVA -> next std 150 kVA\n  - Secondary OCPD present',
+        flags:
+          '  ! Secondary length not given - cannot finalize the 240.21(C) tap rule.',
+        codeEdition: 'NEC 2023',
+      },
+      assumptionRecord: null,
+      observation: null,
+    },
+  ],
+};
 
 beforeEach(() => {
   for (const value of Object.values(api)) {
@@ -247,16 +338,79 @@ test('the project record is the one screen at both measures', async () => {
   expect(record?.textContent).not.toContain(project.name);
 });
 
-test('the project record carries no conversation, which is issue #121', async () => {
+test('the project record carries the conversation panel, open and typed-only', async () => {
   const root = await projectRecord();
 
   // Plate D-02 draws the project conversation as the same panel the walk has,
-  // and the brief is explicit that whether the project chat exists is
-  // ADR-0058's ticket: *"this brief specifies the panel it will use when it
-  // does"*. Nothing creates a project-level conversation yet, so a panel here
-  // would have nothing behind it. Asserted rather than merely absent, so that
-  // #121 adding it is a deliberate act against a failing test.
-  expect(root.textContent).not.toContain('Conversation');
+  // and issue #121 built it. This test said *not* to contain it until then, so
+  // that adding it was a deliberate act against a failing test rather than a
+  // gap somebody might not notice.
+  expect(root.textContent).toContain('Conversation');
+  // A `<section>` and not a disclosure — the plate draws it open, and the
+  // deep-equal on `summaries` above would have caught the other reading.
+  expect(root.textContent).toContain('nothing asked yet');
+  // Typed only. The recorder is a walk's: a project conversation has no
+  // capture machinery and nothing transcribes for it.
+  const boxes = [...root.querySelectorAll('textarea')].map((one) =>
+    one.getAttribute('aria-label'),
+  );
+  expect(boxes).toContain('What you want to know');
+  expect(root.textContent).not.toContain('Hold a moment and speak');
+});
+
+test('a proposed assumption record is read and confirmed on the project record', async () => {
+  vi.mocked(api.listSubmissions).mockResolvedValue([submission]);
+  vi.mocked(api.listProjectConversations).mockResolvedValue([conversation]);
+
+  const root = await projectRecord();
+
+  // The two blocks, exactly as the helper printed them: the two leading spaces
+  // and the sigils are part of what was captured (ADR-0029). While it is still
+  // a proposal the **form is the reading** — the boxes carry the blocks and
+  // there is no second read-only copy of them above, which was 600 px of the
+  // same text on a 390 px screen.
+  const proposed = conversation.turns[1]!.proposedAssumptionRecord!;
+  const boxes = Object.fromEntries(
+    [...root.querySelectorAll('textarea')].map((one) => [
+      one.getAttribute('name'),
+      one.textContent,
+    ]),
+  );
+  expect(boxes['assumptions']).toBe(proposed.assumptions);
+  expect(boxes['flags']).toBe(proposed.flags);
+  expect(root.querySelectorAll('pre')).toHaveLength(0);
+  // The confirm sits under the turn that proposed it, and the engineer picks
+  // which issuance it is bound to — a native select, as every closed
+  // vocabulary here is (ADR-0025).
+  expect(root.textContent).toContain('Capture the assumption record');
+  const picker = root.querySelector('select[name="submissionId"]');
+  expect(picker?.querySelectorAll('option')).toHaveLength(1);
+});
+
+test('a captured proposal reads as captured, and offers nothing to submit', async () => {
+  vi.mocked(api.listSubmissions).mockResolvedValue([submission]);
+  vi.mocked(api.listProjectConversations).mockResolvedValue([
+    {
+      ...conversation,
+      turns: [
+        conversation.turns[0]!,
+        {
+          ...conversation.turns[1]!,
+          assumptionRecord: { id: 'record-1', submissionId: submission.id },
+        },
+      ],
+    },
+  ]);
+
+  const root = await projectRecord();
+
+  // "No amount of design makes the proposal look committed" — and its converse:
+  // once it is committed, nothing on screen still offers to commit it.
+  expect(root.textContent).not.toContain('Capture the assumption record');
+  expect(root.querySelector('select[name="submissionId"]')).toBe(null);
+  // The blocks are still there to read, and now they are the only copy.
+  expect(root.querySelectorAll('pre')).toHaveLength(2);
+  expect(root.textContent).toContain('Captured against the issuance you chose.');
 });
 
 test('the item just resolved keeps its place, and only the next load files it', async () => {

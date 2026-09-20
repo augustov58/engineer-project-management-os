@@ -647,6 +647,8 @@ export interface AssumptionRecordResponse {
   codeEdition: string;
   calculatedAt: string;
   createdAt: string;
+  /** The agent's turn this was confirmed from, or null on a paste (#121). */
+  turnId: string | null;
   assumptionLines: AssumptionLine[];
   flagLines: FlagLine[];
 }
@@ -656,6 +658,8 @@ export interface AssumptionRecordBody {
   flags: string;
   codeEdition: string;
   calculatedAt?: string;
+  /** The turn this was proposed on, when it was proposed at all (#121). */
+  turnId?: string;
 }
 
 /**
@@ -1055,6 +1059,15 @@ export interface ProposalResponse {
   issueId: string | null;
 }
 
+/** The assumption record the agent proposed on its turn, or null (#121). */
+export interface RecordProposalResponse {
+  submissionId: string;
+  /** Verbatim, and byte-for-byte what the helper printed. */
+  assumptions: string;
+  flags: string;
+  codeEdition: string;
+}
+
 /** A turn as the API returns it. Never its audio, never its key. */
 export interface TurnResponse {
   id: string;
@@ -1083,6 +1096,10 @@ export interface TurnResponse {
   state: 'queued' | 'transcribing' | 'transcribed' | 'failed';
   /** The draft the agent proposed, or null on every other turn. */
   proposal: ProposalResponse | null;
+  /** The record the agent proposed, or null on every other turn (#121). */
+  proposedAssumptionRecord: RecordProposalResponse | null;
+  /** The record that proposal became, or null while it is still one (#121). */
+  assumptionRecord: { id: string; submissionId: string } | null;
   /** The observation it became, or null while it is still a draft. */
   observation: ObservationResponse | null;
 }
@@ -1161,6 +1178,59 @@ export async function addTurn(
     throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
   }
   return (await response.json()) as TurnResponse;
+}
+
+/**
+ * A conversation opened on a project (issue #121), through the route.
+ *
+ * A walk's is created with the walk and has no route; a project's is opened by
+ * one, because a project has any number of them.
+ */
+export async function openConversation(
+  api: TestApi,
+  projectId: string,
+): Promise<ConversationResponse> {
+  const path = `/v1/projects/${projectId}/conversations`;
+  const response = await api.fetch(path, { method: 'POST' });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as ConversationResponse;
+}
+
+/** A question typed into a project's conversation (issue #121). */
+export async function askOnProject(
+  api: TestApi,
+  conversationId: string,
+  patch: { captureKey?: string; text?: string } = {},
+): Promise<TurnResponse> {
+  const path = `/v1/conversations/${conversationId}/turns`;
+  const response = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      captureKey: 'q1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
+      text: 'what did we assume about the feeder raceway?',
+      ...patch,
+    }),
+  });
+  if (response.status !== 201) {
+    throw new Error(`fixture failed: POST ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as TurnResponse;
+}
+
+/** One conversation read back by its own id. */
+export async function conversationById(
+  api: TestApi,
+  conversationId: string,
+): Promise<ConversationResponse> {
+  const path = `/v1/conversations/${conversationId}`;
+  const response = await api.fetch(path);
+  if (response.status !== 200) {
+    throw new Error(`fixture failed: GET ${path} returned ${response.status}`);
+  }
+  return (await response.json()) as ConversationResponse;
 }
 
 /** The walk's conversation, read on its own. */
@@ -1782,6 +1852,11 @@ export async function requestMemoryRun(
  * floor, a qualifier, an axis and words that say what they are. A test that
  * wants the agent's **question** instead passes `{ question: '…' }` as the
  * proposal, which is the same route's other branch.
+ *
+ * The project-chat half (issue #121) answers in words, which is what a chat
+ * run does when no submission has been named — the branch that needs no
+ * fixture to exist first. A test that wants a **proposed record** passes one as
+ * `chatProposal`, naming a submission it made itself.
  */
 export function fakeAgentRunService(
   app: {
@@ -1814,6 +1889,9 @@ export function fakeAgentRunService(
     qualifier: 'south stair',
     side: 'A',
   },
+  chatProposal: Record<string, unknown> = {
+    answer: '[fake agent answer — a stand-in for what the model would say]',
+  },
 ): AgentRunService {
   return {
     proposeMemoryEdit: async ({ runId, sessionId }) => {
@@ -1843,6 +1921,14 @@ export function fakeAgentRunService(
         headers: { [SESSION_HEADER]: sessionId },
       });
     },
+    proposeAssumptionRecord: async ({ runId, sessionId }) => {
+      await app.inject({
+        method: 'POST',
+        url: `/v1/assumption-record-runs/${runId}/proposal`,
+        payload: chatProposal,
+        headers: { [SESSION_HEADER]: sessionId },
+      });
+    },
   };
 }
 
@@ -1852,6 +1938,7 @@ export function refusingAgentRunService(reason: string): AgentRunService {
     proposeMemoryEdit: () => Promise.reject(new Error(reason)),
     extractRegisterEntry: () => Promise.reject(new Error(reason)),
     proposeCapture: () => Promise.reject(new Error(reason)),
+    proposeAssumptionRecord: () => Promise.reject(new Error(reason)),
   };
 }
 
@@ -1881,6 +1968,10 @@ export function heldAgentRunService() {
       await held;
     },
     proposeCapture: async () => {
+      arrive();
+      await held;
+    },
+    proposeAssumptionRecord: async () => {
       arrive();
       await held;
     },

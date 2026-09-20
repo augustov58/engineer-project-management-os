@@ -400,6 +400,11 @@ export interface AssumptionRecord {
   codeEdition: string;
   calculatedAt: string;
   createdAt: string;
+  /**
+   * The agent's turn this was confirmed from, or null on one pasted in
+   * (issue #121). The provenance ADR-0058 asks an assumption record to keep.
+   */
+  turnId: string | null;
   assumptionLines: AssumptionLine[];
   flagLines: FlagLine[];
 }
@@ -539,6 +544,21 @@ export interface Proposal {
   issueId: string | null;
 }
 
+/**
+ * The assumption record the agent proposed on its turn (issue #121).
+ *
+ * The two blocks exactly as a helper printed them, the code edition, and the
+ * submission it would be bound to. Beside `proposal` and not a union with it:
+ * a CHECK says a turn proposes at most one of them, and a discriminant here
+ * would be a second place that fact lived.
+ */
+export interface RecordProposal {
+  submissionId: string;
+  assumptions: string;
+  flags: string;
+  codeEdition: string;
+}
+
 export interface Turn {
   id: string;
   conversationId: string;
@@ -565,6 +585,15 @@ export interface Turn {
   state: 'queued' | 'transcribing' | 'transcribed' | 'failed';
   /** The draft the agent proposed, or null on every other turn. */
   proposal: Proposal | null;
+  /** The record the agent proposed, or null on every other turn (#121). */
+  proposedAssumptionRecord: RecordProposal | null;
+  /**
+   * The assumption record that proposal became, or null while it is still a
+   * proposal (#121). `observation` below is the same fact on the other side of
+   * the conversation: *confirmed* is there being one, and the panel withholds
+   * the commit on the strength of it.
+   */
+  assumptionRecord: { id: string; submissionId: string } | null;
   /** The observation it became, or null while it is still a draft. */
   observation: Observation | null;
 }
@@ -585,7 +614,7 @@ export interface CaptureRun {
   state: 'queued' | 'running' | 'finished' | 'failed';
 }
 
-/** A walk's conversation, with its turns in order (issue #114, ADR-0058). */
+/** A conversation, with its turns in order (issue #114, ADR-0058). */
 export interface Conversation {
   id: string;
   projectId: string;
@@ -594,6 +623,19 @@ export interface Conversation {
   turns: Turn[];
   /** The proposal runs asked for on it, oldest first. */
   runs: CaptureRun[];
+}
+
+/**
+ * The conversations open on a job, newest first (issue #121).
+ *
+ * A walk's is read through the walk and is not among these: a project's
+ * conversation is about the job, and a field engineer's captures belong on the
+ * screen for the walk they were made on.
+ */
+export function listProjectConversations(
+  projectId: string,
+): Promise<Conversation[]> {
+  return read<Conversation[]>(`/projects/${projectId}/conversations`);
 }
 
 /**

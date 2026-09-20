@@ -40,6 +40,15 @@ apply to every path stay in `AGENTS.md`.
   as two text columns — nothing trims, normalises or re-wraps them, and no route edits or
   deletes one (ADR-0029). A rerun of the calculation is another record against the same
   submission, dated its own day.
+- **One route writes one**, and that is `POST /v1/submissions/:id/assumption-records`. Since
+  issue #121 it also carries `turnId`, the agent turn the project chat proposed it on
+  (ADR-0058 part 4) — a body field where the submission is a path segment, deliberately: which
+  issuance a record justified is said by the route it is captured on, and where it came from
+  is not addressable that way. It is checked against the submission's own job and refused on a
+  turn that proposed nothing. Left off, the record is a paste and says so by carrying no turn;
+  that path is unchanged. `turn_id` is **unique**, so a second confirm of one proposal is a 409
+  the database holds. Do not add a second writer: `.claude/rules/conversations.md` carries the
+  rest of that record's rules.
 - An entry of either block is addressed by its **line number**, and every non-blank line is
   an entry. Do not parse the `- ` / `! ` sigils **the helper skills** print: they are those
   scripts' convention, not a contract, and reading them would make this refuse the next

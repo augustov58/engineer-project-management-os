@@ -81,6 +81,7 @@ async function actions(app: TestApi, projectId: string) {
 const AUDITED = [
   'DELETE /v1/sessions/current',
   'DELETE /v1/submissions/:id/open-items/:openItemId',
+  'POST /v1/assumption-record-runs/:id/proposal',
   'POST /v1/capture-runs/:id/proposal',
   'POST /v1/assumption-records/:id/assumptions/:line/counterfactual',
   'POST /v1/assumption-records/:id/flags/:line/open-item',
@@ -109,8 +110,10 @@ const AUDITED = [
   'POST /v1/photos/:id/issue',
   'POST /v1/photos/:id/observation',
   'POST /v1/projects',
+  'POST /v1/conversations/:id/turns',
   'POST /v1/projects/:id/current-phase',
   'POST /v1/projects/:id/archive',
+  'POST /v1/projects/:id/conversations',
   'POST /v1/projects/:id/documents',
   'POST /v1/projects/:id/ingested-documents',
   'POST /v1/projects/:id/memory',

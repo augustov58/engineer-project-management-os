@@ -99,9 +99,15 @@ every path stay in `AGENTS.md`.
   rule still binds everything reachable — every refusal, every block, the audit and the
   export are asserted through `app.fetch` against a real database, and the precedent for
   calling a tool-list builder directly is `extractions.test.ts`'s. Do not widen this.
-- `helperTools` in `agent.ts` is generated from the same manifests and **is not yet given to
-  a run**. Neither run this product has may call a helper: ADR-0040 fixes the memory run's
-  read set and ADR-0043 gives the extraction run exactly one tool. The run that asks is the
-  project conversation (ADR-0058), which is its own ticket. Tool names are the directory
-  names **underscored**, because provider APIs reject a dot (ADR-0040); the route's path
-  segment keeps the hyphens.
+- `helperTools` in `agent.ts` is generated from the same manifests and **is given to exactly
+  one run**: the project conversation (issue #121, ADR-0058 part 4), which is the caller
+  ADR-0053 predicted by name and left it waiting for. The memory run and the extraction run
+  still may not call a helper — ADR-0040 fixes the first's read set and ADR-0043 gives the
+  second exactly one tool — and neither may the walk's conversation, whose three ADR-0057
+  fixes. Tool names are the directory names **underscored**, because provider APIs reject a
+  dot (ADR-0040); the route's path segment keeps the hyphens.
+- **A manifest's schema becomes a type by one cast and only one**, in `helperTools`:
+  `arguments.schema` is `Record<string, unknown>` because it is read off disk, and TypeBox's
+  `TObject` carries brand properties no JSON file can have. `readHelpers` compiling it with
+  Ajv is the check a compile-time type could not make anyway. It became necessary the day a
+  run was actually given these; before that nothing asked the SDK to accept them.

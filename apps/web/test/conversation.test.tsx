@@ -55,6 +55,8 @@ function capture(patch: Partial<Turn> = {}): Turn {
     agentRunId: null,
     state: 'transcribed',
     proposal: null,
+    proposedAssumptionRecord: null,
+    assumptionRecord: null,
     observation: null,
     ...patch,
   };

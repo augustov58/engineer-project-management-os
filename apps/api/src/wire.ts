@@ -321,13 +321,27 @@ export function withSightings(found: Finding, timeZone: string) {
  * a walk carries its conversation, and the conversation's own routes return one
  * turn. That is the same reason `photoOnTheWire` is here (ADR-0033).
  */
+/**
+ * What a turn became: the observation an engineer's capture was confirmed into,
+ * and the assumption record an agent's proposal was (issue #121).
+ *
+ * Both are what makes *confirmed* mean "there is one" rather than a stamp —
+ * `turns.observation_id` on one side and `assumption_records.turn_id` on the
+ * other — and the panel withholds a commit form on the strength of them, so a
+ * proposal cannot look uncommitted after it has been captured.
+ */
+export const turnBecame = {
+  observation: true,
+  assumptionRecord: { select: { id: true, submissionId: true } },
+} satisfies Prisma.TurnInclude;
+
 export const turnsTaken = {
   orderBy: [{ position: 'asc' }],
-  include: { observation: true },
+  include: turnBecame,
 } satisfies Prisma.Conversation$turnsArgs;
 
 type StoredTurn = Prisma.TurnGetPayload<{
-  include: { observation: true };
+  include: typeof turnBecame;
 }>;
 
 /**
@@ -356,7 +370,12 @@ function transcriptionState(turn: {
   transcribedAt: Date | null;
   failedAt: Date | null;
 }): 'queued' | 'transcribing' | 'transcribed' | 'failed' {
-  if (turn.kind === 'TYPED') {
+  // Only a recording is ever waiting on a vendor. A typed capture, an
+  // engineer's turn on a project conversation and the agent's own all have
+  // their words from the first instant, so *queued* would be a state none of
+  // them can leave. This read `kind === 'TYPED'` until issue #121, when a turn
+  // with no kind at all became one an engineer makes.
+  if (turn.kind !== 'VOICE') {
     return 'transcribed';
   }
   if (turn.failedAt !== null) {
@@ -417,6 +436,43 @@ function proposalOnTheWire(turn: {
 }
 
 /**
+ * The assumption record the agent proposed on its turn, or null (issue #121,
+ * ADR-0058 part 4).
+ *
+ * `proposalOnTheWire`'s shape for the other proposal: four columns null
+ * together leave as one object, so a screen reads *is there a proposal* once
+ * rather than four times. The two blocks go out **exactly as they came in** —
+ * nothing here trims, normalises or re-wraps them, on the wire as on the row
+ * (ADR-0029), because what the confirm writes into `assumption_records` is what
+ * the engineer read here.
+ *
+ * The submission is its **id** and not the record: a project conversation's
+ * screen already has the job's submissions, and joining one here would be a
+ * second read of a set the panel is not about.
+ */
+function recordProposalOnTheWire(turn: {
+  proposedSubmissionId: string | null;
+  proposedAssumptions: string | null;
+  proposedFlags: string | null;
+  proposedCodeEdition: string | null;
+}) {
+  if (
+    turn.proposedSubmissionId === null ||
+    turn.proposedAssumptions === null ||
+    turn.proposedFlags === null ||
+    turn.proposedCodeEdition === null
+  ) {
+    return null;
+  }
+  return {
+    submissionId: turn.proposedSubmissionId,
+    assumptions: turn.proposedAssumptions,
+    flags: turn.proposedFlags,
+    codeEdition: turn.proposedCodeEdition,
+  };
+}
+
+/**
  * A turn on the wire: whose it is, what was said, what state it is in, what it
  * proposed, and the observation it became — never the key its audio is under.
  *
@@ -426,9 +482,13 @@ function proposalOnTheWire(turn: {
  * business and means something different the day the adapter changes, which is
  * why a photograph does not carry one either.
  *
- * The six `proposed*` columns leave as one `proposal`, for the reason the
- * storage key does not leave at all: what a screen needs is the draft, and six
- * keys that are null together are six chances to read five of them.
+ * The six draft-observation `proposed*` columns leave as one `proposal`, for
+ * the reason the storage key does not leave at all: what a screen needs is the
+ * draft, and six keys that are null together are six chances to read five of
+ * them. The four an assumption record's proposal is leave as
+ * `proposedAssumptionRecord`, under the same rule and beside it — **two fields
+ * and not a tagged union**, because a CHECK already says a turn proposes at
+ * most one of them, and a discriminant would be a second place that fact lived.
  */
 export function turnOnTheWire(turn: StoredTurn) {
   const {
@@ -441,12 +501,17 @@ export function turnOnTheWire(turn: StoredTurn) {
     proposedSide: _side,
     proposedSector: _sector,
     proposedIssueId: _issue,
+    proposedSubmissionId: _submission,
+    proposedAssumptions: _assumptions,
+    proposedFlags: _flags,
+    proposedCodeEdition: _edition,
     ...onTheWire
   } = turn;
   return {
     ...onTheWire,
     state: transcriptionState(turn),
     proposal: proposalOnTheWire(turn),
+    proposedAssumptionRecord: recordProposalOnTheWire(turn),
     observation: observation === null ? null : withLocation(observation),
   };
 }
@@ -504,7 +569,7 @@ export const conversationHeld = {
       },
     },
   },
-} satisfies Prisma.SiteVisit$conversationArgs;
+} satisfies Prisma.SiteVisit$conversationArgs & Prisma.ConversationDefaultArgs;
 
 export function conversationOnTheWire(
   conversation: Prisma.ConversationGetPayload<typeof conversationHeld>,

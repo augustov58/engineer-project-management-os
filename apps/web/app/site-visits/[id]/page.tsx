@@ -27,6 +27,7 @@ import {
   listIssuesWithoutPhotos,
   listUsers,
 } from '../../api';
+import { ConversationProgress } from '../../conversation';
 import { ConversationPanel } from '../../conversation-panel';
 import { Disclosure } from '../../disclosure';
 import { Evidence, isUnfiled } from '../../evidence';
@@ -523,22 +524,36 @@ export default async function SiteVisitRecord({
       */}
       <ConversationPanel
         anchor="conversation"
-        siteVisitId={id}
         turns={visit.conversation.turns}
-        runs={visit.conversation.runs}
+        live={
+          <ConversationProgress
+            siteVisitId={id}
+            initial={visit.conversation.turns}
+            initialRuns={visit.conversation.runs}
+          />
+        }
         issues={issues}
         timeZone={zone}
-        evidencing={evidencing}
-        unfiled={unfiled}
-        add={addRecording.bind(null, id, projectId)}
         typed={typeATurn.bind(null, id, projectId)}
-        commit={(turnId) =>
-          commitTurn.bind(null, turnId, id, visitedOn, projectId)
+        hint={
+          <>
+            Spoken or typed, it is one capture, and a draft you correct before
+            it is recorded &mdash; a misheard word never becomes the record.
+            Confirming is yours; the agent never writes it.
+          </>
         }
-        retry={(turnId) => retryTranscription.bind(null, turnId, id, projectId)}
-        bindEvidence={(observationId) =>
-          bindPhotoToObservation.bind(null, observationId, id, projectId)
-        }
+        walk={{
+          siteVisitId: id,
+          evidencing,
+          unfiled,
+          add: addRecording.bind(null, id, projectId),
+          commit: (turnId: string) =>
+            commitTurn.bind(null, turnId, id, visitedOn, projectId),
+          retry: (turnId: string) =>
+            retryTranscription.bind(null, turnId, id, projectId),
+          bindEvidence: (observationId: string) =>
+            bindPhotoToObservation.bind(null, observationId, id, projectId),
+        }}
       />
 
       <section id="photographs" className="grid scroll-mt-14 gap-3">

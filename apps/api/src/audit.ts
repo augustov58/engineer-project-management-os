@@ -64,6 +64,7 @@ export type SubjectType =
   | 'observation'
   | 'issue'
   | 'photo'
+  | 'conversation'
   | 'turn'
   | 'site-visit-report'
   | 'register-entry'

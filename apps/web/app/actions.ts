@@ -3,7 +3,12 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { apiFetch, apiPath, getProject } from './api';
+import {
+  apiFetch,
+  apiPath,
+  getProject,
+  listProjectConversations,
+} from './api';
 import { chosenEvidence } from './photo-evidence';
 import { instantFrom } from './wall-clock';
 
@@ -1226,6 +1231,99 @@ export async function typeATurn(
   }
 
   revalidateSiteVisit(siteVisitId, projectId);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * Asking about the job, on the project's own conversation (issue #121).
+ *
+ * `typeATurn`'s shape with the capture machinery gone: no kind, no instant and
+ * no recording, because there is no walk. The **key is kept** and for the same
+ * reason — a tap that did not land leaves the words in the box under the same
+ * key, so resending them is the resend rule and not a second question saying
+ * what the first already said.
+ *
+ * It opens the conversation when there is none, which is what lets the panel be
+ * on the page before anybody has asked anything: a project has any number of
+ * conversations and none until one is wanted, and a GET may not write one.
+ *
+ * **It reads before it opens, and that is what keeps the resend rule reachable
+ * on the very first question.** The id is bound when the page renders, and a
+ * send that failed does not re-render it — so a retry after a lost response
+ * still arrives here with `null`. Opening on the strength of that argument
+ * alone made the second attempt a second *conversation*, where the key is
+ * unique per conversation and the rule could not fire: two turns saying the
+ * same thing, two paid runs, and the first conversation hidden behind the
+ * newest-first read. Reading first means the retry finds what the first attempt
+ * opened and lands its turn under the same key, which the API answers with the
+ * row it already has.
+ */
+export async function askOnProject(
+  projectId: string,
+  conversationId: string | null,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  let into = conversationId ?? (await listProjectConversations(projectId))[0]?.id ?? null;
+  if (into === null) {
+    const opened = await send(`/projects/${projectId}/conversations`);
+    const refused = await refusal(opened, 201);
+    if (refused !== undefined) {
+      return { added: previous.added, error: refused };
+    }
+    into = ((await opened.json()) as { id: string }).id;
+  }
+
+  const error = await refusal(
+    await send(`/conversations/${into}/turns`, {
+      captureKey: String(formData.get('captureKey') ?? '') || randomUUID(),
+      text: String(formData.get('text') ?? ''),
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+  return { added: previous.added + 1 };
+}
+
+/**
+ * The proposed assumption record, corrected, becoming one (issue #121).
+ *
+ * The confirm goes to `POST /submissions/:id/assumption-records` — the route
+ * that has always written one — carrying the turn it was proposed on as
+ * provenance (ADR-0058 part 4). **Every field is editable**, which is what
+ * makes this a confirmation rather than an acceptance: the engineer's submit is
+ * the body of the write, and the proposal is only where the boxes started.
+ *
+ * The submission is a field and not a fixture, because redirecting a proposal
+ * to the right issuance is an edit like any other; the API refuses one on
+ * another job.
+ */
+export async function confirmAssumptionRecord(
+  turnId: string,
+  projectId: string,
+  previous: AddState,
+  formData: FormData,
+): Promise<AddState> {
+  const submissionId = String(formData.get('submissionId') ?? '');
+  const error = await refusal(
+    await send(`/submissions/${submissionId}/assumption-records`, {
+      assumptions: formData.get('assumptions'),
+      flags: formData.get('flags'),
+      codeEdition: formData.get('codeEdition'),
+      turnId,
+    }),
+    201,
+  );
+  if (error !== undefined) {
+    return { added: previous.added, error };
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/submissions/${submissionId}`);
   return { added: previous.added + 1 };
 }
 
