@@ -19,6 +19,7 @@ import {
 import { selectClassName } from '../../../../native-select';
 import { NewOpenItemForm } from '../../../../new-open-item-form';
 import { OpenItemEntry } from '../../../../open-item';
+import { SectionHead } from '../../../../section-head';
 import { clock, day } from '../../../../wall-clock';
 
 export const dynamic = 'force-dynamic';
@@ -76,7 +77,19 @@ export default async function IssueRecord({
   }
 
   return (
-    <div className="space-y-8">
+    /*
+      The **record** measure (issue #120; the brief's `## The spacing scale, and
+      the measure` names the issue among the screens whose content is a record
+      being read). A finding is prose — what was observed, and the note it was
+      closed on — and at 1024 px a line of it sits at half as many characters
+      again as it belongs at.
+
+      The **extraction confirmation**, which that list also names, is
+      deliberately left at desk width: it is the proposal beside the source in
+      `lg:grid-cols-2`, and 704 px collapses that to one column at every width,
+      which is the comparison the screen exists to make.
+    */
+    <div className="max-w-[var(--measure-record)] space-y-6">
       <div>
         <Link
           href={`/projects/${id}`}
@@ -109,14 +122,17 @@ export default async function IssueRecord({
       </div>
 
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Seen on</h2>
-          <span className="text-muted-foreground text-sm">
-            {found.observations.length === 1
-              ? 'one walk'
-              : `${found.observations.length} walks`}
-          </span>
-        </div>
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {found.observations.length === 1
+                ? 'one walk'
+                : `${found.observations.length} walks`}
+            </span>
+          }
+        >
+          Seen on
+        </SectionHead>
 
         {/*
           The sightings are the history. There is no per-visit status beside
@@ -148,16 +164,19 @@ export default async function IssueRecord({
       </section>
 
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Photo evidence</h2>
-          <span className="text-muted-foreground text-sm">
-            {found.photos.length === 0
-              ? 'none yet'
-              : found.photos.length === 1
-                ? 'one photograph'
-                : `${found.photos.length} photographs`}
-          </span>
-        </div>
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {found.photos.length === 0
+                ? 'none yet'
+                : found.photos.length === 1
+                  ? 'one photograph'
+                  : `${found.photos.length} photographs`}
+            </span>
+          }
+        >
+          Photo evidence
+        </SectionHead>
 
         {found.photos.length === 0 ? (
           <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
@@ -196,7 +215,7 @@ export default async function IssueRecord({
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">Lifecycle</h2>
+        <SectionHead>Lifecycle</SectionHead>
 
         {closedAt !== null ? (
           <div className="space-y-3 rounded-lg border p-4">
@@ -242,13 +261,16 @@ export default async function IssueRecord({
       </section>
 
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Open items</h2>
-          <span className="text-muted-foreground text-sm">
-            {found.openItems.filter((item) => item.resolvedAt === null).length}{' '}
-            unresolved
-          </span>
-        </div>
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {found.openItems.filter((item) => item.resolvedAt === null).length}{' '}
+              unresolved
+            </span>
+          }
+        >
+          Open items
+        </SectionHead>
 
         {found.openItems.length === 0 ? (
           <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">

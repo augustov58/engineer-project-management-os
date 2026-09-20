@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   attachOpenItem,
   captureAssumptionRecord,
@@ -22,11 +21,13 @@ import {
 } from '../../api';
 import { AssumptionRecordEntry } from '../../assumption-record';
 import { AssumptionRecordForm } from '../../assumption-record-form';
+import { Disclosure } from '../../disclosure';
 import { LinkDocumentForm } from '../../document-form';
 import { LinkedDocumentList } from '../../documents';
 import { selectClassName } from '../../native-select';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { OpenItemEntry } from '../../open-item';
+import { SectionHead } from '../../section-head';
 import { day } from '../../wall-clock';
 import { SubmissionForm } from '../../submission-form';
 
@@ -44,6 +45,7 @@ export default async function SubmissionRecord({
   }
 
   const projectId = submission.project.id;
+  const zone = submission.project.timezone;
   const attached = new Set(submission.openItems.map((item) => item.id));
   const [onTheProject, phases, assumptionRecords, onTheSet, documents, users] =
     await Promise.all([
@@ -76,190 +78,136 @@ export default async function SubmissionRecord({
   const replacement = submission.chain.find(
     (entry) => entry.id === submission.supersededById,
   );
+  // What this one corrected, which is the other end of the same link. Plate
+  // D-04 prints it beside the issuance date: a reissue is the correction path
+  // here, so which set it replaced belongs in the head rather than only in the
+  // chain below. Read off the record's own column — the chain carries it too,
+  // and finding this row inside its own chain to read a field it already has is
+  // a lookup that can only go wrong.
+  const supersedes = submission.chain.find(
+    (entry) => entry.id === submission.supersedesId,
+  );
+  // Said in words beside the badge and not only coloured (the brief's
+  // `### Desk`): *provisional* is a claim about named records, and naming them
+  // is what makes it answerable without opening the section below.
+  const standingOn = submission.openItems.filter(
+    (item) => item.resolvedAt === null,
+  );
 
   return (
-    <div className="space-y-8">
+    // The **record** measure (the brief's `## The spacing scale, and the
+    // measure`, and plate D-04 draws it at 704 px).
+    <div className="max-w-[var(--measure-record)] space-y-6">
       <div>
         <Link
           href={`/projects/${projectId}`}
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+          className="text-muted-foreground hover:text-foreground font-mono text-xs tracking-[0.06em] uppercase transition-colors"
         >
-          &larr; {submission.project.projectNumber} {submission.project.name}
+          &larr; {submission.project.projectNumber} &middot;{' '}
+          {submission.phase.name}
         </Link>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <Badge variant="secondary">{submission.phase.name}</Badge>
+        <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">
             {submission.revision}
           </h1>
-          <span className="text-muted-foreground text-sm">
-            issued {day(submission.issuedAt, submission.project.timezone)}
-          </span>
           {superseded && <Badge variant="outline">Superseded</Badge>}
         </div>
 
-        <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
-          <dt className="text-muted-foreground">Issued to</dt>
-          <dd>
-            {submission.recipient}{' '}
-            <span className="text-muted-foreground">
-              ({submission.recipientRole})
+        <p className="text-muted-foreground mt-1 text-xs">
+          Issued {day(submission.issuedAt, zone)} to {submission.recipient} (
+          {submission.recipientRole})
+          {supersedes !== undefined && ` · supersedes ${supersedes.revision}`}
+        </p>
+
+        {/*
+          Provisional is **two facts**, and they are shown apart because they
+          answer different questions and stop agreeing the moment an item
+          resolves (ADR-0027). The first is permanent; the second is what
+          exposure counts.
+        */}
+        <p className="text-muted-foreground mt-2 text-xs">
+          {submission.issuedProvisional
+            ? 'Went out on unconfirmed inputs.'
+            : 'Nothing unresolved was named at issuance.'}
+        </p>
+
+        {submission.currentlyProvisional ? (
+          <p className="text-muted-foreground mt-1.5 flex flex-wrap items-baseline gap-2 text-xs">
+            {/*
+              A superseded set reads as superseded and not as provisional, so
+              that the red marks on the project screen and the exposure count
+              beside them are the same number; a badge here would have the two
+              screens disagreeing about a fact neither of them stores.
+            */}
+            {!superseded && <Badge variant="destructive">Provisional</Badge>}
+            {/*
+              **Standing on**, never *issued on*: `standingOn` is every attached
+              item still unresolved, and an item attached **after** the issuance
+              was no part of it (`unresolved_at_issuance` null, ADR-0027). Saying
+              *issued on* here would name items the set did not go out on, and
+              could contradict the line directly above it.
+            */}
+            <span>
+              {superseded
+                ? 'Still standing on an unresolved open item, though it is the replacement that exposure counts'
+                : 'Still standing on an unresolved open item'}
+              {standingOn.length === 0
+                ? '.'
+                : `: ${standingOn.map((item) => item.unresolved).join('; ')}.`}
             </span>
-          </dd>
+          </p>
+        ) : (
+          <p className="text-muted-foreground mt-1.5 text-xs">
+            Everything it rests on is resolved.
+          </p>
+        )}
 
-          {/*
-            Provisional is two facts, and they are shown apart because they
-            answer different questions and stop agreeing the moment an item
-            resolves. The first is permanent; the second is what exposure
-            counts.
-          */}
-          <dt className="text-muted-foreground">At issuance</dt>
-          <dd>
-            {submission.issuedProvisional
-              ? 'Went out on unconfirmed inputs'
-              : 'Nothing unresolved was named'}
-          </dd>
-
-          <dt className="text-muted-foreground">Right now</dt>
-          <dd>
-            {!submission.currentlyProvisional ? (
-              'Everything it rests on is resolved'
-            ) : superseded ? (
-              // Said in words rather than with the badge. The chronicle marks
-              // a superseded set "Superseded" and not "Provisional", so that
-              // the red marks on it and the exposure count beside them are the
-              // same number; a badge here would have the two screens
-              // disagreeing about a fact neither of them stores.
-              'Still standing on an unresolved open item, though it is the replacement that exposure counts'
-            ) : (
-              <span className="inline-flex items-center gap-2">
-                <Badge variant="destructive">Provisional</Badge>
-                still standing on an unresolved open item
-              </span>
-            )}
-          </dd>
-        </dl>
+        {/*
+          Neutral, and deliberately so: correcting the record is normal, not a
+          failure state. What this says is where the current issuance is, not
+          that something went wrong here.
+        */}
+        {superseded && replacement !== undefined && (
+          <p className="bg-muted/40 mt-3 rounded-lg border px-3 py-2 text-xs">
+            Replaced by{' '}
+            <Link
+              href={`/submissions/${replacement.id}`}
+              className="font-medium underline underline-offset-4"
+            >
+              {replacement.revision}
+            </Link>
+            , issued {day(replacement.issuedAt, zone)}. This record stays
+            exactly as it went out; exposure counts the replacement rather than
+            this.
+          </p>
+        )}
       </div>
 
       {/*
-        Neutral, and deliberately so: correcting the record is normal, not a
-        failure state. What this says is where the current issuance is, not
-        that something went wrong here.
+        No count in the head, where plate D-04 draws *2 sheets*. The sheet list
+        is **one block of text** and rows per sheet are a migration ADR-0026
+        priced and did not take, so a figure here would be this screen counting
+        newlines and calling the answer the size of the set — wrong the first
+        time a set carries a header line or a wrapped one.
       */}
-      {superseded && replacement !== undefined && (
-        <p className="bg-muted/40 rounded-lg border px-4 py-3 text-sm">
-          Replaced by{' '}
-          <Link
-            href={`/submissions/${replacement.id}`}
-            className="font-medium underline underline-offset-4"
-          >
-            {replacement.revision}
-          </Link>
-          , issued {day(replacement.issuedAt, submission.project.timezone)}. This record stays exactly as it
-          went out; exposure counts the replacement rather than this.
-        </p>
-      )}
-
-      <section className="space-y-2">
-        <h2 className="text-lg font-medium">The set</h2>
-        <pre className="overflow-x-auto rounded-lg border p-4 font-mono text-sm">
+      <section className="space-y-3">
+        <SectionHead>The set</SectionHead>
+        <pre className="overflow-x-auto rounded-lg border p-3 font-mono text-sm">
           {submission.sheetList}
         </pre>
       </section>
 
-      {/*
-        What the defined set above points at (story 95).
-
-        A **version**, so "which version did we issue against" is answerable —
-        and a join, so linking one writes nothing to the submission and the
-        issuance stays exactly what it was. It is deliberately not a link to a
-        single sheet: the sheet list is one block of text, and rows per sheet
-        are a migration ADR-0026 priced and did not take.
-      */}
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Documents</h2>
-          <span className="text-muted-foreground text-sm">
-            {onTheSet.length === 0
-              ? 'nothing pointed at'
-              : `${onTheSet.length} pointed at`}
-          </span>
-        </div>
-
-        <LinkedDocumentList
-          versions={onTheSet}
-          empty="The sheets above name the set; nothing here points at the file it is in."
-        />
-
-        <LinkDocumentForm
-          link={linkDocumentToSubmission.bind(null, id, projectId)}
-          documents={documents}
-          linked={onTheSet}
-          label="A document this set was issued against"
-        />
-      </section>
-
-      {/*
-        The whole lineage, oldest first. "What is the current issuance of
-        this?" is answerable from any link in it without reading email.
-      */}
-      {submission.chain.length > 1 && (
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-lg font-medium">Issued and reissued</h2>
-            <span className="text-muted-foreground text-sm">
-              {submission.chain.length} submissions in this chain
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {standingOn.length} still unresolved
             </span>
-          </div>
-          <ol className="divide-y rounded-lg border">
-            {submission.chain.map((entry) => {
-              const here = entry.id === submission.id;
-              const row = (
-                <span className="flex flex-wrap items-center gap-3 px-4 py-3">
-                  <span className="font-medium">{entry.revision}</span>
-                  <span className="text-muted-foreground text-sm">
-                    issued {day(entry.issuedAt, submission.project.timezone)} &middot; {entry.recipient} (
-                    {entry.recipientRole})
-                  </span>
-                  {entry.issuedProvisional && (
-                    <Badge variant="secondary">Issued provisional</Badge>
-                  )}
-                  {entry.current && <Badge>Current issuance</Badge>}
-                  {here && (
-                    <span className="text-muted-foreground text-sm">
-                      &mdash; you are here
-                    </span>
-                  )}
-                </span>
-              );
-              return (
-                <li key={entry.id} className={here ? 'bg-muted/40' : ''}>
-                  {here ? (
-                    row
-                  ) : (
-                    <Link
-                      href={`/submissions/${entry.id}`}
-                      className="hover:bg-muted/50 block transition-colors"
-                    >
-                      {row}
-                    </Link>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      )}
-
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">What this rests on</h2>
-          <span className="text-muted-foreground text-sm">
-            {submission.openItems.filter((item) => item.resolvedAt === null)
-              .length}{' '}
-            still unresolved
-          </span>
-        </div>
+          }
+        >
+          What this rests on
+        </SectionHead>
 
         {submission.openItems.length === 0 ? (
           <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
@@ -274,7 +222,9 @@ export default async function SubmissionRecord({
               const wasIssuedOn = item.unresolvedAtIssuance !== null;
               const raised = raisedFromFlag.has(item.id);
               return (
-                <OpenItemEntry users={users} timeZone={submission.project.timezone}
+                <OpenItemEntry
+                  users={users}
+                  timeZone={zone}
                   key={item.id}
                   item={item}
                   projectId={projectId}
@@ -317,6 +267,12 @@ export default async function SubmissionRecord({
             </Button>
           </form>
         )}
+
+        <Disclosure summary="Raise an open item against this submission">
+          <NewOpenItemForm
+            submit={createOpenItemOnSubmission.bind(null, id, projectId)}
+          />
+        </Disclosure>
       </section>
 
       {/*
@@ -326,14 +282,17 @@ export default async function SubmissionRecord({
         the usual reason to correct the record.
       */}
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Assumption records</h2>
-          <span className="text-muted-foreground text-sm">
-            {assumptionRecords.length === 0
-              ? 'nothing captured yet'
-              : `${assumptionRecords.length} captured`}
-          </span>
-        </div>
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {assumptionRecords.length === 0
+                ? 'none captured'
+                : `${assumptionRecords.length} captured`}
+            </span>
+          }
+        >
+          Assumption records
+        </SectionHead>
 
         {assumptionRecords.length === 0 ? (
           <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
@@ -342,7 +301,8 @@ export default async function SubmissionRecord({
         ) : (
           <ul className="space-y-3">
             {assumptionRecords.map((record) => (
-              <AssumptionRecordEntry timeZone={submission.project.timezone}
+              <AssumptionRecordEntry
+                timeZone={zone}
                 key={record.id}
                 record={record}
                 submissionId={id}
@@ -351,42 +311,125 @@ export default async function SubmissionRecord({
             ))}
           </ul>
         )}
+
+        <Disclosure summary="Capture an assumption record">
+          <div className="space-y-3">
+            <p className="text-muted-foreground text-xs">
+              Paste what the helper skill printed. It is stored verbatim and
+              never edited &mdash; a rerun of the calculation is captured as
+              another record against this submission, dated its own day.
+            </p>
+            <AssumptionRecordForm
+              submit={captureAssumptionRecord.bind(null, id, projectId)}
+            />
+          </div>
+        </Disclosure>
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Capture an assumption record</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">
-            Paste what the helper skill printed. It is stored verbatim and
-            never edited — a rerun of the calculation is captured as another
-            record against this submission, dated its own day.
-          </p>
-          <AssumptionRecordForm
-            submit={captureAssumptionRecord.bind(null, id, projectId)}
+      {/*
+        What the defined set above points at (story 95).
+
+        A **version**, so "which version did we issue against" is answerable —
+        and a join, so linking one writes nothing to the submission and the
+        issuance stays exactly what it was. It is deliberately not a link to a
+        single sheet: the sheet list is one block of text, and rows per sheet
+        are a migration ADR-0026 priced and did not take.
+      */}
+      <Disclosure
+        summary={`Documents (${onTheSet.length === 0 ? 'nothing pointed at' : `${onTheSet.length} pointed at`})`}
+      >
+        <div className="space-y-3">
+          <LinkedDocumentList
+            versions={onTheSet}
+            empty="The sheets above name the set; nothing here points at the file it is in."
           />
-        </CardContent>
-      </Card>
+
+          <LinkDocumentForm
+            link={linkDocumentToSubmission.bind(null, id, projectId)}
+            documents={documents}
+            linked={onTheSet}
+            label="A document this set was issued against"
+          />
+        </div>
+      </Disclosure>
+
+      {/*
+        The whole lineage, oldest first. "What is the current issuance of
+        this?" is answerable from any link in it without reading email.
+
+        Density rule 3's own example — *Issued and reissued (4)* — and it is a
+        finished section by construction: every link in it but one has already
+        been replaced.
+      */}
+      {submission.chain.length > 1 && (
+        <Disclosure summary={`Issued and reissued (${submission.chain.length})`}>
+          <ol className="divide-y rounded-lg border">
+            {submission.chain.map((entry) => {
+              const here = entry.id === submission.id;
+              const row = (
+                <span className="flex flex-wrap items-center gap-3 px-3 py-2">
+                  <span className="text-sm font-medium">{entry.revision}</span>
+                  <span className="text-muted-foreground text-xs">
+                    issued {day(entry.issuedAt, zone)} &middot; {entry.recipient}{' '}
+                    ({entry.recipientRole})
+                  </span>
+                  {entry.issuedProvisional && (
+                    <Badge variant="secondary">Issued provisional</Badge>
+                  )}
+                  {entry.current && <Badge>Current issuance</Badge>}
+                  {here && (
+                    <span className="text-muted-foreground text-xs">
+                      &mdash; you are here
+                    </span>
+                  )}
+                </span>
+              );
+              return (
+                <li key={entry.id} className={here ? 'bg-muted/40' : ''}>
+                  {here ? (
+                    row
+                  ) : (
+                    <Link
+                      href={`/submissions/${entry.id}`}
+                      className="hover:bg-muted/50 block transition-colors"
+                    >
+                      {row}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </Disclosure>
+      )}
 
       {/*
         Reissue reads as ordinary work, because it is: nothing edits a
         submission, so this is the way the record gets corrected (ADR-0015).
         A set already superseded has no form — the chain is linear, and the
         successor is where the next correction goes.
+
+        This is the **append-only** half of the brief's decision 3, drawn on
+        plate D-04 where it was always true: the screen says so at the point the
+        edit would otherwise be looked for, and the correction path is the
+        reissue that already exists rather than a route this ticket adds.
       */}
-      {!superseded && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Reissue this submission</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-muted-foreground text-sm">
-              Correcting or reconsidering what went out records a new
-              submission pointing at this one. Nothing here is edited, and what
-              this set rests on comes forward ticked — untick anything the
-              reissue no longer stands on.
+      <Disclosure summary="Reissue this submission">
+        <div className="space-y-3">
+          <p className="text-muted-foreground text-xs">
+            Issued, so the record is append-only: a correction is the next
+            revision pointing back at this one. Nothing here is edited, and what
+            this set rests on comes forward ticked &mdash; untick anything the
+            reissue no longer stands on.
+          </p>
+          {superseded ? (
+            <p className="text-muted-foreground text-xs">
+              This one has already been replaced
+              {replacement === undefined ? '' : ` by ${replacement.revision}`},
+              and the chain is linear: the next correction goes on the
+              successor.
             </p>
+          ) : (
             <SubmissionForm
               submit={reissueSubmission.bind(null, id, projectId)}
               phases={phases}
@@ -406,20 +449,9 @@ export default async function SubmissionRecord({
               }}
               submitLabel="Record the reissue"
             />
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Raise an open item against this submission</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <NewOpenItemForm
-            submit={createOpenItemOnSubmission.bind(null, id, projectId)}
-          />
-        </CardContent>
-      </Card>
+          )}
+        </div>
+      </Disclosure>
     </div>
   );
 }

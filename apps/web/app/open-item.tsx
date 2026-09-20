@@ -27,6 +27,8 @@ export function OpenItemEntry({
   raisedFromFlag = false,
   users,
   timeZone,
+  keepInPlace = false,
+  kept = false,
 }: {
   item: OpenItem;
   projectId: string;
@@ -58,6 +60,19 @@ export function OpenItemEntry({
   raisedFromFlag?: boolean;
   /** The zone of the job this record is on (ADR-0054). */
   timeZone: string;
+   /**
+   * That resolving this one should land back on the project record so that it
+   * **keeps its place** (issue #120, density rule 4). Only the project record
+   * passes it, being the only screen that files a resolved item somewhere else.
+   * A boolean and not a path: see `resolveOpenItem`.
+   */
+  keepInPlace?: boolean;
+  /**
+   * That this is the row that just resolved, shown in place rather than filed
+   * under *Resolved* (issue #120, density rule 4). It carries the word for
+   * what happened and the undo, which is what the plate draws.
+   */
+  kept?: boolean;
 }) {
   const resolved = item.resolvedAt !== null;
 
@@ -70,7 +85,9 @@ export function OpenItemEntry({
           {item.unresolved}
         </p>
         {resolved ? (
-          <Badge variant="secondary">Resolved</Badge>
+          <Badge variant="secondary">
+            {kept ? 'Resolved just now' : 'Resolved'}
+          </Badge>
         ) : (
           <Badge variant="outline" className="shrink-0">
             {item.waitingOn ?? 'Nobody'}
@@ -134,14 +151,29 @@ export function OpenItemEntry({
       </dl>
 
       {resolved ? (
-        <form action={reopenOpenItem.bind(null, projectId, item.id)}>
+        <form
+          action={reopenOpenItem.bind(null, projectId, item.id)}
+          className="flex flex-wrap items-center gap-3"
+        >
           <Button type="submit" variant="outline" size="sm">
-            Reopen
+            {/*
+              The undo beside the row it undoes (density rule 4). *Reopen*
+              everywhere else, because everywhere else it is a considered act
+              on an item filed days ago; here it is the mis-click being taken
+              back, and the baseline recorded that one as *hunting*.
+            */}
+            {kept ? 'Undo' : 'Reopen'}
           </Button>
+          {kept && (
+            <span className="text-muted-foreground text-xs">
+              It stays here until the next load &mdash; it does not jump to
+              Resolved under your cursor.
+            </span>
+          )}
         </form>
       ) : (
         <form
-          action={resolveOpenItem.bind(null, projectId, item.id)}
+          action={resolveOpenItem.bind(null, projectId, item.id, keepInPlace)}
           className="flex flex-wrap items-center gap-2 border-t pt-3"
         >
           <Input

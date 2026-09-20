@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -29,6 +28,7 @@ import {
   REGISTER_NAMES,
   REVISE_AND_RESUBMIT,
 } from '../../api';
+import { Disclosure } from '../../disclosure';
 import { LinkDocumentForm } from '../../document-form';
 import { LinkedDocumentList } from '../../documents';
 import { NewOpenItemForm } from '../../new-open-item-form';
@@ -42,6 +42,7 @@ import {
 } from '../../register-forms';
 import { selectClassName } from '../../native-select';
 import { OpenItemEntry } from '../../open-item';
+import { SectionHead } from '../../section-head';
 import { clock, day } from '../../wall-clock';
 import { BallInCourtBadge, ClockBadge, inCourtDays } from '../../ball-in-court';
 
@@ -102,82 +103,132 @@ export default async function RegisterEntryRecord({
   const onThisEntry = new Set(entry.openItems.map((item) => item.id));
   const attachable = unresolved.filter((item) => !onThisEntry.has(item.id));
   const answered = submissions.find((one) => one.id === entry.submissionId);
+  // Whose it is now and since when. `ballInCourt` **is** the last handoff,
+  // projected and derived on every read (ADR-0036); reading `handoffs.at(-1)`
+  // beside it would be a second way to answer the same question.
+  const current = entry.ballInCourt;
+  const unresolvedHere = entry.openItems.filter(
+    (item) => item.resolvedAt === null,
+  );
 
   return (
-    <div className="space-y-8">
+    // The **record** measure (the brief's `## The spacing scale, and the
+    // measure`, and plate D-03 draws the screen at 704 px): a register entry is
+    // a record being read, and its question and response are prose.
+    <div className="max-w-[var(--measure-record)] space-y-6">
       <div>
         <Link
           href={`/registers/${entry.registerId}`}
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+          className="text-muted-foreground hover:text-foreground font-mono text-xs tracking-[0.06em] uppercase transition-colors"
         >
-          &larr; {project.projectNumber} {REGISTER_NAMES[entry.kind]}
+          &larr; {project.projectNumber} &middot; {REGISTER_NAMES[entry.kind]}
         </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <Badge variant="outline" className="font-mono">
-            {entry.number}
-          </Badge>
-          <h1 className="text-2xl font-semibold tracking-tight">{entry.subject}</h1>
-          <BallInCourtBadge ballInCourt={entry.ballInCourt} />
-          <ClockBadge entry={entry} />
-        </div>
-        <p className="text-muted-foreground mt-1 text-sm">
+        {/*
+          The number in mono and the subject beside it, as plate D-03 draws the
+          title. `font-mono` is for identifiers only (the brief's
+          `## The type scale`) and an entry's number is one — it is what anybody
+          quotes, and the one string on this screen that is never prose.
+        */}
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          <span className="font-mono">{entry.number}</span>
+          <span className="text-muted-foreground"> &mdash; </span>
+          {entry.subject}
+        </h1>
+        <p className="text-muted-foreground mt-1 text-xs">
           From {entry.fromParty} to {entry.toParty} &middot; logged{' '}
           {day(entry.createdAt, project.timezone)}
+          {/*
+            Calendar days and never working days, whatever a contract calls
+            them: `inCourtMs` sums wall-clock intervals and `inCourtDays` floors
+            on a 24-hour day (ADR-0037). The badge below reads `14 / 10 days`
+            off the same number, and two words for one unit is how they come to
+            disagree.
+          */}
+          {entry.turnaroundDays !== null &&
+            ` · ${entry.turnaroundDays}-day turnaround`}
         </p>
       </div>
 
       {/*
-        The clock. Elapsed in-court time is the sum of the intervals the ball
-        was ours, read off the handoffs below and stored nowhere — so time
-        spent waiting on somebody else is never counted against us, and this
-        number and the clock screen cannot disagree.
+        The clock, **one line** (the brief's `### Desk`, and plate D-03's
+        `.row`). Elapsed in-court time is the sum of the intervals the ball was
+        ours, read off the handoffs below and stored nowhere — so time spent
+        waiting on somebody else is never counted against us, and this number
+        and the clock screen cannot disagree.
+
+        The two badges moved here out of the page head: on the plate the head
+        carries the title and its meta and nothing else, and *14 days · over* is
+        a reading of the clock rather than a name for the entry.
       */}
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">Clock</h2>
-        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-3 rounded-lg border p-4">
-          <p className="text-sm">
-            <span className="text-xl font-medium tabular-nums">{held}</span>{' '}
-            <span className="text-muted-foreground">
-              {held === 1 ? 'day' : 'days'} in our court
-            </span>
-          </p>
-          {entry.turnaroundDays === null ? (
-            <TurnaroundForm
-              submit={setTurnaround.bind(
-                null,
-                entry.id,
-                entry.registerId,
-                project.id,
-              )}
-            />
-          ) : (
-            <p
-              className={
-                entry.pastClock
-                  ? 'text-destructive text-sm font-medium'
-                  : 'text-muted-foreground text-sm'
-              }
-            >
-              {entry.pastClock
-                ? `Past its clock — the target is ${entry.turnaroundDays} days.`
-                : `Against a ${entry.turnaroundDays}-day turnaround.`}
-            </p>
-          )}
+        <SectionHead>Clock</SectionHead>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+          {/*
+            **Always the party's name**, never *our court* in its place — the
+            rule `ball-in-court.tsx` states and keeps: whether the ball is ours
+            is the stored boolean and not a reading of the name, so a job that
+            calls us by the firm's name must still show that name. The badge
+            beside this carries the second fact.
+          */}
+          <span className="text-sm">
+            {current === null
+              ? 'Unheld'
+              : `${current.party} since ${day(current.heldSince, project.timezone)}`}
+            {/*
+              With no target `ClockBadge` renders nothing — an entry is not past
+              anything it has no number for — so the elapsed days would be on the
+              screen nowhere at all. Said here in that state only, because with a
+              target the badge already prints `{held} / {target} days`.
+            */}
+            {entry.turnaroundDays === null &&
+              ` · ${held} ${held === 1 ? 'day' : 'days'} in our court so far`}
+          </span>
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <BallInCourtBadge ballInCourt={entry.ballInCourt} />
+            <ClockBadge entry={entry} />
+          </span>
         </div>
+
+        {/*
+          Only where no target is set, which is the one state the plate does not
+          draw and the one where the clock does not yet exist: with a target the
+          badge above already prints `{held} / {target} days · over`, and a line
+          restating it in words would be the second place the same number lives.
+        */}
+        {entry.turnaroundDays === null && (
+          <TurnaroundForm
+            submit={setTurnaround.bind(
+              null,
+              entry.id,
+              entry.registerId,
+              project.id,
+            )}
+          />
+        )}
       </section>
 
       {entry.kind === 'RFI' && (
         <section className="space-y-3">
-          <h2 className="text-lg font-medium">Question and response</h2>
-          <div className="space-y-3 rounded-lg border p-4">
-            <p className="whitespace-pre-wrap">{entry.question}</p>
-            {entry.response !== null && (
-              <>
-                <Separator />
-                <p className="whitespace-pre-wrap">{entry.response}</p>
-              </>
-            )}
-          </div>
+          <SectionHead>Question and response</SectionHead>
+          {/*
+            The **Record** step (the brief's `## The type scale`): what was
+            written down, at 16/24, rather than at the size of the label above
+            it. This is the whole of what the brief means by an entry's subject
+            being the record on this screen.
+          */}
+          <p className="text-base whitespace-pre-wrap">{entry.question}</p>
+          {entry.response !== null && (
+            <>
+              <Separator />
+              <p className="text-base whitespace-pre-wrap">{entry.response}</p>
+            </>
+          )}
+          {/*
+            Open, for the reason the disposition below is: answering an RFI is
+            the act this half of the screen exists for, and density rule 1 is
+            about a form that *adds to* a record. The two halves of one screen
+            cannot treat the same act two ways.
+          */}
           {entry.response === null && (
             <ResponseForm
               submit={recordResponse.bind(
@@ -195,13 +246,20 @@ export default async function RegisterEntryRecord({
         The outcome of a review, and the round that came back from it. Only a
         submittal is reviewed to a disposition: an RFI is answered, which is
         the section above.
+
+        The form is **not** behind a disclosure and that is bar 4: one submit
+        with its two required inputs visible at once, unchanged in count and
+        closer to the top than the baseline's 435 px. Density rule 1 is about a
+        form that *adds to* a record; this one is the act the screen exists for.
       */}
       {entry.kind === 'SUBMITTAL' && (
         <section className="space-y-3">
-          <h2 className="text-lg font-medium">Review</h2>
+          <SectionHead>
+            {entry.disposition === null ? 'Record the disposition' : 'Review'}
+          </SectionHead>
 
           {entry.previousRoundId !== null && (
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-xs">
               Follows{' '}
               <Link
                 href={`/register-entries/${entry.previousRoundId}`}
@@ -215,10 +273,6 @@ export default async function RegisterEntryRecord({
 
           {entry.disposition === null ? (
             <>
-              <p className="text-muted-foreground text-sm">
-                Recording the outcome stops the clock and hands the ball back,
-                in one action.
-              </p>
               <DispositionForm
                 users={users}
                 me={me?.id ?? ''}
@@ -229,20 +283,37 @@ export default async function RegisterEntryRecord({
                   project.id,
                 )}
               />
+              {/*
+                Said **before** the boundary has to refuse. The baseline's one
+                impossible correction was a disposition recorded wrongly — the
+                form is gone from the screen once it is set and the API answers
+                409, which the screen never predicted, and the word for it was
+                *stuck*. The window is named in words here; the **edit path**
+                itself is the brief's decision 3, which needs its own ADR and
+                has none, so no route moves in this ticket.
+              */}
+              <p className="text-muted-foreground text-xs">
+                One submit: it stops the clock and hands the ball back together.
+                After this the entry is append-only &mdash; a change is the next
+                round, which points back at this one.
+              </p>
             </>
           ) : (
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border p-4">
+            <div className="flex flex-wrap items-center gap-3">
               <Badge variant="secondary">{entry.disposition}</Badge>
               {entry.disposedAt !== null && (
-                <span className="text-muted-foreground text-sm">
+                <span className="text-muted-foreground text-xs">
                   {day(entry.disposedAt, project.timezone)}
                 </span>
               )}
+              <span className="text-muted-foreground text-xs">
+                Recorded, so this entry is append-only.
+              </span>
             </div>
           )}
 
           {entry.nextRoundId !== null && (
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-xs">
               Followed by{' '}
               <Link
                 href={`/register-entries/${entry.nextRoundId}`}
@@ -256,11 +327,8 @@ export default async function RegisterEntryRecord({
 
           {entry.disposition === REVISE_AND_RESUBMIT &&
             entry.nextRoundId === null && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Log the round that comes back</CardTitle>
-                </CardHeader>
-                <CardContent>
+              <Disclosure summary="Log the round that comes back">
+                <div className="space-y-3">
                   <NewRegisterEntryForm
                     users={users}
                     me={me?.id ?? ''}
@@ -274,14 +342,14 @@ export default async function RegisterEntryRecord({
                     submitLabel="Log the next round"
                     defaultTurnaroundDays={entry.turnaroundDays ?? undefined}
                   />
-                  <p className="text-muted-foreground mt-3 text-sm">
+                  <p className="text-muted-foreground text-xs">
                     A new entry pointing back at this one, which is left
                     exactly as it stands. Its number is yours to give &mdash;
                     nothing here allocates one &mdash; and it starts its own
                     clock from its own first handoff.
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </Disclosure>
             )}
         </section>
       )}
@@ -290,48 +358,58 @@ export default async function RegisterEntryRecord({
         The handoffs are the history and there is no state beside them. Whose
         move it is now is the last of these rows, which is what makes a
         turnaround dispute settleable by the record rather than by memory.
+
+        A **compact list** (the brief's `### Desk`): desk row padding, the date
+        in tabular numerals so the column reads down.
       */}
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Ball-in-court</h2>
-          <span className="text-muted-foreground text-sm">
-            {entry.handoffs.length}{' '}
-            {entry.handoffs.length === 1 ? 'handoff' : 'handoffs'}
-          </span>
-        </div>
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {entry.handoffs.length}{' '}
+              {entry.handoffs.length === 1 ? 'handoff' : 'handoffs'}
+            </span>
+          }
+        >
+          Ball-in-court
+        </SectionHead>
 
         <ul className="divide-y rounded-lg border">
           {entry.handoffs.map((handoff) => (
             <li
               key={handoff.id}
-              className="flex flex-wrap items-center gap-3 px-4 py-3"
+              className="flex flex-wrap items-baseline gap-3 px-3 py-2"
             >
-              <span className="text-muted-foreground font-mono text-sm">
-                {day(handoff.heldSince, project.timezone)} {clock(handoff.heldSince, project.timezone)}
+              <span className="text-muted-foreground font-mono text-xs tabular-nums">
+                {day(handoff.heldSince, project.timezone)}{' '}
+                {clock(handoff.heldSince, project.timezone)}
               </span>
-              <span className="font-medium">{handoff.party}</span>
+              <span className="text-sm font-medium">{handoff.party}</span>
               {handoff.inOurCourt && <Badge variant="destructive">Ours</Badge>}
             </li>
           ))}
         </ul>
 
-        <HandoffForm
-          users={users}
-          me={me?.id ?? ''}
-          submit={recordHandoff.bind(
-            null,
-            entry.id,
-            entry.registerId,
-            project.id,
-          )}
-        />
+        <Disclosure summary="Hand the ball on">
+          <HandoffForm
+            users={users}
+            me={me?.id ?? ''}
+            submit={recordHandoff.bind(
+              null,
+              entry.id,
+              entry.registerId,
+              project.id,
+            )}
+          />
+        </Disclosure>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">The issuance that responded</h2>
+      <Disclosure
+        summary={`The issuance that responded (${answered === undefined ? 'none named' : answered.revision})`}
+      >
         {answered === undefined ? (
-          <>
-            <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+          <div className="space-y-3">
+            <p className="text-muted-foreground text-xs">
               Nothing issued on this job has been named as the response.
             </p>
             {submissions.length > 0 && (
@@ -347,138 +425,135 @@ export default async function RegisterEntryRecord({
                 phaseName={phaseName}
               />
             )}
-          </>
+          </div>
         ) : (
           <Link
             href={`/submissions/${answered.id}`}
-            className="hover:bg-muted/50 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 transition-colors"
+            className="hover:bg-muted/50 flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 transition-colors"
           >
-            <span className="font-medium">
+            <span className="text-sm font-medium">
               {phaseName.get(answered.phaseId) ?? 'Unknown phase'}
             </span>
-            <span className="text-muted-foreground text-sm">
-              {answered.revision} &middot; issued {day(answered.issuedAt, project.timezone)} to{' '}
-              {answered.recipient}
+            <span className="text-muted-foreground text-xs">
+              {answered.revision} &middot; issued{' '}
+              {day(answered.issuedAt, project.timezone)} to {answered.recipient}
             </span>
             {answered.currentlyProvisional && (
               <Badge variant="destructive">Provisional</Badge>
             )}
           </Link>
         )}
-      </section>
+      </Disclosure>
 
       {/*
         The submittal package, the marked-up sketch — whatever this entry
         arrived with. Reached through the entry it was logged as, which is the
         whole of retrieval here (ADR-0019).
       */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Documents</h2>
-          <span className="text-muted-foreground text-sm">
-            {onTheEntry.length === 0
-              ? 'nothing pointed at'
-              : `${onTheEntry.length} pointed at`}
-          </span>
-        </div>
-
-        <LinkedDocumentList
-          versions={onTheEntry}
-          empty="Nothing stored on this job is pointed at from this entry."
-        />
-
-        <LinkDocumentForm
-          link={linkDocumentToRegisterEntry.bind(
-            null,
-            entry.id,
-            entry.registerId,
-            project.id,
-          )}
-          documents={documents}
-          linked={onTheEntry}
-          label="A document this entry arrived with"
-        />
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Open items</h2>
-          <span className="text-muted-foreground text-sm">
-            {entry.openItems.filter((item) => item.resolvedAt === null).length}{' '}
-            unresolved
-          </span>
-        </div>
-
-        {entry.openItems.length === 0 ? (
-          <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
-            Nothing is being chased for this entry.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {entry.openItems.map((item) => (
-              <OpenItemEntry users={users} timeZone={project.timezone}
-                key={item.id}
-                item={item}
-                projectId={project.id}
-              />
-            ))}
-          </ul>
-        )}
-
-        {attachable.length > 0 && (
-          <form
-            action={attachOpenItemToRegisterEntry.bind(
-              null,
-              entry.id,
-              entry.registerId,
-              project.id,
-            )}
-            className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
-          >
-            {/* Native, because the action reads this out of FormData. */}
-            <select
-              name="openItemId"
-              aria-label="An open item being chased for this entry"
-              className={`${selectClassName} min-w-56 flex-1`}
-              defaultValue=""
-            >
-              <option value="" disabled>
-                An open item already on this job&hellip;
-              </option>
-              {attachable.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.unresolved}
-                </option>
-              ))}
-            </select>
-            <Button type="submit" variant="secondary">
-              Attach
-            </Button>
-          </form>
-        )}
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Raise an open item on this entry</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <NewOpenItemForm
-            submit={createOpenItemOnRegisterEntry.bind(
-              null,
-              entry.id,
-              entry.registerId,
-              project.id,
-            )}
-            submitLabel="Raise it"
+      <Disclosure
+        summary={`Documents (${onTheEntry.length === 0 ? 'nothing pointed at' : `${onTheEntry.length} pointed at`})`}
+      >
+        <div className="space-y-3">
+          <LinkedDocumentList
+            versions={onTheEntry}
+            empty="Nothing stored on this job is pointed at from this entry."
           />
-          <p className="text-muted-foreground mt-3 text-sm">
-            It stays on {project.projectNumber} and appears in the pending items
-            view like everything else &mdash; being chased for a register entry
-            is not somewhere else to look.
-          </p>
-        </CardContent>
-      </Card>
+
+          <LinkDocumentForm
+            link={linkDocumentToRegisterEntry.bind(
+              null,
+              entry.id,
+              entry.registerId,
+              project.id,
+            )}
+            documents={documents}
+            linked={onTheEntry}
+            label="A document this entry arrived with"
+          />
+        </div>
+      </Disclosure>
+
+      {/*
+        Open while something is outstanding (density rule 3): what is being
+        chased for this entry is live work, and the project record keeps its own
+        Open items open for the same reason. Collapsed once there is nothing
+        unresolved, which is when the section is finished.
+      */}
+      <Disclosure
+        summary={`Open items (${unresolvedHere.length} unresolved)`}
+        open={unresolvedHere.length > 0}
+      >
+        <div className="space-y-3">
+          {entry.openItems.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              Nothing is being chased for this entry.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {entry.openItems.map((item) => (
+                <OpenItemEntry
+                  users={users}
+                  timeZone={project.timezone}
+                  key={item.id}
+                  item={item}
+                  projectId={project.id}
+                />
+              ))}
+            </ul>
+          )}
+
+          {attachable.length > 0 && (
+            <form
+              action={attachOpenItemToRegisterEntry.bind(
+                null,
+                entry.id,
+                entry.registerId,
+                project.id,
+              )}
+              className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+            >
+              {/* Native, because the action reads this out of FormData. */}
+              <select
+                name="openItemId"
+                aria-label="An open item being chased for this entry"
+                className={`${selectClassName} min-w-56 flex-1`}
+                defaultValue=""
+              >
+                <option value="" disabled>
+                  An open item already on this job&hellip;
+                </option>
+                {attachable.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.unresolved}
+                  </option>
+                ))}
+              </select>
+              <Button type="submit" variant="secondary">
+                Attach
+              </Button>
+            </form>
+          )}
+
+          <Disclosure summary="Raise an open item on this entry">
+            <div className="space-y-3">
+              <NewOpenItemForm
+                submit={createOpenItemOnRegisterEntry.bind(
+                  null,
+                  entry.id,
+                  entry.registerId,
+                  project.id,
+                )}
+                submitLabel="Raise it"
+              />
+              <p className="text-muted-foreground text-xs">
+                It stays on {project.projectNumber} and appears in the pending
+                items view like everything else &mdash; being chased for a
+                register entry is not somewhere else to look.
+              </p>
+            </div>
+          </Disclosure>
+        </div>
+      </Disclosure>
     </div>
   );
 }

@@ -25,7 +25,9 @@ export default function ErrorScreen({
 }) {
   return (
     <div className="space-y-4 rounded-lg border p-6">
-      <h1 className="text-lg font-medium">This page could not finish</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">
+        This page could not finish
+      </h1>
       <p className="text-muted-foreground text-sm">
         Something threw that nothing was written to catch. What the page shows
         may be behind what the record holds; trying again renders it afresh.
