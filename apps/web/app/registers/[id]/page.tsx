@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   createRegisterEntry,
   requestExtractionFromChosenDocument,
@@ -14,7 +13,9 @@ import {
   listUsers,
   REGISTER_NAMES,
 } from '../../api';
+import { Disclosure } from '../../disclosure';
 import { ExtractFromDocumentForm } from '../../extract-button';
+import { SectionHead } from '../../section-head';
 import { NewRegisterEntryForm } from '../../register-forms';
 import { day } from '../../wall-clock';
 import { BallInCourtBadge, ClockBadge } from '../../ball-in-court';
@@ -56,26 +57,34 @@ export default async function RegisterLog({
   );
 
   return (
-    <div className="space-y-8">
+    // The **desk** measure: a register log is rows being compared, which is the
+    // half of the brief's `## The spacing scale, and the measure` that stays at
+    // 1024 px. The entry it links to is the record-width screen.
+    <div className="space-y-6">
       <div>
         <Link
           href={`/projects/${project.id}`}
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+          className="text-muted-foreground hover:text-foreground font-mono text-xs tracking-[0.06em] uppercase transition-colors"
         >
-          &larr; {project.projectNumber} {project.name}
+          &larr; {project.projectNumber} &middot; {project.name}
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           {REGISTER_NAMES[register.kind]}
         </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {register.entries.length === 0
-            ? 'Nothing logged yet.'
-            : `${ours.length} of ${register.entries.length} in our court.`}
-        </p>
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">Entries</h2>
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {register.entries.length === 0
+                ? 'none'
+                : `${ours.length} of ${register.entries.length} in our court`}
+            </span>
+          }
+        >
+          Entries
+        </SectionHead>
 
         {register.entries.length === 0 ? (
           <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
@@ -91,14 +100,14 @@ export default async function RegisterLog({
                 <li key={entry.id}>
                   <Link
                     href={`/register-entries/${entry.id}`}
-                    className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
+                    className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-3 py-2 transition-colors"
                   >
                     {/* What it is filed under, which is what anybody quotes. */}
                     <Badge variant="outline" className="font-mono">
                       {entry.number}
                     </Badge>
                     <span className="font-medium">{entry.subject}</span>
-                    <span className="text-muted-foreground text-sm">
+                    <span className="text-muted-foreground text-xs">
                       {entry.fromParty} &rarr; {entry.toParty} &middot; logged{' '}
                       {day(entry.createdAt, project.timezone)}
                     </span>
@@ -117,13 +126,11 @@ export default async function RegisterLog({
         )}
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Log {register.kind === 'RFI' ? 'an RFI' : 'a submittal'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      {/* Density rule 1: the log shows the log, and what adds to it is closed. */}
+      <Disclosure
+        summary={`Log ${register.kind === 'RFI' ? 'an RFI' : 'a submittal'}`}
+      >
+        <div className="space-y-3">
           {/*
             Extraction, offered where the typing happens (issue #108). The
             entry is built from the document instead of typed: asking lands on
@@ -156,8 +163,8 @@ export default async function RegisterLog({
             submit={createRegisterEntry.bind(null, register.id, project.id)}
             kind={register.kind}
           />
-        </CardContent>
-      </Card>
+        </div>
+      </Disclosure>
     </div>
   );
 }

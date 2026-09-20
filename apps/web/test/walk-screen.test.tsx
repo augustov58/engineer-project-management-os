@@ -2,7 +2,6 @@ import { renderToString } from 'react-dom/server';
 import { beforeEach, expect, test, vi } from 'vitest';
 import * as api from '../app/api';
 import SiteVisitRecord from '../app/site-visits/[id]/page';
-import { productSources } from './sources';
 
 /**
  * The walk screen, redesigned to the approved plates (issue #118, ADR-0059
@@ -208,36 +207,14 @@ test('the control bar 3 measures is a native select at the field target', async 
   expect(floor?.className).toContain('h-11');
 });
 
-test('the field screens carry no text-lg heading', () => {
-  // `text-lg` leaves the product entirely (the brief's `## The type scale`):
-  // 35 section heads costing 28 px of line each, for information a 12 px
-  // rule-under head carries better. The desk's are issue #120's; these are
-  // this ticket's, and a new one here would be the step coming back.
-  const field = [
-    'app/site-visits/[id]/page.tsx',
-    'app/conversation-panel.tsx',
-    'app/conversation.tsx',
-    'app/photo-form.tsx',
-    'app/site-visit-form.tsx',
-    'app/issue-form.tsx',
-    'app/report-form.tsx',
-    'app/section-head.tsx',
-    'app/disclosure.tsx',
-  ];
-  const offenders = productSources()
-    .filter((source) => field.includes(source.path))
-    // Comments stripped first: `section-head.tsx` names the step it replaces,
-    // and a rule that could not be written down beside its replacement would be
-    // a rule nobody could explain.
-    .filter((source) =>
-      /(?<![\w-])text-lg(?![\w-])/.test(
-        source.text.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''),
-      ),
-    )
-    .map((source) => source.path);
-
-  expect(offenders).toEqual([]);
-});
+/*
+  `test('the field screens carry no text-lg heading')` lived here until issue
+  #120. It could only name the nine files this ticket owned, because 30 heads
+  were still on the desk; #120 was the rest of them, so the rule is now a sweep
+  over **every** product source in `desk-screens.test.tsx` and there is no list
+  to keep current. Nothing was relaxed: the wider guard is a superset of this
+  one, and a `text-lg` added back to a field file still fails.
+*/
 
 /** One engineer capture awaiting review, at `position`. */
 function capture(position: number, patch: Partial<api.Turn> = {}): api.Turn {

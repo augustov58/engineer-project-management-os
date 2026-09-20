@@ -11,6 +11,7 @@ import {
   getProject,
   listUsers,
 } from '../../../../api';
+import { SectionHead } from '../../../../section-head';
 
 /**
  * The confirmation screen (issue #20, stories 86 and 87): the proposal beside
@@ -117,7 +118,7 @@ export default async function ExtractionPage({
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="space-y-3">
-            <h2 className="text-lg font-medium">What the agent read</h2>
+            <SectionHead>What the agent read</SectionHead>
             {'envelope' in extraction.source &&
               (extraction.source.envelope.sender !== null ||
                 extraction.source.envelope.subject !== null ||
@@ -156,7 +157,7 @@ export default async function ExtractionPage({
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-medium">The proposed entry</h2>
+            <SectionHead>The proposed entry</SectionHead>
             <ExtractionConfirmForm
               projectId={id}
               extraction={extraction}

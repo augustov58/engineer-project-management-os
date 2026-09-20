@@ -96,8 +96,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function projectScreen() {
-  render(await ProjectRecord({ params: Promise.resolve({ id: project.id }) }));
+async function projectScreen(kept?: string) {
+  render(
+    await ProjectRecord({
+      params: Promise.resolve({ id: project.id }),
+      // Density rule 4's one-navigation rendering instruction (issue #120).
+      searchParams: Promise.resolve({ kept }),
+    }),
+  );
 }
 
 test('neither count strip is on a job with nothing on either count', async () => {

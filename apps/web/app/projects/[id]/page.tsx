@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   addDocument,
   addIngestedDocument,
@@ -30,6 +29,7 @@ import {
   listSubmissions,
   listUsers,
 } from '../../api';
+import { Disclosure } from '../../disclosure';
 import { DocumentForm } from '../../document-form';
 import { DocumentList } from '../../documents';
 import { ExtractionList } from '../../extractions';
@@ -38,6 +38,7 @@ import { IngestAddress, IngestedDocumentList } from '../../ingest';
 import { MemoryActivityList, MemoryForm } from '../../memory';
 import { NewOpenItemForm } from '../../new-open-item-form';
 import { NewPhaseForm } from '../../new-phase-form';
+import { SectionHead } from '../../section-head';
 import { SiteVisitForm } from '../../site-visit-form';
 import { SubmissionForm } from '../../submission-form';
 import { OpenItemEntry } from '../../open-item';
@@ -51,10 +52,18 @@ export const dynamic = 'force-dynamic';
 
 export default async function ProjectRecord({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  /**
+   * `?kept=` names the open item that resolved on the request before this one,
+   * and it is the whole of density rule 4 (issue #120). Nothing is stored: it
+   * is a rendering instruction that survives exactly one navigation.
+   */
+  searchParams: Promise<{ kept?: string }>;
 }) {
   const { id } = await params;
+  const { kept } = await searchParams;
   const project = await getProject(id);
   if (project === undefined) {
     notFound();
@@ -111,34 +120,58 @@ export default async function ProjectRecord({
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
 
+  /*
+    Density rule 4, and it is a **rendering** rule rather than a feature: the
+    item that just resolved is lifted back out of *Resolved* and shown where it
+    was, with its new state and its undo beside it, for exactly the one load
+    that follows the resolve. The baseline's bar 6 recorded this as *hunting* —
+    one action to reopen, but the row had left *Open items* for *Resolved (1)*
+    4 009 px down a 4 480 px page, five screens from where the mistake was made.
+
+    The id comes off the query string, so a reload or a bookmark shows the plain
+    filing and nothing has to be un-done. An id that names something that is not
+    in fact resolved keeps nothing, which is what makes a hand-typed `?kept=`
+    harmless.
+  */
+  const keptItem =
+    kept === undefined
+      ? undefined
+      : resolved.find((item) => item.id === kept);
+  const filed = resolved.filter((item) => item.id !== keptItem?.id);
+
   async function archive() {
     'use server';
     await archiveProject(id);
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/*
+        The head is at the **desk** measure and the sections below are at the
+        record's — the project record is the one screen in the product that uses
+        both (the brief's `## The spacing scale, and the measure`). What is up
+        here compares across the job; what is below is a record being read.
+      */}
       <div>
         <Link
           href="/"
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+          className="text-muted-foreground hover:text-foreground font-mono text-xs tracking-[0.06em] uppercase transition-colors"
         >
-          &larr; Projects
+          &larr; {project.projectNumber} &middot; {project.timezone}
         </Link>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <Badge variant="secondary" className="font-mono text-sm">
-            {project.projectNumber}
-          </Badge>
+        <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">
             {project.name}
           </h1>
           {project.archivedAt !== null && (
-            <Badge variant="outline">Archived {day(project.archivedAt, project.timezone)}</Badge>
+            <Badge variant="outline">
+              Archived {day(project.archivedAt, project.timezone)}
+            </Badge>
           )}
         </div>
 
-        <div className="text-muted-foreground mt-2 flex items-center gap-4 text-sm">
+        <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           <span>Created {day(project.createdAt, project.timezone)}</span>
           {/*
             The activity feed, here and not under Memory: story 106 widened the
@@ -155,7 +188,7 @@ export default async function ProjectRecord({
           </Link>
           {project.archivedAt === null && (
             <form action={archive}>
-              <Button type="submit" variant="ghost" size="sm">
+              <Button type="submit" variant="ghost" size="sm" className="h-8 px-2 text-xs">
                 Archive this project
               </Button>
             </form>
@@ -163,513 +196,549 @@ export default async function ProjectRecord({
         </div>
       </div>
 
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Open items</h2>
-          <span className="text-muted-foreground text-sm">
-            {unresolved.length} unresolved
-          </span>
-        </div>
-
-        {unresolved.length === 0 ? (
-          <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
-            Nothing unresolved.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {unresolved.map((item) => (
-              <OpenItemEntry
-                timeZone={project.timezone}
-                key={item.id}
-                item={item}
-                projectId={id}
-                users={users}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Add an open item</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <NewOpenItemForm submit={createOpenItem.bind(null, id)} />
-        </CardContent>
-      </Card>
-
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Submissions</h2>
-          <span className="text-muted-foreground text-sm">
-            {submissions.length === 0
-              ? 'nothing issued yet'
-              : `${submissions.length} issued`}
-          </span>
-        </div>
-
-        {/*
-          This project's exposure. The number is the length of the list it
-          links to, so clicking it lands on exactly what it counted — which
-          means the link carries the scope the count was read at. `listExposure`
-          here is unfiltered, and the destination defaults to *mine* (issue
-          #112), so a link without `ours` on it would open a narrower list than
-          the number beside it (issue #141).
-        */}
-        {exposure.length > 0 && (
-          <Link
-            href={scopeHref('/exposure', 'ours', { projectId: id })}
-            className="text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-baseline gap-2 rounded-lg border border-dashed px-4 py-2 text-sm transition-colors"
-          >
-            <span className="text-foreground font-medium tabular-nums">
-              {exposure.length}
-            </span>
-            issued {exposure.length === 1 ? 'submission is' : 'submissions are'}{' '}
-            still standing on an unresolved open item
-          </Link>
-        )}
-
-        {submissions.length > 0 && (
-          <ul className="divide-y rounded-lg border">
-            {submissions.map((issued) => (
-              <li key={issued.id}>
-                <Link
-                  href={`/submissions/${issued.id}`}
-                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
-                >
-                  <Badge variant="outline">
-                    {phaseName.get(issued.phaseId) ?? 'Unknown phase'}
-                  </Badge>
-                  <span className="font-medium">{issued.revision}</span>
-                  <span className="text-muted-foreground text-sm">
-                    {day(issued.issuedAt, project.timezone)} &middot; {issued.recipient} (
-                    {issued.recipientRole})
-                  </span>
-                  {/*
-                    Two different facts, so two marks that can both show. A
-                    set that went out on unconfirmed inputs and is still
-                    standing on one carries both — collapsing them would hide
-                    the historical half this ticket exists to keep.
-                  */}
-                  {issued.issuedProvisional && (
-                    <Badge variant="secondary">Issued provisional</Badge>
-                  )}
-                  {/*
-                    A superseded set is not what is out there, so it reads as
-                    superseded rather than as provisional — and the count of
-                    red marks on this screen stays the exposure count beside
-                    it. What it went out on is untouched and still shown.
-                  */}
-                  {issued.supersededById !== null ? (
-                    <Badge variant="outline">Superseded</Badge>
-                  ) : (
-                    issued.currentlyProvisional && (
-                      <Badge variant="destructive">Provisional</Badge>
-                    )
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Record a submission</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {phases.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              A submission is issued at a phase. Define one below first.
-            </p>
-          ) : (
-            <SubmissionForm
-              submit={createSubmission.bind(null, id)}
-              phases={phases}
-              phaseId={project.currentPhaseId}
-              // A first issuance carries nothing forward; every unresolved
-              // item on the job is offered and none starts ticked.
-              offered={unresolved.map((item) => ({ item, carried: false }))}
-              submitLabel="Record the submission"
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Site visits</h2>
-          <span className="text-muted-foreground text-sm">
-            {siteVisits.length === 0
-              ? 'no walks yet'
-              : `${siteVisits.length} recorded`}
-          </span>
-        </div>
-
-        {siteVisits.length > 0 && (
-          <ul className="divide-y rounded-lg border">
-            {siteVisits.map((visit) => (
-              <li key={visit.id}>
-                <Link
-                  href={`/site-visits/${visit.id}`}
-                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
-                >
-                  <span className="font-medium tabular-nums">
-                    {visit.visitedOn}
-                  </span>
-                  <span className="text-muted-foreground text-sm tabular-nums">
-                    {clock(visit.startedAt, project.timezone)}
-                    {visit.endedAt === null ? '' : ` – ${clock(visit.endedAt, project.timezone)}`}
-                  </span>
-                  {visit.endedAt === null && (
-                    <Badge variant="secondary">Under way</Badge>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Record a site visit</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SiteVisitForm submit={createSiteVisit.bind(null, id)} />
-        </CardContent>
-      </Card>
-
       {/*
-        The register of what has been found on this job. Closed issues stay in
-        it: the lifecycle is the point of the record, and a list that hid what
-        had closed would be the write-up with no follow-up all over again.
+        The two count strips, lifted out of the Submissions and Registers
+        sections and read at desk width beside each other, as plate D-02 draws
+        them. They are the job's half of the daily layer and they are never
+        combined (ADR-0016); they stay **gated on being non-empty**, where the
+        morning screen's two cards render at zero, because on a project screen
+        an empty count is noise and on the morning screen the count is the
+        screen. That asymmetry is ADR-0038's and is intended.
 
-        There is no form here. A finding is raised from the observation it was
-        seen in, on the walk that produced it, and never typed in from nothing.
+        Each number is read unfiltered and each link carries `scope=ours`, so a
+        count and the list it lands on cannot answer different questions — the
+        baseline's bar 5 failure, fixed in issue #141 and drawn here as the rule.
       */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Issues</h2>
-          <span className="text-muted-foreground text-sm">
-            {issues.length === 0
-              ? 'nothing found yet'
-              : `${issues.filter((issue) => issue.closedAt === null).length} open of ${issues.length}`}
-          </span>
-        </div>
-
-        {issues.length > 0 && (
-          <ul className="divide-y rounded-lg border">
-            {issues.map((issue) => (
-              <li key={issue.id}>
-                <Link
-                  href={`/projects/${id}/issues/${issue.number}`}
-                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
-                >
-                  {/* The identifier, which is what a report prints. */}
-                  <Badge variant="outline" className="font-mono">
-                    {issue.number}
-                  </Badge>
-                  <span className="font-medium">{issue.category}</span>
-                  <span className="text-muted-foreground text-sm">
-                    {/* The latest sighting: where it was last seen, and when. */}
-                    {issue.observations.at(-1)?.location} &middot; last seen{' '}
-                    {issue.observations.at(-1)?.siteVisit.visitedOn}
-                  </span>
-                  {issue.closedAt === null ? (
-                    <Badge variant="destructive">Open</Badge>
-                  ) : (
-                    <Badge variant="secondary">
-                      Closed {day(issue.closedAt, project.timezone)}
-                    </Badge>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/*
-        The two correspondence logs. There is no form here and no button that
-        makes one: both exist from the moment the job does, because which
-        correspondence types there are is a fact about the product rather than
-        a choice about a job.
-      */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Registers</h2>
-
-        {/*
-          This project's clock, the second of the two daily counts and never
-          combined with the first (ADR-0016). The number is the length of the
-          list it links to, so clicking it lands on exactly what it counted —
-          and the copy below says *our court*, so the link says `ours` too
-          (issue #141).
-        */}
-        {onTheClock.length > 0 && (
-          <Link
-            href={scopeHref('/clock', 'ours', { projectId: id })}
-            className="text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-baseline gap-2 rounded-lg border border-dashed px-4 py-2 text-sm transition-colors"
-          >
-            <span className="text-foreground font-medium tabular-nums">
-              {onTheClock.length}
-            </span>
-            {onTheClock.length === 1
-              ? 'entry is sitting in our court past its turnaround'
-              : 'entries are sitting in our court past their turnaround'}
-          </Link>
-        )}
-
-        <ul className="divide-y rounded-lg border">
-          {registers.map((register) => (
-            <li key={register.id}>
-              <Link
-                href={`/registers/${register.id}`}
-                className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
-              >
-                <span className="font-medium">
-                  {REGISTER_NAMES[register.kind]}
-                </span>
-                <span className="text-muted-foreground text-sm">
-                  {register.entries.length === 0
-                    ? 'nothing logged yet'
-                    : `${register.entries.length} logged`}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/*
-        What is stored against the job. There is no count strip here: exposure
-        and the clock are the two daily counts and a third figure beside them
-        is what ADR-0016 keeps this product from growing — how many documents
-        there are is not something to act on in the morning.
-      */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Documents</h2>
-          <span className="text-muted-foreground text-sm">
-            {documents.length === 0
-              ? 'nothing stored yet'
-              : `${documents.filter((one) => one.referencedFile).length} referenced of ${documents.length}`}
-          </span>
-        </div>
-
-        <DocumentList timeZone={project.timezone} documents={documents} projectId={id} />
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Store a document</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">
-            The file goes to object storage and the record keeps what it is and
-            where. A revision is never overwritten, so what a submission was
-            issued against stays answerable.
-          </p>
-          <DocumentForm submit={addDocument.bind(null, id)} />
-        </CardContent>
-      </Card>
-
-      {/*
-        What has arrived from outside (issue #19). A section of its own and not
-        part of Documents: an arrival carries no title, no revision and no
-        referenced-file answer, because nobody has read it — those are what
-        extraction proposes and the engineer confirms (issue #20). Nothing here
-        is parsed until the engineer asks for an extraction on a file.
-      */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Arrived</h2>
-          <span className="text-muted-foreground text-sm">
-            {arrivals.length === 0
-              ? 'nothing yet'
-              : `${arrivals.filter((one) => one.source === 'EMAIL').length} forwarded of ${arrivals.length}`}
-          </span>
-        </div>
-
-        <IngestAddress address={project.ingestAddress} />
-        <IngestedDocumentList arrivals={arrivals} timeZone={project.timezone} />
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Record what arrived</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">
-            The fallback, for when something comes by hand or the mail path is
-            down. It makes the same record a forwarded message does, and it is
-            never rate limited.
-          </p>
-          <IngestForm submit={addIngestedDocument.bind(null, id)} />
-        </CardContent>
-      </Card>
-
-      {/*
-        Extraction (issue #20). The runs and the proposals awaiting an answer,
-        live over the stream. Nothing here commits on its own: a pending one
-        links to the confirmation screen, and the register is written only
-        there.
-      */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Extractions</h2>
-          <span className="text-muted-foreground text-sm">
-            {extractions.filter((one) => one.state === 'pending').length === 0
-              ? 'nothing awaiting an answer'
-              : `${extractions.filter((one) => one.state === 'pending').length} awaiting an answer`}
-          </span>
-        </div>
-
-        {/*
-          Above the list, because it governs it: a job on local processing
-          refuses the ask, so the setting is the first thing to read here
-          when nothing can be extracted (issue #21, ADR-0044).
-        */}
-        <ProcessingLocation project={project} />
-
-        <ExtractionList timeZone={project.timezone} projectId={id} initial={{ extractions }} />
-      </section>
-
-      {/*
-        The curated prose: reasoning and decisions, kept deliberately small
-        (issue #18). The size budget rides on every read and is surfaced here
-        as the document fills — pushed back against, never enforced, because
-        what is worth keeping is the engineer's call and the budget exists to
-        inform it.
-      */}
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-medium">Memory</h2>
-          {/*
-            The count links to the versions it counted, the way exposure's and
-            the clock's do (issue #63) — before this there was no screen
-            anywhere showing a past version, so ADR-0040's "nothing is ever
-            overwritten" was true and unobservable.
-          */}
-          {memory.versions === 0 ? (
-            <span className="text-muted-foreground text-sm">
-              nothing written yet
-            </span>
-          ) : (
+      {(exposure.length > 0 || onTheClock.length > 0) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {exposure.length > 0 && (
             <Link
-              href={`/projects/${id}/memory`}
-              className="text-muted-foreground hover:text-foreground text-sm underline-offset-4 transition-colors hover:underline"
+              href={scopeHref('/exposure', 'ours', { projectId: id })}
+              className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
             >
-              {memory.versions}{' '}
-              {memory.versions === 1 ? 'version' : 'versions'}
+              <span className="text-2xl font-semibold tabular-nums">
+                {exposure.length}
+              </span>
+              <span className="text-muted-foreground text-sm">
+                issued{' '}
+                {exposure.length === 1 ? 'submission is' : 'submissions are'}{' '}
+                still standing on an unresolved open item &mdash; our court
+              </span>
+              <span className="text-muted-foreground ml-auto font-mono text-xs">
+                ?scope=ours
+              </span>
+            </Link>
+          )}
+
+          {onTheClock.length > 0 && (
+            <Link
+              href={scopeHref('/clock', 'ours', { projectId: id })}
+              className="hover:bg-muted/50 flex items-baseline gap-3 rounded-lg border p-4 transition-colors"
+            >
+              <span className="text-2xl font-semibold tabular-nums">
+                {onTheClock.length}
+              </span>
+              <span className="text-muted-foreground text-sm">
+                {onTheClock.length === 1
+                  ? 'entry is sitting in our court past its turnaround'
+                  : 'entries are sitting in our court past their turnaround'}
+              </span>
+              <span className="text-muted-foreground ml-auto font-mono text-xs">
+                ?scope=ours
+              </span>
             </Link>
           )}
         </div>
-
-        {memory.content !== null && memory.versionedAt !== null && (
-          <div className="rounded-lg border px-4 py-3">
-            <p className="text-sm whitespace-pre-wrap">{memory.content}</p>
-            <p className="text-muted-foreground mt-2 text-sm">
-              Last written {day(memory.versionedAt, project.timezone)}
-            </p>
-          </div>
-        )}
-
-        {/*
-          The budget, pushed back against as it fills. Over half it says so;
-          over budget it says so in red. A count with no meter would be a
-          number nobody reads.
-        */}
-        <div className="space-y-1">
-          <div
-            role="meter"
-            aria-valuenow={memory.size}
-            aria-valuemax={memory.budget}
-            aria-label="Memory size against its budget"
-            className="bg-muted h-1.5 overflow-hidden rounded-full"
-          >
-            <div
-              className={
-                memory.size > memory.budget
-                  ? 'bg-destructive h-full'
-                  : memory.size > memory.budget / 2
-                    ? // The one hard-coded colour the product had, and the
-                      // only value outside the system: the palette is
-                      // achromatic with one hue and that hue means *late, or
-                      // unconfirmed*, which a budget over half is not. A chart
-                      // grey, which is the token set that exists for a mark
-                      // (issue #117, the brief's `## Colour`).
-                      'bg-chart-2 h-full'
-                    : 'bg-primary h-full'
-              }
-              style={{
-                width: `${Math.min(100, (memory.size / memory.budget) * 100)}%`,
-              }}
-            />
-          </div>
-          <p
-            className={`text-sm ${
-              memory.size > memory.budget
-                ? 'text-destructive'
-                : 'text-muted-foreground'
-            }`}
-          >
-            {memory.size.toLocaleString()} of {memory.budget.toLocaleString()}{' '}
-            characters
-            {memory.size > memory.budget
-              ? ' — over budget; memory stays readable only if it stays small, so cut before you add'
-              : memory.size > memory.budget / 2
-                ? ' — past half; keep it curated'
-                : ''}
-          </p>
-        </div>
-
-        <MemoryForm projectId={id} current={memory.content} />
-
-        <MemoryActivityList
-          projectId={id}
-          initial={{ runs: memoryRuns, proposals: memoryProposals }}
-        />
-      </section>
-
-      {resolved.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-muted-foreground text-sm font-medium">
-            Resolved ({resolved.length})
-          </h2>
-          <ul className="space-y-3">
-            {resolved.map((item) => (
-              <OpenItemEntry
-                timeZone={project.timezone}
-                key={item.id}
-                item={item}
-                projectId={id}
-                users={users}
-              />
-            ))}
-          </ul>
-        </section>
       )}
 
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-muted-foreground text-sm font-medium">Phases</h2>
-          <span className="text-muted-foreground text-sm">
-            free text, in the order this job runs them
-          </span>
-        </div>
+      {/*
+        The record, at `--measure-record`. Open items leads and stays open — it
+        is the job's live work and the only section plate D-02 draws unrolled —
+        and every other section is a disclosure carrying its count in the
+        summary. That is density rules 1, 2 and 3 together, and it is what takes
+        this screen from the baseline's 4 479 px, five and a half screens.
 
-        {phases.length > 0 && (
-          <PhaseList
-            phases={phases}
-            projectId={id}
-            currentPhaseId={project.currentPhaseId}
-          />
+        There is **no Conversation section**: plate D-02 draws the project
+        conversation as the same panel the walk has, and whether the project
+        chat exists is ADR-0058's ticket (issue #121) rather than this one's.
+        The brief says so in as many words — *"this brief specifies the panel it
+        will use when it does"*.
+      */}
+      <div className="max-w-[var(--measure-record)] space-y-6">
+        <section className="space-y-3">
+          <SectionHead
+            aside={
+              <span className="tabular-nums">
+                {unresolved.length} unresolved
+              </span>
+            }
+          >
+            Open items
+          </SectionHead>
+
+          {unresolved.length === 0 && keptItem === undefined ? (
+            <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+              Nothing unresolved.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {unresolved.map((item) => (
+                <OpenItemEntry
+                  timeZone={project.timezone}
+                  key={item.id}
+                  item={item}
+                  projectId={id}
+                  users={users}
+                  keepAt={`/projects/${id}`}
+                />
+              ))}
+              {keptItem !== undefined && (
+                <OpenItemEntry
+                  timeZone={project.timezone}
+                  key={keptItem.id}
+                  item={keptItem}
+                  projectId={id}
+                  users={users}
+                  kept
+                />
+              )}
+            </ul>
+          )}
+
+          {/*
+            Density rule 1, and bar 1: one tap from the top of the record with
+            its four required fields together, rather than 405 px down a
+            five-screen page.
+          */}
+          <Disclosure summary="Add an open item">
+            <NewOpenItemForm submit={createOpenItem.bind(null, id)} />
+          </Disclosure>
+        </section>
+
+        {/*
+          Density rule 3's first example, and it sits directly under the section
+          it was filed out of: the row the baseline had to hunt 4 009 px for is
+          now one tap below where the mistake was made.
+        */}
+        {filed.length > 0 && (
+          <Disclosure summary={`Resolved (${filed.length})`}>
+            <ul className="space-y-3">
+              {filed.map((item) => (
+                <OpenItemEntry
+                  timeZone={project.timezone}
+                  key={item.id}
+                  item={item}
+                  projectId={id}
+                  users={users}
+                />
+              ))}
+            </ul>
+          </Disclosure>
         )}
-        <NewPhaseForm projectId={id} />
-      </section>
+
+        <Disclosure
+          summary={`Submissions (${submissions.length === 0 ? 'none issued yet' : submissions.length})`}
+        >
+          <div className="space-y-3">
+            {submissions.length > 0 && (
+              <ul className="divide-y rounded-lg border">
+                {submissions.map((issued) => (
+                  <li key={issued.id}>
+                    <Link
+                      href={`/submissions/${issued.id}`}
+                      className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-3 py-2 transition-colors"
+                    >
+                      <Badge variant="outline">
+                        {phaseName.get(issued.phaseId) ?? 'Unknown phase'}
+                      </Badge>
+                      <span className="font-medium">{issued.revision}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {day(issued.issuedAt, project.timezone)} &middot;{' '}
+                        {issued.recipient} ({issued.recipientRole})
+                      </span>
+                      {/*
+                        Two different facts, so two marks that can both show. A
+                        set that went out on unconfirmed inputs and is still
+                        standing on one carries both — collapsing them would hide
+                        the historical half this ticket exists to keep.
+                      */}
+                      {issued.issuedProvisional && (
+                        <Badge variant="secondary">Issued provisional</Badge>
+                      )}
+                      {/*
+                        A superseded set is not what is out there, so it reads as
+                        superseded rather than as provisional — and the count of
+                        red marks on this screen stays the exposure count beside
+                        it. What it went out on is untouched and still shown.
+                      */}
+                      {issued.supersededById !== null ? (
+                        <Badge variant="outline">Superseded</Badge>
+                      ) : (
+                        issued.currentlyProvisional && (
+                          <Badge variant="destructive">Provisional</Badge>
+                        )
+                      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <Disclosure summary="Record a submission">
+              {phases.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  A submission is issued at a phase. Define one under Phases
+                  below first.
+                </p>
+              ) : (
+                <SubmissionForm
+                  submit={createSubmission.bind(null, id)}
+                  phases={phases}
+                  phaseId={project.currentPhaseId}
+                  // A first issuance carries nothing forward; every unresolved
+                  // item on the job is offered and none starts ticked.
+                  offered={unresolved.map((item) => ({ item, carried: false }))}
+                  submitLabel="Record the submission"
+                />
+              )}
+            </Disclosure>
+          </div>
+        </Disclosure>
+
+        <Disclosure
+          summary={`Site visits (${siteVisits.length === 0 ? 'no walks yet' : siteVisits.length})`}
+        >
+          <div className="space-y-3">
+            {siteVisits.length > 0 && (
+              <ul className="divide-y rounded-lg border">
+                {siteVisits.map((visit) => (
+                  <li key={visit.id}>
+                    <Link
+                      href={`/site-visits/${visit.id}`}
+                      className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-3 py-2 transition-colors"
+                    >
+                      <span className="font-medium tabular-nums">
+                        {visit.visitedOn}
+                      </span>
+                      <span className="text-muted-foreground text-xs tabular-nums">
+                        {clock(visit.startedAt, project.timezone)}
+                        {visit.endedAt === null
+                          ? ''
+                          : ` – ${clock(visit.endedAt, project.timezone)}`}
+                      </span>
+                      {visit.endedAt === null && (
+                        <Badge variant="secondary">Under way</Badge>
+                      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <Disclosure summary="Record a site visit">
+              <SiteVisitForm submit={createSiteVisit.bind(null, id)} />
+            </Disclosure>
+          </div>
+        </Disclosure>
+
+        {/*
+          The register of what has been found on this job. Closed issues stay in
+          it: the lifecycle is the point of the record, and a list that hid what
+          had closed would be the write-up with no follow-up all over again.
+
+          There is no form here. A finding is raised from the observation it was
+          seen in, on the walk that produced it, and never typed in from nothing.
+        */}
+        <Disclosure
+          summary={`Issues (${
+            issues.length === 0
+              ? 'nothing found yet'
+              : `${issues.filter((issue) => issue.closedAt === null).length} open of ${issues.length}`
+          })`}
+        >
+          {issues.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              Nothing has been found on this job yet. A finding is raised from
+              the observation it was seen in, on the walk that produced it.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {issues.map((issue) => (
+                <li key={issue.id}>
+                  <Link
+                    href={`/projects/${id}/issues/${issue.number}`}
+                    className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-3 py-2 transition-colors"
+                  >
+                    {/* The identifier, which is what a report prints. */}
+                    <Badge variant="outline" className="font-mono">
+                      {issue.number}
+                    </Badge>
+                    <span className="font-medium">{issue.category}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {/* The latest sighting: where it was last seen, and when. */}
+                      {issue.observations.at(-1)?.location} &middot; last seen{' '}
+                      {issue.observations.at(-1)?.siteVisit.visitedOn}
+                    </span>
+                    {issue.closedAt === null ? (
+                      <Badge variant="destructive">Open</Badge>
+                    ) : (
+                      <Badge variant="secondary">
+                        Closed {day(issue.closedAt, project.timezone)}
+                      </Badge>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Disclosure>
+
+        {/*
+          The two correspondence logs. There is no form here and no button that
+          makes one: both exist from the moment the job does, because which
+          correspondence types there are is a fact about the product rather than
+          a choice about a job.
+        */}
+        <Disclosure summary="Registers">
+          <ul className="divide-y rounded-lg border">
+            {registers.map((register) => (
+              <li key={register.id}>
+                <Link
+                  href={`/registers/${register.id}`}
+                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-3 py-2 transition-colors"
+                >
+                  <span className="font-medium">
+                    {REGISTER_NAMES[register.kind]}
+                  </span>
+                  <span className="text-muted-foreground text-xs">
+                    {register.entries.length === 0
+                      ? 'nothing logged yet'
+                      : `${register.entries.length} logged`}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Disclosure>
+
+        {/*
+          What is stored against the job. There is no count strip here: exposure
+          and the clock are the two daily counts and a third figure beside them
+          is what ADR-0016 keeps this product from growing — how many documents
+          there are is not something to act on in the morning.
+        */}
+        <Disclosure
+          summary={`Documents (${
+            documents.length === 0
+              ? 'nothing stored yet'
+              : `${documents.filter((one) => one.referencedFile).length} referenced of ${documents.length}`
+          })`}
+        >
+          <div className="space-y-3">
+            <DocumentList
+              timeZone={project.timezone}
+              documents={documents}
+              projectId={id}
+            />
+
+            <Disclosure summary="Store a document">
+              <div className="space-y-3">
+                <p className="text-muted-foreground text-xs">
+                  The file goes to object storage and the record keeps what it
+                  is and where. A revision is never overwritten, so what a
+                  submission was issued against stays answerable.
+                </p>
+                <DocumentForm submit={addDocument.bind(null, id)} />
+              </div>
+            </Disclosure>
+          </div>
+        </Disclosure>
+
+        {/*
+          What has arrived from outside (issue #19). A section of its own and not
+          part of Documents: an arrival carries no title, no revision and no
+          referenced-file answer, because nobody has read it — those are what
+          extraction proposes and the engineer confirms (issue #20). Nothing here
+          is parsed until the engineer asks for an extraction on a file.
+        */}
+        <Disclosure
+          summary={`Arrived (${
+            arrivals.length === 0
+              ? 'nothing yet'
+              : `${arrivals.filter((one) => one.source === 'EMAIL').length} forwarded of ${arrivals.length}`
+          })`}
+        >
+          <div className="space-y-3">
+            <IngestAddress address={project.ingestAddress} />
+            <IngestedDocumentList
+              arrivals={arrivals}
+              timeZone={project.timezone}
+            />
+
+            <Disclosure summary="Record what arrived">
+              <div className="space-y-3">
+                <p className="text-muted-foreground text-xs">
+                  The fallback, for when something comes by hand or the mail
+                  path is down. It makes the same record a forwarded message
+                  does, and it is never rate limited.
+                </p>
+                <IngestForm submit={addIngestedDocument.bind(null, id)} />
+              </div>
+            </Disclosure>
+          </div>
+        </Disclosure>
+
+        {/*
+          Extraction (issue #20). The runs and the proposals awaiting an answer,
+          live over the stream. Nothing here commits on its own: a pending one
+          links to the confirmation screen, and the register is written only
+          there.
+
+          Inside a closed `<details>` the stream still opens — native, so the
+          children mount and only stop being painted, which is the same reason
+          density rule 1 asks for `<details>` around a half-typed form.
+        */}
+        <Disclosure
+          summary={`Extractions (${
+            extractions.filter((one) => one.state === 'pending').length === 0
+              ? 'nothing awaiting an answer'
+              : `${extractions.filter((one) => one.state === 'pending').length} awaiting an answer`
+          })`}
+        >
+          <div className="space-y-3">
+            {/*
+              Above the list, because it governs it: a job on local processing
+              refuses the ask, so the setting is the first thing to read here
+              when nothing can be extracted (issue #21, ADR-0044).
+            */}
+            <ProcessingLocation project={project} />
+
+            <ExtractionList
+              timeZone={project.timezone}
+              projectId={id}
+              initial={{ extractions }}
+            />
+          </div>
+        </Disclosure>
+
+        {/*
+          The curated prose: reasoning and decisions, kept deliberately small
+          (issue #18). The size budget rides on every read and is surfaced here
+          as the document fills — pushed back against, never enforced, because
+          what is worth keeping is the engineer's call and the budget exists to
+          inform it.
+        */}
+        <Disclosure
+          summary={`Memory (${
+            memory.versions === 0
+              ? 'nothing written yet'
+              : `${memory.versions} ${memory.versions === 1 ? 'version' : 'versions'}`
+          })`}
+        >
+          <div className="space-y-3">
+            {/*
+              The count links to the versions it counted, the way exposure's and
+              the clock's do (issue #63) — before this there was no screen
+              anywhere showing a past version, so ADR-0040's "nothing is ever
+              overwritten" was true and unobservable. The figure is in the
+              summary above, which a `<summary>` cannot nest a link inside, so
+              the link is here.
+            */}
+            {memory.versions > 0 && (
+              <Link
+                href={`/projects/${id}/memory`}
+                className="text-muted-foreground hover:text-foreground text-xs underline-offset-4 transition-colors hover:underline"
+              >
+                {memory.versions}{' '}
+                {memory.versions === 1 ? 'version' : 'versions'}, oldest first
+              </Link>
+            )}
+
+            {memory.content !== null && memory.versionedAt !== null && (
+              <div className="rounded-lg border px-3 py-2">
+                <p className="text-base whitespace-pre-wrap">
+                  {memory.content}
+                </p>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Last written {day(memory.versionedAt, project.timezone)}
+                </p>
+              </div>
+            )}
+
+            {/*
+              The budget, pushed back against as it fills. Over half it says so;
+              over budget it says so in red. A count with no meter would be a
+              number nobody reads.
+            */}
+            <div className="space-y-1">
+              <div
+                role="meter"
+                aria-valuenow={memory.size}
+                aria-valuemax={memory.budget}
+                aria-label="Memory size against its budget"
+                className="bg-muted h-1.5 overflow-hidden rounded-full"
+              >
+                <div
+                  className={
+                    memory.size > memory.budget
+                      ? 'bg-destructive h-full'
+                      : memory.size > memory.budget / 2
+                        ? // The one hard-coded colour the product had, and the
+                          // only value outside the system: the palette is
+                          // achromatic with one hue and that hue means *late, or
+                          // unconfirmed*, which a budget over half is not. A chart
+                          // grey, which is the token set that exists for a mark
+                          // (issue #117, the brief's `## Colour`).
+                          'bg-chart-2 h-full'
+                        : 'bg-primary h-full'
+                  }
+                  style={{
+                    width: `${Math.min(100, (memory.size / memory.budget) * 100)}%`,
+                  }}
+                />
+              </div>
+              <p
+                className={`text-xs ${
+                  memory.size > memory.budget
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                {memory.size.toLocaleString()} of{' '}
+                {memory.budget.toLocaleString()} characters
+                {memory.size > memory.budget
+                  ? ' — over budget; memory stays readable only if it stays small, so cut before you add'
+                  : memory.size > memory.budget / 2
+                    ? ' — past half; keep it curated'
+                    : ''}
+              </p>
+            </div>
+
+            <MemoryForm projectId={id} current={memory.content} />
+
+            <MemoryActivityList
+              projectId={id}
+              initial={{ runs: memoryRuns, proposals: memoryProposals }}
+            />
+          </div>
+        </Disclosure>
+
+        <Disclosure summary={`Phases (${phases.length})`}>
+          <div className="space-y-3">
+            <p className="text-muted-foreground text-xs">
+              Free text, in the order this job runs them.
+            </p>
+            {phases.length > 0 && (
+              <PhaseList
+                phases={phases}
+                projectId={id}
+                currentPhaseId={project.currentPhaseId}
+              />
+            )}
+            <NewPhaseForm projectId={id} />
+          </div>
+        </Disclosure>
+      </div>
     </div>
   );
 }

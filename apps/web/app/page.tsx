@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { listClock, listExposure, listProjects, type Project } from './api';
+import { Disclosure } from './disclosure';
 import { NewProjectForm } from './new-project-form';
 import { ScopeToggle, isMine, scopeHref, scopeOf } from './scope';
+import { SectionHead } from './section-head';
 
 /**
  * Read on every request. Both counts are computed queries over the records
@@ -64,22 +65,30 @@ export default async function Home({
   const drill = (path: string) => scopeHref(path, scope);
 
   return (
-    <div className="space-y-8">
+    // Desk measure, which `<main>` already is — plate D-01 is the lists-and-
+    // rows half of the brief's `## The spacing scale, and the measure`, so this
+    // screen wraps nothing narrower. `space-y-6` is *between sections*.
+    <div className="space-y-6">
       {/*
         The morning screen, and it is the landing view rather than a page the
         engineer has to remember to open (story 47). The daily layer leads and
         the project list follows it, because what to do this morning is read
         off the two counts and the jobs are where you go next.
+
+        It is the one screen whose job is to be **read in ten seconds** (the
+        brief's `### Desk`), which is the whole of what issue #120 does to it:
+        nothing new moved on, and the only form moved off.
       */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">This morning</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
+        <p className="text-muted-foreground mt-1 text-xs">
           The daily layer, across every live project. Two counts, never
           combined into one.
         </p>
+        <div className="mt-4">
+          <ScopeToggle scope={scope} href={(next) => scopeHref('/', next)} />
+        </div>
       </div>
-
-      <ScopeToggle scope={scope} href={(next) => scopeHref('/', next)} />
 
       {/*
         The two counts, side by side and never combined (ADR-0016). Each is a
@@ -102,6 +111,15 @@ export default async function Home({
             currently standing on an unresolved open item
             {mine ? ' of mine' : ''}
           </span>
+          {/*
+            Where the count lands, said on the card (plate D-01's `.href`). It
+            is bar 5 spelled out: the figure is the length of that list, and
+            naming the destination is what makes "drills through to exactly the
+            records it counted" readable rather than only true.
+          */}
+          <span className="text-muted-foreground ml-auto font-mono text-xs">
+            {drill('/exposure')}
+          </span>
         </Link>
 
         <Link
@@ -116,41 +134,57 @@ export default async function Home({
               ? `register entry sitting in ${mine ? 'my' : 'our'} court past its turnaround`
               : `register entries sitting in ${mine ? 'my' : 'our'} court past their turnaround`}
           </span>
+          <span className="text-muted-foreground ml-auto font-mono text-xs">
+            {drill('/clock')}
+          </span>
         </Link>
       </div>
 
       <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-medium">Projects</h2>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {live.length === 0
-              ? 'No live projects.'
-              : `${live.length} live${archived.length > 0 ? `, ${archived.length} archived` : ''}`}
-          </p>
-        </div>
+        {/*
+          The figure moves into the head rather than sitting on a line of its
+          own under it (the brief's `## The type scale`, and plate D-01 draws it
+          there): a 12 px rule-under head with the count pushed to the end says
+          what the `text-lg` head plus its own `<p>` said, in one row.
+        */}
+        <SectionHead
+          aside={
+            <span className="tabular-nums">
+              {live.length === 0 ? 'none live' : `${live.length} live`}
+            </span>
+          }
+        >
+          Projects
+        </SectionHead>
 
         {live.length > 0 && <ProjectList projects={live} />}
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Add a project</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/*
-            The zones this runtime knows, read on the server: the API refuses
-            a name that is not one of them, so the control cannot offer one
-            (ADR-0054).
-          */}
-          <NewProjectForm zones={Intl.supportedValuesOf('timeZone')} />
-        </CardContent>
-      </Card>
+      {/*
+        Density rule 1, and the judgment call plate D-01's annotation names:
+        the form stays on the landing screen at **0 taps to reach** and costs
+        **one tap** to open. That is bar 2, and it is what returns this screen
+        to being readable in ten seconds — the card was the tallest thing on it
+        and it is used once a job.
+      */}
+      <Disclosure summary="Add a project">
+        {/*
+          The zones this runtime knows, read on the server: the API refuses
+          a name that is not one of them, so the control cannot offer one
+          (ADR-0054).
+        */}
+        <NewProjectForm zones={Intl.supportedValuesOf('timeZone')} />
+      </Disclosure>
 
+      {/*
+        Density rule 3's own example — *Archived (2)*. A finished section is
+        collapsed and carries its count in the summary; nothing on this list is
+        live work, which is the whole of what makes it finished.
+      */}
       {archived.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-muted-foreground text-sm font-medium">Archived</h2>
+        <Disclosure summary={`Archived (${archived.length})`}>
           <ProjectList projects={archived} archived />
-        </section>
+        </Disclosure>
       )}
 
       {/*
@@ -165,10 +199,8 @@ export default async function Home({
         arrive in. The link carries the question and the list carries the
         number, which is the same reason exposure and the clock are lists.
       */}
-      <section className="space-y-2 border-t pt-6">
-        <h2 className="text-muted-foreground text-sm font-medium">
-          Across the jobs
-        </h2>
+      <section className="space-y-3">
+        <SectionHead>Across the jobs</SectionHead>
         <p className="text-muted-foreground text-sm">
           <Link
             href="/issues"
@@ -195,8 +227,8 @@ export default async function Home({
         client-side navigation or a prefetch of it would fetch the entire
         record to render nothing.
       */}
-      <section className="space-y-2 border-t pt-6">
-        <h2 className="text-muted-foreground text-sm font-medium">The record</h2>
+      <section className="space-y-3">
+        <SectionHead>The record</SectionHead>
         <p className="text-muted-foreground text-sm">
           <a href="/export" className="text-foreground underline underline-offset-4">
             Download the whole record as one file

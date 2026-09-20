@@ -54,11 +54,26 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     >
       <body className="bg-background text-foreground min-h-svh antialiased">
         <header className="border-b">
-          <nav className="mx-auto flex max-w-5xl items-center gap-6 px-6 py-3">
+          {/*
+            **It wraps** (issue #120, density rule 7: *one column below 768 px,
+            everywhere, including the desk screens*). Neither row carried
+            `flex-wrap` until now, so the nav's min-content width — the brand,
+            five links, the theme control and the sign-out — was **735 px**, and
+            a non-wrapping flex inside `<body>` propagates that to the document:
+            at 390 px the whole page scrolled sideways, the walk screen
+            included, though the walk's own content was 390 px. It predates
+            issue #118, which changed no part of the shell.
+
+            Wrapping and not `overflow-x-auto`, which is what the walk's jumper
+            does: the jumper is five anchors that have to stay one 44 px bar, and
+            this is a header that may be two rows on a phone and costs nothing
+            by being one.
+          */}
+          <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3">
             <Link href="/" className="text-sm font-semibold tracking-tight">
               Engineer PM OS
             </Link>
-            <div className="text-muted-foreground flex items-center gap-4 text-sm">
+            <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
               {/*
                 `/` is the morning screen (story 47), and the project list is
                 the section under its two counts — so the nav says what the
@@ -93,7 +108,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               </Link>
             </div>
             {user !== undefined && (
-              <div className="ml-auto flex items-center gap-3">
+              <div className="ml-auto flex flex-wrap items-center gap-2">
                 {/*
                   The theme is the signed-in person's, so the control is here
                   and not above the sign-in screen: with nobody signed in there

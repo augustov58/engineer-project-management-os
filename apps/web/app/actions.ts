@@ -258,6 +258,22 @@ export async function createOpenItemOnSubmission(
 export async function resolveOpenItem(
   projectId: string,
   id: string,
+  /**
+   * Where to land so the item that just resolved **keeps its place** (issue
+   * #120, the brief's density rule 4, drawn on plate D-02): *"a resolved item
+   * keeps its place with its new state and its undo, and only the next load
+   * files it under Resolved."*
+   *
+   * `null` everywhere but the project record, which is the only screen that
+   * files resolved items somewhere else — on a submission, an entry or a
+   * finding the item stays exactly where it was and there is nothing to keep
+   * it from. The screen cannot work this out for itself: a server action
+   * revalidates and re-renders, and *which row just changed* is a fact only
+   * the caller holds. So it is said here and read back off the query string,
+   * which is a rendering rule and not a record (ADR-0038's shape: what an
+   * engineer is shown is the screen's question).
+   */
+  keepAt: string | null,
   formData: FormData,
 ): Promise<void> {
   // An item answered in April must not read as answered today just because
@@ -273,6 +289,10 @@ export async function resolveOpenItem(
     { tolerateConflict: true },
   );
   revalidateOpenItems(projectId);
+  if (keepAt !== null) {
+    // After the revalidate, so the page this lands on is the fresh one.
+    redirect(`${keepAt}?kept=${encodeURIComponent(id)}`);
+  }
 }
 
 export async function reopenOpenItem(
