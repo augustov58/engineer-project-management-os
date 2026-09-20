@@ -186,6 +186,11 @@ apply to every path stay in `AGENTS.md`.
 - The day prints **in words** on the page — `17 September 2026` — and the ISO face stays the
   wire's and the document's `<title>` (issue #119). `longDayIn` lives in `report.ts` and not in
   `zone.ts`, because one record reads it (ADR-0033); it moves to the leaf when a second does.
+- **The schedule's floor cell prints the designation bare** — `4`, not `Floor 4` — under a
+  column headed FLOOR (issue #119, plate R-01). That is not a departure from ADR-0030's rule
+  that the column holds `3` and the render supplies the word: here the table *heading* is the
+  render supplying it, and saying it in the cell as well says it twice. A **sighting** still
+  spells it in full, `Floor 3 — Corridor 3A, Side A` being a sentence with no heading over it.
 - Photographs are inlined into the report as **data URIs** and bounded to **45mm** tall since
   issue #119, inside ADR-0035's 70mm rather than against it — 70mm stopped a portrait
   photograph being a page of its own and was still nearly half a page for one picture. A figure

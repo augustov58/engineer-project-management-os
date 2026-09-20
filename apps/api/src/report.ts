@@ -273,11 +273,18 @@ const STYLESHEET = `
  *
  * Its own document, so its own font stack and its own inline styles; the 16mm
  * side padding is `@page`'s margin, which the template does not inherit.
+ *
+ * **Both halves arrive escaped**, unlike `figure` below, which escapes what it
+ * is given. The two contracts differ because this one is handed a sentence
+ * composed out of several values and that one is handed a row: escaping here
+ * would have to happen before the composing anyway, and escaping twice would
+ * print `&amp;` in a job name. Said out loud because one file holding two
+ * helpers with opposite contracts is how an unescaped value eventually gets in.
  */
-function runningFooter(left: string, right: string): string {
+function runningFooter(about: string, rendering: string): string {
   return `<div style="width:100%;padding:0 16mm;font:7.5pt/1.4 'Iowan Old Style',Palatino,Georgia,'Times New Roman',serif;color:#5c5651;display:flex;justify-content:space-between;gap:8mm;">
-  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${left}</span>
-  <span style="white-space:nowrap">${right} · page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${about}</span>
+  <span style="white-space:nowrap">${rendering} · page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
 </div>`;
 }
 
@@ -549,7 +556,7 @@ export async function composeReport(
    * printed page could only agree with the screen while both were wrong the same
    * way (issue #97).
    */
-  const day = (instant: Date) => longDayIn(instant, project.timezone);
+  const dayInWords = (instant: Date) => longDayIn(instant, project.timezone);
   const clock = (instant: Date) => clockIn(instant, project.timezone);
 
   // A walk that is still under way is a real state to render a report from:
@@ -557,8 +564,8 @@ export async function composeReport(
   // over, and the schedule below says the same thing about a floor.
   const when =
     visit.endedAt === null
-      ? `${day(visit.startedAt)} · from ${clock(visit.startedAt)}, still under way`
-      : `${day(visit.startedAt)} · ${clock(visit.startedAt)}–${clock(visit.endedAt)}`;
+      ? `${dayInWords(visit.startedAt)} · from ${clock(visit.startedAt)}, still under way`
+      : `${dayInWords(visit.startedAt)} · ${clock(visit.startedAt)}–${clock(visit.endedAt)}`;
 
   // The zone, once and in the header (ADR-0054). Every time below it is in
   // this frame, so saying so beside each one would be saying it forty times;
@@ -582,7 +589,13 @@ export async function composeReport(
         <figcaption>${escape(photo.filename)}</figcaption>
       </figure>`;
 
-  /** A row of evidence, or nothing at all where there is none to show. */
+  /**
+   * A row of evidence, or nothing at all where there is none to show.
+   *
+   * The three places a page shows photographs — a non-issue's cell, a
+   * sighting, a finding — and one shape, so a row cannot come to be spelled
+   * differently depending on what it hangs under.
+   */
   const shownUnder = (photos: { id: string; filename: string }[]) =>
     photos.length === 0
       ? ''
@@ -663,12 +676,7 @@ export async function composeReport(
         <td>${escape(observation.observed)}</td>${
           anyEvidence
             ? `
-        <td class="shown">${
-          observation.photos.length === 0
-            ? ''
-            : `<div class="evidence">${all(observation.photos.map(figure))}
-        </div>`
-        }</td>`
+        <td class="shown">${shownUnder(observation.photos)}</td>`
             : ''
         }
       </tr>`,
@@ -726,14 +734,14 @@ export async function composeReport(
       // and scanned, and the sheet that carries a finding is the one most
       // likely to travel on its own.
       escape(
-        `${project.projectNumber} · ${project.name} · site visit of ${day(visit.startedAt)}`,
+        `${project.projectNumber} · ${project.name} · site visit of ${dayInWords(visit.startedAt)}`,
       ),
       // No zone beside it, though plate R-01 draws one. The header states the
       // frame once and it governs every time in the document, this one
       // included (ADR-0054); on a footer that runs, naming it again would name
       // it once per page, which is the repetition that rule exists to stop.
       // The plate draws a single sheet and could not have said so.
-      escape(`Rendered ${day(renderingSince)} ${clock(renderingSince)}`),
+      escape(`Rendered ${dayInWords(renderingSince)} ${clock(renderingSince)}`),
     ),
   };
 }

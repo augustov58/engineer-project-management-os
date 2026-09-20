@@ -18,7 +18,6 @@
  */
 
 import puppeteer from 'puppeteer';
-import type { Composed } from './report.js';
 
 /**
  * A browser per document, started and closed around one render.
@@ -29,7 +28,13 @@ import type { Composed } from './report.js';
  * already on a queue, and a long-lived browser is a second process to keep
  * alive, notice the death of, and shut down with the API.
  */
-export async function renderPdf({ html, footer }: Composed): Promise<Buffer> {
+export async function renderPdf({
+  html,
+  footer,
+}: {
+  html: string;
+  footer: string;
+}): Promise<Buffer> {
   // The default sandbox, deliberately not disabled. The page is built by this
   // product, but it inlines photographs that arrived from outside it, and
   // `--no-sandbox` is the flag that would make one of them a problem worth

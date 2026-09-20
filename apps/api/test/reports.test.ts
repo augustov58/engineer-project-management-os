@@ -771,7 +771,16 @@ test("a sighting's photographs print with that sighting", async () => {
 });
 
 test('a sighting is never split from the location that labels it', async () => {
-  const app = await api();
+  // The clock is pinned to a minute that reads `09:05` on the building's wall,
+  // which is deliberately one of the ten this test looks for. The running
+  // footer carries a clock of its own — `Rendered 23 July 2026 09:05 · page 1
+  // of 3` — so a bare `09:05 ·` matches every page, and with the system clock
+  // this test failed for ten minutes of every day. The fixture makes that
+  // collision certain rather than occasional, and the assertion names the
+  // location, which is the thing being asserted anyway.
+  const app = await api({
+    timeSource: fakeTimeSource(new Date('2026-07-23T13:05:00.000Z')),
+  });
   const { walk } = await walked(app, 'R-19');
 
   // A finding taller than a page, which `break-inside: avoid-page` cannot
@@ -813,7 +822,9 @@ test('a sighting is never split from the location that labels it', async () => {
   for (let n = 0; n < 10; n += 1) {
     // The building's wall clock, four hours behind the instants above.
     const clock = `09:${String(n * 5).padStart(2, '0')}`;
-    const labelled = pages.filter((page) => page.includes(`${clock} ·`));
+    const labelled = pages.filter((page) =>
+      page.includes(`${clock} · Floor 1 — Corridor 1A, Side A`),
+    );
     expect(labelled).toHaveLength(1);
     // Its words are on the page its label is on, and not the next one.
     expect(labelled[0]).toContain(`Sighting ${n}.`);
