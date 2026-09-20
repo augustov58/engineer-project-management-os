@@ -6,6 +6,8 @@ import {
   addDocument,
   addIngestedDocument,
   archiveProject,
+  askOnProject,
+  confirmAssumptionRecord,
   createOpenItem,
   createSiteVisit,
   createSubmission,
@@ -24,11 +26,14 @@ import {
   listMemoryRuns,
   listOpenItems,
   listPhases,
+  listProjectConversations,
   listRegisters,
   listSiteVisits,
   listSubmissions,
   listUsers,
 } from '../../api';
+import { ChatProgress } from '../../conversation';
+import { ConversationPanel } from '../../conversation-panel';
 import { Disclosure } from '../../disclosure';
 import { DocumentForm } from '../../document-form';
 import { DocumentList } from '../../documents';
@@ -86,6 +91,7 @@ export default async function ProjectRecord({
     arrivals,
     extractions,
     users,
+    conversations,
   ] = await Promise.all([
     listOpenItems(id),
     listOpenItems(id, true),
@@ -116,9 +122,13 @@ export default async function ProjectRecord({
     listExtractions(id),
     // Everyone at the firm, so an open item can be handed on (issue #112).
     listUsers(),
+    // The job's conversations, newest first (issue #121). The panel below
+    // shows the latest; a job with none shows the bar and nothing above it.
+    listProjectConversations(id),
   ]);
 
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
+  const [conversation] = conversations;
 
   /*
     Density rule 4, and it is a **rendering** rule rather than a feature: the
@@ -260,11 +270,11 @@ export default async function ProjectRecord({
         summary. That is density rules 1, 2 and 3 together, and it is what takes
         this screen from the baseline's 4 479 px, five and a half screens.
 
-        There is **no Conversation section**: plate D-02 draws the project
-        conversation as the same panel the walk has, and whether the project
-        chat exists is ADR-0058's ticket (issue #121) rather than this one's.
-        The brief says so in as many words — *"this brief specifies the panel it
-        will use when it does"*.
+        **Conversation** is the second section and the other one plate D-02
+        draws unrolled (issue #121). It is the same panel the walk has, which is
+        what the brief means by *"one component, two contexts"* — a `<section>`
+        and not a disclosure, because a chat behind a summary is a chat nobody
+        opens, and the plate draws it open.
       */}
       <div className="max-w-[var(--measure-record)] space-y-6">
         <section className="space-y-3">
@@ -316,6 +326,57 @@ export default async function ProjectRecord({
             <NewOpenItemForm submit={createOpenItem.bind(null, id)} />
           </Disclosure>
         </section>
+
+        {/*
+          The project chat (issue #121, ADR-0058 part 4). The **latest**
+          conversation, which is what the newest-first read answers with first:
+          a job has any number of them, and the one anybody is in is the one
+          they were last in. Opening a new one is not a control here — nothing
+          on the plate draws one, and the first question opens the first
+          conversation by itself.
+
+          The panel is on the page **before** there is a conversation, which is
+          what makes that true: a GET may not write one, so the typed bar's
+          action opens it and then asks.
+        */}
+        <ConversationPanel
+          anchor="conversation"
+          siteVisitId={null}
+          turns={conversation?.turns ?? []}
+          live={
+            <ChatProgress
+              conversationId={conversation?.id ?? null}
+              initial={conversation?.turns ?? []}
+              initialRuns={conversation?.runs ?? []}
+            />
+          }
+          issues={issues}
+          timeZone={project.timezone}
+          evidencing={new Map()}
+          unfiled={new Map()}
+          add={() => Promise.resolve(undefined)}
+          typed={askOnProject.bind(null, id, conversation?.id ?? null)}
+          typedPlaceholder="Ask about this job…"
+          typedLabel="What you want to know"
+          hint={
+            <>
+              The agent reads this job and asks the helpers. It proposes;
+              confirming is yours, and nothing it says is a record until you
+              capture it.
+            </>
+          }
+          commit={() => () => Promise.resolve({ added: 0 })}
+          confirmRecord={(turnId) =>
+            confirmAssumptionRecord.bind(null, turnId, id)
+          }
+          submissions={submissions.map((set) => ({
+            id: set.id,
+            revision: set.revision,
+            phaseName: phaseName.get(set.phaseId) ?? '',
+          }))}
+          retry={() => () => {}}
+          bindEvidence={() => () => {}}
+        />
 
         {/*
           Density rule 3's first example, and it sits directly under the section

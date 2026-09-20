@@ -457,6 +457,7 @@ describe('the extraction run', () => {
       agentRunService: {
         proposeMemoryEdit: () => Promise.reject(new Error('not this run')),
         proposeCapture: () => Promise.reject(new Error('not this run')),
+        proposeAssumptionRecord: () => Promise.resolve(),
         extractRegisterEntry: () => Promise.resolve(),
       },
     });
@@ -977,6 +978,7 @@ describe('untrusted content', () => {
     const obeying: AgentRunService = {
       proposeMemoryEdit: () => Promise.reject(new Error('not this run')),
       proposeCapture: () => Promise.reject(new Error('not this run')),
+      proposeAssumptionRecord: () => Promise.resolve(),
       extractRegisterEntry: async ({ extractionId }) => {
         await post(app, `/v1/extractions/${extractionId}/proposal`, {
           kind: 'RFI',

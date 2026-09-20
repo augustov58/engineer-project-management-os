@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   CaptureState,
-  ConversationProgress,
+  ConfirmAssumptionRecord,
   DraftObservationForm,
   TypeATurn,
   VoiceRecorder,
@@ -14,11 +14,11 @@ import { clock } from './wall-clock';
 import type { AddState, CaptureRefusal } from './actions';
 import {
   isWorking,
-  type CaptureRun,
   type Issue,
   type Photo,
   type Turn,
 } from './api';
+import type { ReactNode } from 'react';
 
 /**
  * The finding a proposal reads as another sighting of, named.
@@ -33,45 +33,60 @@ function sighted(issues: Issue[], issueId: string): string {
 }
 
 /**
- * The walk's conversation, as one component (issue #118; the approved design
- * brief's `## The conversation panel`, plate F-03).
+ * The conversation, as one component (issue #118; the approved design brief's
+ * `## The conversation panel`, plate F-03).
  *
  * ADR-0058 needs this on two records and ADR-0059 point 2 put the component in
- * the brief rather than in either ticket. Lifted out of the 847-line site visit
- * screen so that the project chat's ticket has a panel to reach for rather than
- * a second rendering to write; **only the visit is wired here**, because the
- * project-level conversations are that ticket's and nothing in this one writes
- * one. The slot that would differ is the commit — an observation on a visit, an
- * assumption record on a project — and it is deliberately not parameterised
- * until there is a second caller to parameterise it for.
+ * the brief rather than in either ticket. **Both are wired since issue #121**,
+ * and the brief's sentence held: *"one component, two contexts, and the only
+ * difference is what it proposes"*.
+ *
+ * Almost all of that difference is **data and not a prop**. A project turn has
+ * no `kind`, so it renders no audio control, no capture state and no *Ask
+ * again*; an agent turn carries a `proposal` or a `proposedAssumptionRecord`
+ * and never both, so which commit sits under it is read off the turn. What is
+ * genuinely the caller's is three things: the live summary, whose words are
+ * each screen's own; the recorder, which is a walk's and needs the walk's id;
+ * and the bound commit action, which is the slot the brief names.
  *
  * Anatomy, top to bottom, which is the brief's: **head** with the run state,
  * **turns** in `position` order, **the commit** inline under the agent turn
- * that proposed it, and **one capture bar** holding spoken and typed. A server
- * component: every live part of it is already its own client island, and the
- * turns have to be in the server's first paint (ADR-0028).
+ * that proposed it, and **one capture bar**. A server component: every live
+ * part of it is already its own client island, and the turns have to be in the
+ * server's first paint (ADR-0028).
  */
 export function ConversationPanel({
   anchor,
   siteVisitId,
   turns,
-  runs,
+  live,
   issues,
   timeZone,
   evidencing,
   unfiled,
   add,
   typed,
+  typedPlaceholder,
+  typedLabel,
+  hint,
   commit,
+  confirmRecord,
+  submissions = [],
   retry,
   bindEvidence,
 }: {
-  /** The jumper's anchor — a fragment name, never the visit's id. */
+  /** The jumper's anchor — a fragment name, never the record's id. */
   anchor: string;
-  siteVisitId: string;
+  /**
+   * The walk, or **null** on a project's conversation. It is what the recorder
+   * holds its audio under, and it is the whole of *is this a walk* on this
+   * screen — no second flag, which would be a second place the same fact lived.
+   */
+  siteVisitId: string | null;
   /** In `position` order, which is the order the API returns them in. */
   turns: Turn[];
-  runs: CaptureRun[];
+  /** The head's live summary: each screen's own words over the same stream. */
+  live: ReactNode;
   /** The job's register, so a proposed sighting reads as the finding it names. */
   issues: Issue[];
   /** The zone of the building, which is what these times are read in. */
@@ -86,10 +101,23 @@ export function ConversationPanel({
     audio: File,
   ) => Promise<CaptureRefusal | undefined>;
   typed: (previous: AddState, formData: FormData) => Promise<AddState>;
+  typedPlaceholder?: string;
+  typedLabel?: string;
+  /** The one sentence under the bar, which says what this panel commits. */
+  hint: ReactNode;
   /** Bound per turn: the confirm writes the observation onto that capture. */
   commit: (
     turnId: string,
   ) => (previous: AddState, formData: FormData) => Promise<AddState>;
+  /**
+   * Bound per turn: the confirm writes the assumption record the agent
+   * proposed on **that** turn. Absent on a walk, which proposes none.
+   */
+  confirmRecord?: (
+    turnId: string,
+  ) => (previous: AddState, formData: FormData) => Promise<AddState>;
+  /** The job's issuances, so a proposed record can be pointed at one. */
+  submissions?: { id: string; revision: string; phaseName: string }[];
   retry: (turnId: string) => (formData: FormData) => void;
   bindEvidence: (observationId: string) => (formData: FormData) => void;
 }) {
@@ -99,22 +127,14 @@ export function ConversationPanel({
 
   return (
     <section id={anchor} className="grid scroll-mt-14 gap-3">
-      <SectionHead
-        aside={
-          /*
-            Live over SSE, so a slow transcription and a slow model both read as
-            working rather than as broken — and so the agent's reply and the
-            drafts below appear without a reload.
-          */
-          <ConversationProgress
-            siteVisitId={siteVisitId}
-            initial={turns}
-            initialRuns={runs}
-          />
-        }
-      >
-        Conversation
-      </SectionHead>
+      {/*
+        Live over SSE, so a slow transcription and a slow model both read as
+        working rather than as broken — and so the agent's reply and the forms
+        below appear without a reload. **The caller's**, because the words
+        differ: a walk counts captures and transcriptions, a project counts
+        questions and has no vendor.
+      */}
+      <SectionHead aside={live}>Conversation</SectionHead>
 
       {turns.length > 0 && (
         <ul className="divide-y rounded-lg border">
@@ -142,17 +162,60 @@ export function ConversationPanel({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">Proposed</Badge>
                     <span className="text-muted-foreground text-xs">
-                      The agent read the capture above.
+                      {siteVisitId === null
+                        ? 'The agent read the job.'
+                        : 'The agent read the capture above.'}
                     </span>
                   </div>
 
-                  {turn.proposal === null ? (
+                  {turn.proposal === null &&
+                  turn.proposedAssumptionRecord === null ? (
                     // A field it could not propose, so it asked instead. The
                     // answer is the next capture and never an edit to this.
                     <p className="text-base whitespace-pre-wrap">
                       {turn.transcript}
                     </p>
-                  ) : (
+                  ) : turn.proposedAssumptionRecord !== null &&
+                    turn.assumptionRecord !== null ? (
+                    /*
+                      The proposal, **once it has been captured** (issue #121).
+                      Read-only and monospaced, because the two leading spaces
+                      and the sigils are part of what the helper printed and a
+                      proportional re-flow is a different document (ADR-0029).
+                      What is read here is the *proposal* and not the record it
+                      became: the record is the submission's, and the engineer
+                      may have edited a line on the way.
+
+                      **Only once captured.** While it is still a proposal the
+                      form below is the reading — printing twenty-five lines of
+                      blocks twice, once to read and once to edit, was 600 px of
+                      the same text on a 390 px screen and read as two different
+                      things.
+                    */
+                    <div className="grid gap-1.5">
+                      <p className="text-muted-foreground text-xs">
+                        Assumptions
+                      </p>
+                      <pre className="overflow-x-auto font-mono text-xs whitespace-pre-wrap">
+                        {turn.proposedAssumptionRecord.assumptions}
+                      </pre>
+                      <p className="text-muted-foreground text-xs">
+                        Flags / verify
+                      </p>
+                      <pre className="overflow-x-auto font-mono text-xs whitespace-pre-wrap">
+                        {turn.proposedAssumptionRecord.flags}
+                      </pre>
+                      <p className="text-muted-foreground text-xs">
+                        Code edition
+                      </p>
+                      <p className="text-base">
+                        {turn.proposedAssumptionRecord.codeEdition}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        Captured against the issuance you chose.
+                      </p>
+                    </div>
+                  ) : turn.proposal !== null ? (
                     <div className="grid gap-1.5">
                       {/* Named once: the same scan ran twice, under two `!`s. */}
                       {/*
@@ -185,7 +248,27 @@ export function ConversationPanel({
                         </p>
                       )}
                     </div>
-                  )}
+                  ) : null}
+
+                  {/*
+                    **The commit** for a proposed assumption record, inline
+                    under the turn that proposed it and bound to that turn:
+                    what it writes is the record, and the turn is its
+                    provenance (ADR-0058 part 4). Offered only while the
+                    proposal is still one — a confirmed turn has a record, and
+                    a second confirm is refused by the record itself. Where
+                    there is one, the blocks above are the reading and there is
+                    nothing left to submit.
+                  */}
+                  {turn.proposedAssumptionRecord !== null &&
+                    turn.assumptionRecord === null &&
+                    confirmRecord !== undefined && (
+                      <ConfirmAssumptionRecord
+                        proposal={turn.proposedAssumptionRecord}
+                        submissions={submissions}
+                        submit={confirmRecord(turn.id)}
+                      />
+                    )}
 
                   {/*
                     **The commit**, inline under the turn that proposed it (the
@@ -232,12 +315,17 @@ export function ConversationPanel({
             return (
               <li key={turn.id} className="grid min-h-11 gap-2 px-4 py-3">
                 <div className="flex flex-wrap items-center gap-2">
+                  {/*
+                    When it was made. A capture carries the instant the engineer
+                    was standing there and a question carries only when it was
+                    written down, so a project turn reads from `createdAt` —
+                    one expression, because two components would be two places
+                    to answer *when was this said*.
+                  */}
                   <span className="text-muted-foreground text-xs tabular-nums">
-                    {turn.recordedAt === null
-                      ? ''
-                      : clock(turn.recordedAt, timeZone)}
+                    {clock(turn.recordedAt ?? turn.createdAt, timeZone)}
                   </span>
-                  <CaptureState capture={turn} />
+                  {turn.kind !== null && <CaptureState capture={turn} />}
                   {turn.kind === 'VOICE' && (
                     /*
                       Through the Next server, never straight at the API — the
@@ -261,7 +349,7 @@ export function ConversationPanel({
                   only inside it, because the form's box is the engineer's
                   correction and this is what they are correcting *from*.
                 */}
-                {turn.kind === 'TYPED' && turn.transcript !== null && (
+                {turn.kind !== 'VOICE' && turn.transcript !== null && (
                   <p className="text-base whitespace-pre-wrap">
                     {turn.transcript}
                   </p>
@@ -302,7 +390,7 @@ export function ConversationPanel({
                     </div>
                   )}
 
-                {turn.observation !== null ? (
+                {siteVisitId === null ? null : turn.observation !== null ? (
                   <div className="grid gap-1.5">
                     <p className="text-muted-foreground text-xs">
                       {turn.observation.location}
@@ -356,29 +444,41 @@ export function ConversationPanel({
       */}
       <div className="grid gap-2 rounded-lg border p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-          <div className="sm:w-56 sm:shrink-0">
-            <VoiceRecorder siteVisitId={siteVisitId} add={add} />
-          </div>
-          {/* The plate's `or`: one bar offering two ways into one record. */}
-          <p className="text-muted-foreground self-center text-xs">or</p>
+          {/*
+            **The recorder is a walk's.** Plate D-02 draws the project chat as
+            one text control, and the reason is the record rather than the
+            drawing: a project conversation has no capture machinery — no kind,
+            no instant, no audio — and nothing transcribes for it. A microphone
+            on this bar would be a control with no route behind it.
+          */}
+          {siteVisitId !== null && (
+            <>
+              <div className="sm:w-56 sm:shrink-0">
+                <VoiceRecorder siteVisitId={siteVisitId} add={add} />
+              </div>
+              {/* The plate's `or`: one bar offering two ways into one record. */}
+              <p className="text-muted-foreground self-center text-xs">or</p>
+            </>
+          )}
           <div className="min-w-0 flex-1">
-            <TypeATurn submit={typed} />
+            <TypeATurn
+              submit={typed}
+              placeholder={typedPlaceholder}
+              label={typedLabel}
+            />
           </div>
         </div>
         {/*
-          One hint for both halves, which is why the two static sentences that
-          used to sit under the two controls are gone. It carries **both** of
-          their promises: the one the plate draws, and the recorder's own — that
-          a capture is a draft the engineer corrects, so a misheard word never
-          becomes the record. That second one is ADR-0057's whole thesis and
-          dropping it to match the drawn copy would have deleted it from the
-          product.
+          One hint for the whole bar, which is why the two static sentences that
+          used to sit under the two controls are gone. On a walk it carries
+          **both** of their promises: the one the plate draws, and the
+          recorder's own — that a capture is a draft the engineer corrects, so a
+          misheard word never becomes the record. That second one is ADR-0057's
+          whole thesis and dropping it to match the drawn copy would have
+          deleted it from the product. The caller's, since the second context
+          commits something else.
         */}
-        <p className="text-muted-foreground text-xs">
-          Spoken or typed, it is one capture, and a draft you correct before it
-          is recorded &mdash; a misheard word never becomes the record.
-          Confirming is yours; the agent never writes it.
-        </p>
+        <p className="text-muted-foreground text-xs">{hint}</p>
       </div>
     </section>
   );

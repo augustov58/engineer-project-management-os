@@ -237,6 +237,8 @@ function capture(position: number, patch: Partial<api.Turn> = {}): api.Turn {
     agentRunId: null,
     state: 'transcribed',
     proposal: null,
+    proposedAssumptionRecord: null,
+    assumptionRecord: null,
     observation: null,
     ...patch,
   };

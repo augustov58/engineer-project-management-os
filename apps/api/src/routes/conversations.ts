@@ -1,6 +1,6 @@
 /**
- * The conversation on a site visit: its turns, the draft each capture becomes,
- * and the run that proposes one (issue #12, widened by issue #114).
+ * The conversation: its turns, what each becomes, and the run that proposes one
+ * (issue #12, widened by issue #114 and again by issue #121).
  *
  * This file was `routes/voice.ts`. The record is the same one renamed and
  * widened twice: ADR-0057 made a capture one record whether it was spoken or
@@ -10,13 +10,27 @@
  * state is four stamps, and a resend under the same key is answered rather than
  * refused.
  *
- * What is new is the second kind of capture and the agent's reply. A typed turn
- * queues a proposal run; the run reads the walk through the routes, receives the
- * conversation as delimited untrusted data, and calls one mutating tool, which
- * lands on `POST /capture-runs/:id/proposal` below and writes **a turn** — the
- * agent's own, carrying the draft's fields or the question it has instead. The
- * agent never writes an observation: confirming does, and confirming is the
- * engineer's.
+ * What issue #114 added is the second kind of capture and the agent's reply. A
+ * typed turn queues a proposal run; the run reads the walk through the routes,
+ * receives the conversation as delimited untrusted data, and calls one mutating
+ * tool, which lands on `POST /capture-runs/:id/proposal` below and writes **a
+ * turn** — the agent's own, carrying the draft's fields or the question it has
+ * instead. The agent never writes an observation: confirming does, and
+ * confirming is the engineer's.
+ *
+ * What issue #121 adds is **the second context**. A conversation on a project
+ * has no walk, so its engineer turn is not a capture at all — no kind, no
+ * instant, no recording, and its words arrive with it. Its run is given every
+ * read the memory agent has, the documents read and every helper route, and its
+ * one mutating tool lands on `POST /assumption-record-runs/:id/proposal` and
+ * writes a turn proposing an **assumption record** against a submission. The
+ * confirm is `POST /submissions/:id/assumption-records`, the route that already
+ * writes one, carrying the turn as provenance (ADR-0058 part 4).
+ *
+ * The two contexts share this file because they share the record: one
+ * `position` allocator, one resend rule, one shape on the wire. What differs is
+ * what a turn may carry and what the agent may propose, and both of those are
+ * held by CHECK constraints rather than by these routes remembering.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -26,13 +40,27 @@ import {
   type PrismaClient,
 } from '../../generated/prisma/client.js';
 import { BASE64, type RouteDependencies, violates } from '../http.js';
-import { noSuchSiteVisit, noSuchTurn } from '../refusals.js';
+import {
+  noSuchConversation,
+  noSuchProject,
+  noSuchSiteVisit,
+  noSuchTurn,
+} from '../refusals.js';
 import { progressStreams } from '../stream.js';
-import { PROPOSE_CAPTURE, TRANSCRIBE } from '../worker.js';
-import type { ProposeCaptureJob, TranscribeJob } from '../worker.js';
+import {
+  PROPOSE_ASSUMPTION_RECORD,
+  PROPOSE_CAPTURE,
+  TRANSCRIBE,
+} from '../worker.js';
+import type {
+  ProposeAssumptionRecordJob,
+  ProposeCaptureJob,
+  TranscribeJob,
+} from '../worker.js';
 import {
   conversationHeld,
   conversationOnTheWire,
+  turnBecame,
   turnOnTheWire,
 } from '../wire.js';
 import { audit } from '../audit.js';
@@ -208,6 +236,86 @@ interface ProposalBody extends Partial<ObservationBody> {
 }
 
 /**
+ * The engineer's turn on a **project**'s conversation (issue #121).
+ *
+ * The capture body with the capture machinery gone: there is no walk, so there
+ * is no kind, no instant and no recording, and what was typed arrived with the
+ * request. A body of its own rather than a third branch of `turnBodySchema` —
+ * the two differ in every field but one, and `oneOf` over three branches where
+ * two of them cannot occur on the same record is a schema that documents
+ * nothing.
+ *
+ * The **key stays**, and it is not about audio: it is how a send that did not
+ * visibly land is retried without saying the same thing twice (story 112,
+ * ADR-0057). A desk on a bad connection is not different from a phone in a
+ * basement, and the typed box on the screen is the same component.
+ */
+const askBodySchema = {
+  type: 'object',
+  required: ['captureKey', 'text'],
+  properties: {
+    captureKey: CAPTURE_KEY,
+    text: { type: 'string', pattern: '\\S', maxLength: TYPED_MAX },
+  },
+  additionalProperties: false,
+} as const;
+
+/**
+ * What the agent may answer with on a project's conversation (issue #121,
+ * ADR-0058 part 4): the assumption record it proposes, or what it has to say
+ * instead. Never both, for `proposalBodySchema`'s reason — the engineer's
+ * screen either shows a record to confirm or an answer to read, and a body
+ * carrying both would leave which one it is to whoever read it next.
+ *
+ * The caps are the record's own, so a proposal that could not be confirmed is
+ * refused where it is made rather than where it is answered: `assumptions` and
+ * `flags` at 4,000 each and `codeEdition` at 200 are
+ * `assumptionRecordBodySchema`'s figures, and the answer's 8,400 is the two
+ * blocks quoted whole plus a sentence — which is precisely what the ticket asks
+ * an answer to carry when no submission has been named.
+ */
+const RECORD_BLOCK_MAX = 4_000;
+const CODE_EDITION_MAX = 200;
+const ANSWER_MAX = 8_400;
+
+const recordProposalBodySchema = {
+  type: 'object',
+  properties: {
+    submissionId: { type: 'string', format: 'uuid' },
+    assumptions: { type: 'string', pattern: '\\S', maxLength: RECORD_BLOCK_MAX },
+    flags: { type: 'string', pattern: '\\S', maxLength: RECORD_BLOCK_MAX },
+    codeEdition: { type: 'string', pattern: '\\S', maxLength: CODE_EDITION_MAX },
+    answer: { type: 'string', pattern: '\\S', maxLength: ANSWER_MAX },
+  },
+  oneOf: [
+    {
+      required: ['submissionId', 'assumptions', 'flags', 'codeEdition'],
+      not: { required: ['answer'] },
+    },
+    {
+      required: ['answer'],
+      not: {
+        anyOf: [
+          { required: ['submissionId'] },
+          { required: ['assumptions'] },
+          { required: ['flags'] },
+          { required: ['codeEdition'] },
+        ],
+      },
+    },
+  ],
+  additionalProperties: false,
+} as const;
+
+interface RecordProposalBody {
+  submissionId?: string;
+  assumptions?: string;
+  flags?: string;
+  codeEdition?: string;
+  answer?: string;
+}
+
+/**
  * What the walk's conversation panel watches: its turns in order, and the
  * state of the runs held on it.
  *
@@ -255,6 +363,21 @@ async function conversationOn(prisma: PrismaClient, siteVisitId: string) {
     where: { siteVisitId },
     select: { id: true, projectId: true, siteVisitId: true },
   });
+}
+
+/** One conversation by its own id, which is how a project's is reached. */
+async function conversationById(prisma: PrismaClient, id: string) {
+  return prisma.conversation.findUnique({
+    where: { id },
+    select: { id: true, projectId: true, siteVisitId: true },
+  });
+}
+
+/** One conversation whole, in `position` order, for a read and for a stream. */
+function wholeConversation(prisma: PrismaClient, id: string) {
+  return prisma.conversation
+    .findUniqueOrThrow({ where: { id }, ...conversationHeld })
+    .then(conversationOnTheWire);
 }
 
 export function conversationRoutes(
@@ -323,7 +446,7 @@ export function conversationRoutes(
               captureKey,
             },
           },
-          include: { observation: true },
+          include: turnBecame,
         });
 
       const already = await existing();
@@ -373,7 +496,7 @@ export function conversationRoutes(
               transcript: request.body.text ?? null,
               createdAt: at,
             },
-            include: { observation: true },
+            include: turnBecame,
           });
 
           // A typed turn asks the agent for a draft, and the run is written in
@@ -574,7 +697,7 @@ export function conversationRoutes(
 
           return tx.turn.findUniqueOrThrow({
             where: { id: turn.id },
-            include: { observation: true },
+            include: turnBecame,
           });
         })
         .catch((error: unknown) => {
@@ -652,7 +775,7 @@ export function conversationRoutes(
         const cleared = await tx.turn.update({
           where: { id: turn.id },
           data: { transcribingSince: null, failedAt: null, failure: null },
-          include: { observation: true },
+          include: turnBecame,
         });
         // The failure is about to be cleared, so what the vendor said survives
         // here or nowhere — the reason a reopen names the closure it cleared.
@@ -761,7 +884,7 @@ export function conversationRoutes(
               proposedIssueId: issueId ?? null,
               createdAt: at,
             },
-            include: { observation: true },
+            include: turnBecame,
           });
           await audit(tx, {
             projectId: run.projectId,
@@ -790,6 +913,360 @@ export function conversationRoutes(
         }
         throw error;
       }
+    },
+  );
+
+  /**
+   * Opening a conversation on a project (issue #121, ADR-0058 part 1).
+   *
+   * **Any number per project**, where a visit has exactly one created with it.
+   * The difference is not an oversight in either direction: a walk's
+   * conversation is the surface its captures are made on and a second would be
+   * a second place a walk's words lived, while a question about a job is asked
+   * and answered and asked again about something else, and one endless thread
+   * per job would be the only record here that never ends.
+   *
+   * No body. There is nothing to say about a conversation before anything has
+   * been said in it — no title, no subject, no kind — and a field nothing
+   * writes is a field nobody can trust.
+   */
+  v1.post<{ Params: { id: string } }>(
+    '/projects/:id/conversations',
+    async (request, reply) => {
+      const project = await prisma.project.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (project === null) {
+        return noSuchProject(reply);
+      }
+
+      const at = timeSource.now();
+      const opened = await prisma.$transaction(async (tx) => {
+        const conversation = await tx.conversation.create({
+          data: { projectId: project.id, createdAt: at },
+          ...conversationHeld,
+        });
+        await audit(tx, {
+          projectId: project.id,
+          actor: actorOf(request),
+          subject: { type: 'conversation', id: conversation.id },
+          action: 'conversation opened',
+          detail: 'on the project',
+          at,
+        });
+        return conversation;
+      });
+      return reply.code(201).send(conversationOnTheWire(opened));
+    },
+  );
+
+  /**
+   * The project's conversations, newest first.
+   *
+   * Newest first and not oldest, which is the opposite of every other list on
+   * this job and is the same answer the activity feed gives: what is asked of
+   * this read is *the one I am in*, and a job with thirty conversations would
+   * otherwise answer with the first question anybody ever asked. The turns
+   * inside each still read oldest first — that is the conversation's own order
+   * and it is `position`'s.
+   */
+  v1.get<{ Params: { id: string } }>(
+    '/projects/:id/conversations',
+    async (request, reply) => {
+      const project = await prisma.project.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (project === null) {
+        return noSuchProject(reply);
+      }
+
+      const found = await prisma.conversation.findMany({
+        // The project's own, and never a walk's: a walk's conversation is read
+        // through the walk, and answering with both here would put a field
+        // engineer's captures on a desk screen that is not about that walk.
+        where: { projectId: project.id, siteVisitId: null },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...conversationHeld,
+      });
+      return found.map(conversationOnTheWire);
+    },
+  );
+
+  /**
+   * One conversation, by its own id.
+   *
+   * A walk's is read through the walk and a project's through this, because a
+   * walk has exactly one and a project has any number — so the identifier a
+   * caller has in hand is different, not the record.
+   */
+  v1.get<{ Params: { id: string } }>(
+    '/conversations/:id',
+    async (request, reply) => {
+      const conversation = await conversationById(prisma, request.params.id);
+      if (conversation === null) {
+        return noSuchConversation(reply);
+      }
+      return wholeConversation(prisma, conversation.id);
+    },
+  );
+
+  /**
+   * The engineer's turn on a project's conversation (issue #121).
+   *
+   * What they typed, and the run it asks for. Every typed turn queues one —
+   * there is no spoken branch here and so no asymmetry to keep: a project
+   * conversation is a question being asked, and a question with nothing
+   * answering it is not one.
+   *
+   * **A repeat is answered, not refused**, exactly as on a walk and for the
+   * same reason: a refusal cannot tell the client whether the first attempt
+   * landed. Nothing is re-queued — the answer already on the conversation, or
+   * the run's state, is what a retry is for.
+   *
+   * Refused on a **walk's** conversation, by name. That route takes a kind, an
+   * instant and possibly a recording, and a walk's turn reaching this one would
+   * be a capture with none of them.
+   */
+  v1.post<{ Params: { id: string }; Body: { captureKey: string; text: string } }>(
+    '/conversations/:id/turns',
+    { schema: { body: askBodySchema } },
+    async (request, reply) => {
+      const conversation = await conversationById(prisma, request.params.id);
+      if (conversation === null) {
+        return noSuchConversation(reply);
+      }
+      if (conversation.siteVisitId !== null) {
+        return reply.code(409).send({
+          message:
+            'that conversation is on a site visit, where a turn is a capture',
+        });
+      }
+
+      const { captureKey, text } = request.body;
+      const existing = () =>
+        prisma.turn.findUnique({
+          where: {
+            conversationId_captureKey: {
+              conversationId: conversation.id,
+              captureKey,
+            },
+          },
+          include: turnBecame,
+        });
+
+      const already = await existing();
+      if (already !== null) {
+        return turnOnTheWire(already);
+      }
+
+      const at = timeSource.now();
+      let stored;
+      try {
+        stored = await prisma.$transaction(async (tx) => {
+          const turn = await tx.turn.create({
+            data: {
+              conversationId: conversation.id,
+              speaker: 'ENGINEER',
+              position: await nextPosition(tx, conversation.id),
+              // No kind and no instant: the capture machinery is a walk's, and
+              // the CHECK takes it whole or not at all. What was typed is what
+              // was said, verbatim and from the first instant.
+              transcript: text,
+              captureKey,
+              createdAt: at,
+            },
+            include: turnBecame,
+          });
+          // The run is written in the same transaction as the turn that asked
+          // for it: a run nobody can point at a turn for is a run nobody asked
+          // for.
+          const run = await tx.agentRun.create({
+            data: {
+              projectId: conversation.projectId,
+              conversationId: conversation.id,
+              createdAt: at,
+            },
+            select: { id: true },
+          });
+          await mintRunSession(
+            tx,
+            { agentRunId: run.id },
+            callerOf(request).userId,
+            at,
+          );
+          await audit(tx, {
+            projectId: conversation.projectId,
+            actor: actorOf(request),
+            subject: { type: 'turn', id: turn.id },
+            action: 'question asked of the job',
+            // The words are not quoted: they stand on the turn, and a line
+            // carrying them would be a second place the engineer's own words
+            // lived (the capture routes' rule, applied here).
+            detail: turn.captureKey ?? '',
+            at,
+          });
+          return { turn, runId: run.id };
+        });
+      } catch (error) {
+        if (violates(error, 'capture_key')) {
+          const raced = await existing();
+          if (raced !== null) {
+            return turnOnTheWire(raced);
+          }
+        }
+        throw error;
+      }
+
+      await queue.add(PROPOSE_ASSUMPTION_RECORD, {
+        agentRunId: stored.runId,
+      } satisfies ProposeAssumptionRecordJob);
+
+      return reply.code(201).send(turnOnTheWire(stored.turn));
+    },
+  );
+
+  /**
+   * The project chat's one mutating tool lands here (issue #121, ADR-0058
+   * part 4).
+   *
+   * What it writes is **a turn** — the agent's answer on the conversation,
+   * carrying either a proposed assumption record or what it has to say instead.
+   * It is not an assumption record and cannot become one on its own: the
+   * confirm is `POST /submissions/:id/assumption-records`, which is the route
+   * that has always written one, and it is the engineer's.
+   *
+   * `capture-runs/:id/proposal`'s shape exactly, including its refusals: one
+   * turn per run held by the unique `agent_run_id`, a settled run refused, and
+   * a submission on another job answered with a 404 at the route rather than a
+   * foreign-key 500.
+   *
+   * The typed-shape constraint lives in the body schema above and not in the
+   * prompt, for ADR-0043's reason: a prompt is not a place a constraint can be
+   * held. The two blocks are written **exactly as they arrive** — nothing here
+   * trims, normalises or re-wraps them (ADR-0029).
+   */
+  v1.post<{ Params: { id: string }; Body: RecordProposalBody }>(
+    '/assumption-record-runs/:id/proposal',
+    { schema: { body: recordProposalBodySchema } },
+    async (request, reply) => {
+      const run = await prisma.agentRun.findUnique({
+        where: { id: request.params.id },
+        select: {
+          id: true,
+          projectId: true,
+          finishedAt: true,
+          failedAt: true,
+          conversation: { select: { id: true, siteVisitId: true } },
+        },
+      });
+      if (
+        run === null ||
+        run.conversation === null ||
+        run.conversation.siteVisitId !== null
+      ) {
+        return reply
+          .code(404)
+          .send({ message: 'no project chat run with that id' });
+      }
+      if (run.finishedAt !== null || run.failedAt !== null) {
+        return reply
+          .code(409)
+          .send({ message: 'that run has already settled' });
+      }
+
+      const conversationId = run.conversation.id;
+      const { answer, submissionId, assumptions, flags, codeEdition } =
+        request.body;
+      // A submission on another job is not this conversation's to propose
+      // against, and the proposal names one by id — so it is checked here
+      // rather than left to the foreign key, which would 500 on a stranger's
+      // uuid.
+      if (submissionId !== undefined) {
+        const set = await prisma.submission.findUnique({
+          where: { id: submissionId },
+          select: { projectId: true },
+        });
+        if (set === null || set.projectId !== run.projectId) {
+          return reply
+            .code(404)
+            .send({ message: 'no submission with that id on this project' });
+        }
+      }
+
+      const at = timeSource.now();
+      try {
+        const written = await prisma.$transaction(async (tx) => {
+          const turn = await tx.turn.create({
+            data: {
+              conversationId,
+              speaker: 'AGENT',
+              position: await nextPosition(tx, conversationId),
+              agentRunId: run.id,
+              // The answer is the agent's words, in the one column a turn's
+              // words live in (ADR-0058: "its text verbatim"). A turn that
+              // proposes a record carries no words at all, and that is not a
+              // missing value: the proposal is what it said.
+              transcript: answer ?? null,
+              proposedSubmissionId: submissionId ?? null,
+              proposedAssumptions: assumptions ?? null,
+              proposedFlags: flags ?? null,
+              proposedCodeEdition: codeEdition ?? null,
+              createdAt: at,
+            },
+            include: turnBecame,
+          });
+          await audit(tx, {
+            projectId: run.projectId,
+            actor: actorOf(request),
+            subject: { type: 'turn', id: turn.id },
+            action:
+              answer === undefined
+                ? 'assumption record proposed'
+                : 'the job answered',
+            // Neither the answer nor the blocks are quoted: both stand on the
+            // turn, and a line carrying them would be a second place the
+            // agent's words lived — and a second place a captured block lived,
+            // which is what ADR-0029 keeps one of.
+            detail:
+              answer === undefined
+                ? `against submission ${submissionId ?? ''}`
+                : 'no submission was named',
+            at,
+          });
+          return turn;
+        });
+        return reply.code(201).send(turnOnTheWire(written));
+      } catch (error) {
+        // Narrowed to the run: one run, at most one turn.
+        if (violates(error, 'agent_run_id')) {
+          return reply
+            .code(409)
+            .send({ message: 'that run has already answered' });
+        }
+        throw error;
+      }
+    },
+  );
+
+  /**
+   * A project conversation's progress, the walk's stream by its own id.
+   *
+   * The same reader through the same machinery (`stream.ts`, ADR-0035): what a
+   * record supplies is the reader, and this one's is the conversation whole.
+   */
+  v1.get<{ Params: { id: string } }>(
+    '/conversations/:id/stream',
+    async (request, reply) => {
+      const conversation = await conversationById(prisma, request.params.id);
+      if (conversation === null) {
+        return noSuchConversation(reply);
+      }
+
+      return stream(request, reply, () =>
+        wholeConversation(prisma, conversation.id),
+      );
     },
   );
 

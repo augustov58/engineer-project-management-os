@@ -37,6 +37,13 @@ export function useLiveList<T>(
   const rendered = useRef(summarise(initial));
 
   useEffect(() => {
+    // Nothing to open yet. The empty path is the one value read as *no
+    // stream*, for the project chat's panel, which is on the page before a
+    // conversation exists to stream (issue #121) — `new EventSource('')`
+    // resolves to the page's own URL and would poll the document forever.
+    if (path === '') {
+      return;
+    }
     const source = new EventSource(path);
     source.onmessage = (event) => {
       const current = JSON.parse(event.data as string) as T;

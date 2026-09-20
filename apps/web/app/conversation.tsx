@@ -11,8 +11,10 @@ import {
 } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useLiveList } from './live-list';
+import { selectClassName } from './native-select';
 import { held, hold, release, type HeldRecording } from './recordings';
 import { ObservationFields } from './site-visit-form';
 import type { AddState, CaptureRefusal } from './actions';
@@ -21,6 +23,7 @@ import {
   isWorking,
   type CaptureRun,
   type Proposal,
+  type RecordProposal,
   type Turn,
 } from './api';
 
@@ -446,8 +449,18 @@ function newCaptureKey(): string {
  */
 export function TypeATurn({
   submit,
+  placeholder = 'Say what you can see. Floor, where on it, what is wrong.',
+  label = 'What you are seeing',
 }: {
   submit: (previous: AddState, formData: FormData) => Promise<AddState>;
+  /**
+   * What the box asks for, which is the one thing that differs between the two
+   * conversations (issue #121): a walk asks what is in front of the engineer
+   * and a project asks about the job. Defaulted to the walk's, so the caller
+   * that was here first passes nothing.
+   */
+  placeholder?: string;
+  label?: string;
 }) {
   const [state, action, pending] = useActionState(submit, { added: 0 });
   const [text, setText] = useState('');
@@ -504,8 +517,8 @@ export function TypeATurn({
         required
         maxLength={4000}
         className="md:text-base"
-        placeholder="Say what you can see. Floor, where on it, what is wrong."
-        aria-label="What you are seeing"
+        placeholder={placeholder}
+        aria-label={label}
       />
       <Button
         type="submit"
@@ -513,6 +526,184 @@ export function TypeATurn({
         className="h-11 w-full px-4"
       >
         {pending ? 'Sending…' : 'Send'}
+      </Button>
+      {state.error !== undefined && (
+        <p role="alert" className="text-destructive text-sm">
+          {state.error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/**
+ * Progress on a project's conversation, over the same stream (issue #121).
+ *
+ * `ConversationProgress`' counterpart and deliberately its own component: a
+ * project conversation has no recording and no vendor, so *transcribing* is a
+ * state none of its turns can be in, and the words it counts are questions
+ * rather than captures. One component with a noun passed into it would be a
+ * component whose copy nobody can read off the page it is on.
+ *
+ * **Reading is the run's state and never the absence of a reply** — the panel's
+ * rule, and for its reason: a run that failed leaves no turn, so counting
+ * unanswered questions would say the agent was still reading one forever.
+ */
+export function ChatProgress({
+  conversationId,
+  initial,
+  initialRuns,
+}: {
+  /** Null before anything has been asked, when there is nothing to stream. */
+  conversationId: string | null;
+  initial: Turn[];
+  initialRuns: CaptureRun[];
+}) {
+  const live = useLiveList<Live>(
+    // A path the stream route cannot serve is never opened: the hook is called
+    // unconditionally, as hooks must be, and an empty path is the one value it
+    // reads as *nothing to open*.
+    conversationId === null ? '' : `/conversations/${conversationId}/stream`,
+    { turns: initial, runs: initialRuns },
+    summarise,
+  );
+
+  if (live.turns.length === 0) {
+    return (
+      <span className="text-muted-foreground text-xs">nothing asked yet</span>
+    );
+  }
+
+  const asked = live.turns.filter((one) => one.speaker === 'ENGINEER').length;
+  const reading = live.runs.filter(
+    (run) => run.state === 'queued' || run.state === 'running',
+  ).length;
+  const refused = live.runs.filter((run) => run.state === 'failed').length;
+
+  return (
+    <span className="text-muted-foreground text-xs">
+      {reading > 0 ? (
+        <span className="text-foreground animate-pulse font-medium">
+          {reading === 1 ? 'reading the job' : `reading ${reading} questions`}
+        </span>
+      ) : (
+        `${asked} asked`
+      )}
+      {refused > 0 && (
+        <span className="text-destructive">
+          {' · '}
+          {refused === 1
+            ? 'one question the agent could not answer'
+            : `${refused} questions the agent could not answer`}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The proposed assumption record, read and confirmed (issue #121, ADR-0058
+ * part 4).
+ *
+ * `DraftObservationForm`'s counterpart: the fields seeded with what the agent
+ * proposed, **every one of them editable**, and the engineer's submit is the
+ * body of the write. The two blocks are `readOnly`-looking in neither sense —
+ * they are ordinary boxes, because a helper's output may need a line struck
+ * before it is the record, and what goes in is what the engineer submitted.
+ *
+ * The submission is a **native select** (ADR-0025): what it serialises is the
+ * path the confirm posts to, and a styled control would be a second thing
+ * between the choice and the request.
+ */
+export function ConfirmAssumptionRecord({
+  submit,
+  proposal,
+  submissions,
+}: {
+  submit: (previous: AddState, formData: FormData) => Promise<AddState>;
+  proposal: RecordProposal;
+  /** The job's issuances, so the record can be pointed at the right one. */
+  submissions: { id: string; revision: string; phaseName: string }[];
+}) {
+  const [state, action, pending] = useActionState(submit, { added: 0 });
+
+  return (
+    <form action={action} className="grid gap-3">
+      <div className="grid gap-1.5">
+        <label
+          htmlFor={`submission-${proposal.submissionId}`}
+          className="text-muted-foreground text-xs"
+        >
+          Against which issuance
+        </label>
+        <select
+          id={`submission-${proposal.submissionId}`}
+          name="submissionId"
+          defaultValue={proposal.submissionId}
+          className={selectClassName}
+        >
+          {submissions.map((set) => (
+            <option key={set.id} value={set.id}>
+              {set.phaseName} — {set.revision}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid gap-1.5">
+        <label
+          htmlFor={`assumptions-${proposal.submissionId}`}
+          className="text-muted-foreground text-xs"
+        >
+          Assumptions
+        </label>
+        <Textarea
+          id={`assumptions-${proposal.submissionId}`}
+          name="assumptions"
+          defaultValue={proposal.assumptions}
+          rows={6}
+          required
+          maxLength={4000}
+          className="font-mono text-xs md:text-xs"
+        />
+      </div>
+
+      <div className="grid gap-1.5">
+        <label
+          htmlFor={`flags-${proposal.submissionId}`}
+          className="text-muted-foreground text-xs"
+        >
+          Flags / verify
+        </label>
+        <Textarea
+          id={`flags-${proposal.submissionId}`}
+          name="flags"
+          defaultValue={proposal.flags}
+          rows={5}
+          required
+          maxLength={4000}
+          className="font-mono text-xs md:text-xs"
+        />
+      </div>
+
+      <div className="grid gap-1.5">
+        <label
+          htmlFor={`edition-${proposal.submissionId}`}
+          className="text-muted-foreground text-xs"
+        >
+          Code edition
+        </label>
+        <Input
+          id={`edition-${proposal.submissionId}`}
+          name="codeEdition"
+          defaultValue={proposal.codeEdition}
+          required
+          maxLength={200}
+        />
+      </div>
+
+      <Button type="submit" disabled={pending} className="h-11 px-4">
+        {pending ? 'Capturing…' : 'Capture the assumption record'}
       </Button>
       {state.error !== undefined && (
         <p role="alert" className="text-destructive text-sm">

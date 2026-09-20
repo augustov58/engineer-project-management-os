@@ -27,6 +27,7 @@ import {
   listIssuesWithoutPhotos,
   listUsers,
 } from '../../api';
+import { ConversationProgress } from '../../conversation';
 import { ConversationPanel } from '../../conversation-panel';
 import { Disclosure } from '../../disclosure';
 import { Evidence, isUnfiled } from '../../evidence';
@@ -525,13 +526,26 @@ export default async function SiteVisitRecord({
         anchor="conversation"
         siteVisitId={id}
         turns={visit.conversation.turns}
-        runs={visit.conversation.runs}
+        live={
+          <ConversationProgress
+            siteVisitId={id}
+            initial={visit.conversation.turns}
+            initialRuns={visit.conversation.runs}
+          />
+        }
         issues={issues}
         timeZone={zone}
         evidencing={evidencing}
         unfiled={unfiled}
         add={addRecording.bind(null, id, projectId)}
         typed={typeATurn.bind(null, id, projectId)}
+        hint={
+          <>
+            Spoken or typed, it is one capture, and a draft you correct before
+            it is recorded &mdash; a misheard word never becomes the record.
+            Confirming is yours; the agent never writes it.
+          </>
+        }
         commit={(turnId) =>
           commitTurn.bind(null, turnId, id, visitedOn, projectId)
         }

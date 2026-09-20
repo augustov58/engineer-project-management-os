@@ -1,4 +1,14 @@
-/** Assumption records, their counterfactuals, and flags raised (issue #8). */
+/**
+ * Assumption records, their counterfactuals, and flags raised (issue #8),
+ * reached from the project chat since issue #121.
+ *
+ * There is **one** writer of `assumption_records` and it is the route below.
+ * ADR-0058 says the chat's proposal is confirmed by "the assumption record"
+ * being written, and ADR-0053 says recording is "`POST /v1/assumption-records`,
+ * exactly as today" — so confirming a proposal is this route with the turn it
+ * came from named, and not a second route that would be a second place the
+ * caps, the refusals and the audit line were each spelled.
+ */
 
 import type { FastifyInstance } from 'fastify';
 import { Prisma } from '../../generated/prisma/client.js';
@@ -12,6 +22,7 @@ import {
   type Refusal,
   noSuchAssumptionRecord,
   noSuchSubmission,
+  noSuchTurn,
   refuse,
 } from '../refusals.js';
 import { UNRESOLVED_MAX, openItemBodySchema } from './open-items.js';
@@ -45,6 +56,18 @@ const assumptionRecordBodySchema = {
     // Settable, because the calculation worth capturing first was run long
     // before this row existed; otherwise the injected TimeSource (ADR-0022).
     calculatedAt: { type: 'string', format: 'date-time' },
+    // Where the blocks came from, when they came from the chat rather than
+    // from a paste (issue #121, ADR-0058 part 4: "with the turn recorded on it
+    // as provenance"). Left off, the record is a paste and says so by carrying
+    // no turn — the path ADR-0029 wrote and which stands unchanged.
+    //
+    // This is a **body** field where the submission is a path segment, and the
+    // asymmetry is the point: which issuance a record justified is not
+    // something a body may assert, because the route it is captured on says it.
+    // Where it came from is not addressable that way — a turn is not a
+    // submission — and it is checked here against the job the submission is on
+    // rather than taken on trust.
+    turnId: { type: 'string', format: 'uuid' },
   },
 } as const;
 
@@ -192,6 +215,7 @@ export function assumptionRecordRoutes(
       flags: string;
       codeEdition: string;
       calculatedAt?: string;
+      turnId?: string;
     };
   }>(
     '/submissions/:id/assumption-records',
@@ -205,34 +229,84 @@ export function assumptionRecordRoutes(
         return noSuchSubmission(reply);
       }
 
-      const { calculatedAt, ...rest } = request.body;
-      const at = timeSource.now();
-      const record = await prisma.$transaction(async (tx) => {
-        const created = await tx.assumptionRecord.create({
-          data: {
-            ...rest,
-            submissionId: set.id,
-            calculatedAt: instant(calculatedAt, timeSource),
-            createdAt: at,
+      const { calculatedAt, turnId, ...rest } = request.body;
+
+      // Confirming a proposal the project chat made (issue #121). The turn has
+      // to be the agent's, it has to have proposed a record, and it has to be
+      // on this job — a turn on another project's conversation is not this
+      // issuance's provenance, and it is checked here rather than left to the
+      // foreign key, which would 500 on a stranger's uuid.
+      //
+      // Which submission the engineer confirms against is **not** checked
+      // against the one the agent proposed. What the engineer edits is the
+      // fields (ADR-0058), and redirecting a proposal to the right issuance is
+      // an edit like any other; what a record must not do is claim provenance
+      // in a turn that proposed nothing.
+      if (turnId !== undefined) {
+        const turn = await prisma.turn.findUnique({
+          where: { id: turnId },
+          select: {
+            speaker: true,
+            proposedSubmissionId: true,
+            conversation: { select: { projectId: true } },
           },
-          include: recordInclude,
         });
-        // Neither block is quoted. They are captured verbatim on the row and
-        // an audit that copied them would be a second place the same text
-        // lives, free to be re-wrapped where the record must not be
-        // (ADR-0029). No count of entries either: which lines are entries is
-        // a question `withLines` answers for a screen, and a number here that
-        // disagreed with it would be worse than no number.
-        await audit(tx, {
-          projectId: set.projectId,
-          actor: actorOf(request),
-          subject: { type: 'assumption-record', id: created.id },
-          action: 'assumption record captured',
-          detail: `revision ${set.revision}, ${created.codeEdition}, calculated ${created.calculatedAt.toISOString()}`,
-          at,
+        if (turn === null || turn.conversation.projectId !== set.projectId) {
+          return noSuchTurn(reply);
+        }
+        if (turn.speaker !== 'AGENT' || turn.proposedSubmissionId === null) {
+          return reply.code(409).send({
+            message:
+              'only a proposed assumption record is confirmed, and that turn proposed none',
+          });
+        }
+      }
+
+      const at = timeSource.now();
+      const record = await prisma
+        .$transaction(async (tx) => {
+          const created = await tx.assumptionRecord.create({
+            data: {
+              ...rest,
+              submissionId: set.id,
+              turnId: turnId ?? null,
+              calculatedAt: instant(calculatedAt, timeSource),
+              createdAt: at,
+            },
+            include: recordInclude,
+          });
+          // Neither block is quoted. They are captured verbatim on the row and
+          // an audit that copied them would be a second place the same text
+          // lives, free to be re-wrapped where the record must not be
+          // (ADR-0029). No count of entries either: which lines are entries is
+          // a question `withLines` answers for a screen, and a number here that
+          // disagreed with it would be worse than no number.
+          await audit(tx, {
+            projectId: set.projectId,
+            actor: actorOf(request),
+            subject: { type: 'assumption-record', id: created.id },
+            action: 'assumption record captured',
+            detail: `revision ${set.revision}, ${created.codeEdition}, calculated ${created.calculatedAt.toISOString()}`,
+            at,
+          });
+          return created;
+        })
+        .catch((error: unknown) => {
+          // Narrowed to the turn, and the only constraint this insert touches
+          // that anything can collide with: one proposal, at most one record.
+          // A double tap on the confirm writes nothing rather than capturing
+          // the same blocks twice, which is what `turns.observation_id`'s
+          // unique does on the other record.
+          if (isUniqueViolation(error)) {
+            return null;
+          }
+          throw error;
         });
-        return created;
-      });
+      if (record === null) {
+        return reply.code(409).send({
+          message: 'that proposal has already been confirmed',
+        });
+      }
       return reply.code(201).send(withLines(record));
     },
   );

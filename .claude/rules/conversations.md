@@ -1,6 +1,7 @@
 ---
 paths:
   - "apps/api/src/routes/conversations.ts"
+  - "apps/api/src/routes/assumption-records.ts"
   - "apps/api/src/transcription.ts"
   - "apps/api/src/agent.ts"
   - "apps/api/src/worker.ts"
@@ -12,6 +13,8 @@ paths:
   - "apps/web/app/turns/**"
   - "apps/web/app/site-visits/*/conversation/**"
   - "apps/web/app/site-visits/*/page.tsx"
+  - "apps/web/app/conversations/**"
+  - "apps/web/app/projects/*/page.tsx"
   - "apps/web/app/wall-clock.ts"
 ---
 # The conversation on a walk: captures, transcription, and the draft the agent proposes
@@ -85,8 +88,10 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
 - A **conversation** is a record: one per site visit, created **in the same statement as the
   visit**, and any number per project. `conversations.site_visit_id` is nullable and unique,
   which is the whole of "exactly one per visit" — a guard a create route could forget is not
-  what holds it. The project-level ones are the project chat's ticket and nothing here writes
-  one.
+  what holds it. **Both contexts are built since issue #121**: a project's is opened by
+  `POST /v1/projects/:id/conversations` and read by its own id, where a walk's is created
+  with the walk and read through it, because what a caller has in hand differs and the
+  record does not.
 - `turns` is `voice_captures` renamed and widened, and it keeps **every** row's id: a
   photograph or an audit line that already points at what one became still points at it.
   `site_visit_id` is **gone** — the conversation carries the walk, and keeping both would be
@@ -122,7 +127,7 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
   never carried on the job — which is what lets the engineer's answer to the agent's question
   reach the next run. A turn with no words is a proposal of fields and is not read back to
   the agent as though it had been said.
-- The run's tools are **three and one of them writes**: `site_visits_get_floors`,
+- The walk run's tools are **three and one of them writes**: `site_visits_get_floors`,
   `issues_list`, `capture_propose`. The floors tool **projects** the walk's read to its
   schedule, `projects_get`'s shape and for its reason — handing the response through would
   give the run its own transcript back as context. A test asserts the list exactly.
@@ -137,6 +142,47 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
   panel is read from that — never from the absence of a reply. A run that failed leaves no
   turn, so a panel counting unanswered captures said the agent was still reading one forever.
   That was found in a browser, not by a type.
+- **A project turn is not a capture** (issue #121). `turns_engineer_captures` takes the
+  capture machinery whole or not at all — a kind and an instant together or neither, and a
+  turn with neither must have its words, because no vendor is coming with them. The
+  **key stays required** on both: a capture key is not about audio, it is how a send that did
+  not visibly land is retried without saying the same thing twice, and a desk on a bad
+  connection is not different from a phone in a basement. `transcriptionState` therefore reads
+  `kind !== 'VOICE'` and no longer `kind === 'TYPED'`: only a recording is ever waiting on a
+  vendor, and *queued* was a state an agent turn could never leave.
+- The chat run's tools are **thirteen and one of them writes** (ADR-0058 part 4): the memory
+  run's eight reads, `documents_list`, every helper route, and `assumption_record_propose`.
+  The reads are `projectReadTools` and **not a copy of them** — *every read the memory agent
+  has* is a sentence about one list, so a ninth added there reaches the chat without anybody
+  remembering. That is as far as part 4's *"both tool lists are generated from one registry"*
+  is taken: the walk's three stay written out, its `issues_list` carrying a different
+  description, and sharing the entry would rewrite a built run's prompt surface. A test
+  asserts each list exactly and that they differ.
+- The conversation reaches the chat run under `CHAT_DIRECTIVE`, which is a **third** sentence
+  and not a generalisation: changing `CAPTURE_DIRECTIVE`'s noun would rewrite the prompt a
+  built run is already given. All three are `EXTRACTION_DIRECTIVE`'s wording with the noun
+  changed, so they stay one rule said three times.
+- **The chat's one write is a proposal and the confirm is the existing route.** The agent
+  turn carries `proposed_submission_id` and the two blocks verbatim; confirming is
+  `POST /v1/submissions/:id/assumption-records` with `turnId` in the body, so there is one
+  writer of `assumption_records` and one place its caps, refusals and audit line are spelled.
+  `assumption_records.turn_id` is **unique**, which is the whole of "one proposal, at most one
+  record" — a second confirm is a 409 the database holds, not a guard. *Confirmed* is that row
+  existing, which is `turns.observation_id`'s shape pointing the other way, and the panel
+  withholds the form on the strength of it.
+- **Asking a helper and recording what it said stay two acts** (ADR-0053). A calculation with
+  no submission named is answered in words carrying the two blocks verbatim and writes nothing,
+  and the reply says which submission it needs. Nothing between the tool and the column trims,
+  normalises or re-wraps a block.
+- The **blocks reach the record through the model**, which is the one thing no boundary can
+  hold: the run reads them from `POST /v1/tools/:name` and types them into the proposal. What
+  *is* held is that nothing of ours touches them on the way, and a test drives a run that asks
+  the real helper and asserts the turn's blocks are byte-for-byte what it printed.
+- **The tools route strips the two header lines** and a hand-typed capture usually keeps them,
+  so a record captured through the chat numbers its lines one lower than the same calculation
+  pasted in. Each record is self-describing — `assumptionLines` is derived from its own text —
+  so nothing cross-reads them; do not "fix" it by adding a header, which would be this product
+  writing a line the helper did not print.
 - A proposed sighting is **proposed and never promoted**: a sighting burns an identifier that
   is never given back (ADR-0031), so it stays the engineer's second act under the observation.
   An id naming a finding on another job is a 404 at the route, not a foreign-key 500.
@@ -145,12 +191,26 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
 
 - The panel is **one component**, `apps/web/app/conversation-panel.tsx`, lifted out of the
   847-line walk screen because ADR-0058 needs it on two records and ADR-0059 point 2 put the
-  component in the design brief rather than in either ADR's ticket. **Only the visit is
-  wired.** The slot that would differ between the two contexts is the commit — an observation
-  on a visit, an assumption record on a project — and it is deliberately **not
-  parameterised** until the project chat's ticket gives it a second caller. A server
-  component: every live part of it is already its own client island, and the turns have to be
-  in the server's first paint (ADR-0028).
+  component in the design brief rather than in either ADR's ticket. **Both are wired since
+  issue #121**, and almost all of the difference turned out to be **data rather than props**:
+  a project turn has no `kind`, so it renders no audio control, no capture state and no *Ask
+  again*, and an agent turn carries one proposal shape or the other, so which commit sits
+  under it is read off the turn. Three things are genuinely the caller's — the live summary,
+  whose words differ (a walk counts captures and transcriptions; a project has no vendor), the
+  recorder, which is a walk's, and the bound commit. A server component: every live part of it
+  is already its own client island, and the turns have to be in the server's first paint
+  (ADR-0028).
+- **The project bar is typed only**, which is plate D-02 and the record rather than the
+  drawing: a project conversation has no capture machinery and nothing transcribes for it, so
+  a microphone there would be a control with no route behind it. Plate F-03's *"one capture bar
+  holding spoken and typed"* is the walk's.
+- **While a record is still proposed, the form is the reading.** The blocks are shown
+  read-only only once the proposal has been captured. Printing twenty-five lines of a sizer's
+  output twice — once to read and once to edit — was 600 px of the same text on a 390 px
+  screen and read as two different things.
+- `useLiveList` treats the **empty path as no stream** (issue #121). The project panel is on
+  the page before a conversation exists, and `new EventSource('')` resolves to the page's own
+  URL and would poll the document forever.
 - **The commit sits under the agent turn that proposed it**, which is the brief's anatomy and
   a change from where it was. What it writes is still the *engineer's* capture — the confirm
   route refuses an agent turn by name — so the form is rendered under the answer and bound to

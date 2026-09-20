@@ -1,9 +1,9 @@
 /**
- * The worker: the five things in this product that run off the request —
+ * The worker: the six things in this product that run off the request —
  * transcription (issue #12), rendering a site visit report (issue #13), an
  * agent run proposing a memory edit (issue #18), an extraction run over an
- * untrusted source (issue #20), and an agent run proposing the draft a typed
- * capture becomes (issue #114).
+ * untrusted source (issue #20), an agent run proposing the draft a typed
+ * capture becomes (issue #114), and the project chat's run (issue #121).
  *
  * BullMQ has been wired and idle since slice 1, and ADR-0032 deliberately kept
  * photo binning out of it — "date comparison and one regular expression". That
@@ -11,11 +11,12 @@
  * two minutes of audio is a network call of unbounded duration; printing a
  * walk's write-up starts a browser, decodes every photograph on it and lays
  * out a paginated document; an extraction is an OCR call and a paid model
- * call, back to back; and a capture proposal is a paid model call made while
- * the engineer is still walking. All five tickets' progress criteria presuppose
- * that the request has long since returned.
+ * call, back to back; a capture proposal is a paid model call made while the
+ * engineer is still walking; and the project chat's run is a paid model call
+ * that may run three helper subprocesses on the way. All six tickets' progress
+ * criteria presuppose that the request has long since returned.
  *
- * One queue and five job names, dispatched below. A second queue would be a
+ * One queue and six job names, dispatched below. A second queue would be a
  * second thing to name, connect and close, for work the single concurrency
  * already serialises.
  *
@@ -66,6 +67,18 @@ export const EXTRACT = 'extract';
 export const PROPOSE_CAPTURE = 'propose-capture';
 
 /**
+ * Asking the agent to answer on a project's conversation (issue #121).
+ *
+ * A sixth name on the one queue and **not** a sixth record: the run is a row in
+ * `agent_runs` like the two above it, and what tells it from a capture run is
+ * the conversation it points at having no site visit. The name is the
+ * enqueuer's answer to which run this is, and the enqueuer is the route that
+ * wrote the turn — so a job cannot be dispatched against the wrong kind of
+ * conversation by a read going stale.
+ */
+export const PROPOSE_ASSUMPTION_RECORD = 'propose-assumption-record';
+
+/**
  * The id and nothing else. Everything the job needs is on the row, so a job
  * that sat in Redis across a restart cannot carry a stale copy of it.
  */
@@ -90,6 +103,11 @@ export interface ExtractJob {
 
 /** The id and nothing else, for the reason above. */
 export interface ProposeCaptureJob {
+  agentRunId: string;
+}
+
+/** The id and nothing else, for the reason above. */
+export interface ProposeAssumptionRecordJob {
   agentRunId: string;
 }
 
@@ -135,6 +153,7 @@ export function buildWorker({
   | ProposeMemoryEditJob
   | ExtractJob
   | ProposeCaptureJob
+  | ProposeAssumptionRecordJob
 > {
   /** Asking the vendor what was said (issue #12). */
   const transcribe = async (turnId: string) => {
@@ -355,21 +374,16 @@ export function buildWorker({
   };
 
   /**
-   * Asking the agent to propose the draft a typed capture becomes (issue #114).
+   * A run held on a conversation, with the conversation as it stands now.
    *
-   * The memory run's shape exactly — the row is the record, the job carries the
-   * id, the start is stamped, and a failure is recorded rather than rethrown so
-   * BullMQ does not retry an attempt nobody asked for. Asking again is another
-   * typed turn, which is the same answer a memory run gives and for the same
-   * reason: every input is still in the database.
-   *
-   * What differs is the packet. The conversation is read **here and not carried
-   * on the job**, so the run answers the words as they stand when it runs
-   * rather than as they stood when it was asked for — which is what makes the
-   * engineer's answer to the agent's question reach the next run at all.
+   * Read **here and not carried on the job**, so a run answers the words as
+   * they stand when it runs rather than as they stood when it was asked for —
+   * which is what makes the engineer's answer to the agent's question reach the
+   * next run at all. Both runs on a conversation read it through this one
+   * function, so the two cannot come to disagree about what a turn is.
    */
-  const proposeCapture = async (agentRunId: string) => {
-    const run = await prisma.agentRun.findUnique({
+  const runOnAConversation = (agentRunId: string) =>
+    prisma.agentRun.findUnique({
       where: { id: agentRunId },
       select: {
         id: true,
@@ -388,6 +402,46 @@ export function buildWorker({
         },
       },
     });
+
+  /**
+   * What was said, in order — and nothing that was not said.
+   *
+   * A turn with no words is the agent's own proposal of fields, which is on the
+   * record already and is not something to read back to it as though it had
+   * been said.
+   */
+  const said = (turns: { speaker: string; transcript: string | null }[]) => ({
+    turns: turns.flatMap((turn) =>
+      turn.transcript === null
+        ? []
+        : [
+            {
+              speaker:
+                turn.speaker === 'AGENT'
+                  ? ('agent' as const)
+                  : ('engineer' as const),
+              words: turn.transcript,
+            },
+          ],
+    ),
+  });
+
+  /**
+   * Asking the agent to propose the draft a typed capture becomes (issue #114).
+   *
+   * The memory run's shape exactly — the row is the record, the job carries the
+   * id, the start is stamped, and a failure is recorded rather than rethrown so
+   * BullMQ does not retry an attempt nobody asked for. Asking again is another
+   * typed turn, which is the same answer a memory run gives and for the same
+   * reason: every input is still in the database.
+   *
+   * What differs is the packet. The conversation is read **here and not carried
+   * on the job**, so the run answers the words as they stand when it runs
+   * rather than as they stood when it was asked for — which is what makes the
+   * engineer's answer to the agent's question reach the next run at all.
+   */
+  const proposeCapture = async (agentRunId: string) => {
+    const run = await runOnAConversation(agentRunId);
     if (run === null || run.conversation === null) {
       return;
     }
@@ -406,8 +460,9 @@ export function buildWorker({
       const siteVisitId = run.conversation.siteVisitId;
       if (siteVisitId === null) {
         // A project conversation, which has no walk to read and no
-        // `capture_propose` to call. Its run is the project chat's ticket;
-        // until then, reaching here is a row nothing wrote.
+        // `capture_propose` to call. Since issue #121 it has a run of its own
+        // and a job name of its own, so reaching here is a job dispatched
+        // against the wrong kind of conversation rather than work to do.
         throw new Error('that conversation is not on a site visit');
       }
 
@@ -420,24 +475,71 @@ export function buildWorker({
             runId: run.id,
             projectId: run.projectId,
             siteVisitId,
-            conversation: {
-              // A turn with no words is the agent's own proposal of fields,
-              // which is on the record already and is not something to read
-              // back to it as though it had been said.
-              turns: run.conversation!.turns.flatMap((turn) =>
-                turn.transcript === null
-                  ? []
-                  : [
-                      {
-                        speaker:
-                          turn.speaker === 'AGENT'
-                            ? ('agent' as const)
-                            : ('engineer' as const),
-                        words: turn.transcript,
-                      },
-                    ],
-              ),
-            },
+            conversation: said(run.conversation!.turns),
+            sessionId,
+          }),
+      );
+      // Compare-and-set, so a redelivered job that got past the read above
+      // writes nothing.
+      await prisma.agentRun.updateMany({
+        where: { id: run.id, finishedAt: null, failedAt: null },
+        data: { finishedAt: timeSource.now() },
+      });
+    } catch (error) {
+      await prisma.agentRun.updateMany({
+        where: { id: run.id, finishedAt: null, failedAt: null },
+        data: {
+          failedAt: timeSource.now(),
+          failure: reasonFor(error, 'the agent run service gave no reason'),
+        },
+      });
+    }
+  };
+
+  /**
+   * Asking the agent to answer on a project's conversation (issue #121).
+   *
+   * The capture run's shape with the walk taken out, and the same answers to
+   * the same questions: the row is the record, the job carries the id, the
+   * start is stamped, a failure is recorded rather than rethrown, and asking
+   * again is another typed turn rather than a retry.
+   *
+   * A run that answers nothing is a **finished** run with no turn on the
+   * conversation, as a capture run is — the panel reads the run's state and
+   * never the absence of a reply.
+   */
+  const proposeAssumptionRecord = async (agentRunId: string) => {
+    const run = await runOnAConversation(agentRunId);
+    if (run === null || run.conversation === null) {
+      return;
+    }
+    if (run.finishedAt !== null || run.failedAt !== null) {
+      return;
+    }
+
+    await prisma.agentRun.update({
+      where: { id: run.id },
+      data: { runningSince: timeSource.now() },
+    });
+
+    try {
+      if (run.conversation.siteVisitId !== null) {
+        // A walk's conversation, whose run is `propose-capture` and whose tools
+        // are the walk's three. Reaching here is a job dispatched against the
+        // wrong kind of conversation, and it fails honestly rather than giving
+        // a walk the helpers.
+        throw new Error('that conversation is on a site visit');
+      }
+
+      await underRunSession(
+        prisma,
+        { agentRunId: run.id },
+        timeSource,
+        (sessionId) =>
+          agentRunService.proposeAssumptionRecord({
+            runId: run.id,
+            projectId: run.projectId,
+            conversation: said(run.conversation!.turns),
             sessionId,
           }),
       );
@@ -627,6 +729,11 @@ export function buildWorker({
       }
       if (job.name === PROPOSE_CAPTURE) {
         return proposeCapture((job.data as ProposeCaptureJob).agentRunId);
+      }
+      if (job.name === PROPOSE_ASSUMPTION_RECORD) {
+        return proposeAssumptionRecord(
+          (job.data as ProposeAssumptionRecordJob).agentRunId,
+        );
       }
       return transcribe((job.data as TranscribeJob).turnId);
     },

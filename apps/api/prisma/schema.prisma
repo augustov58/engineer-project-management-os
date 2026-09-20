@@ -282,6 +282,11 @@ model Submission {
   openItems         SubmissionOpenItem[]
   assumptionRecords AssumptionRecord[]
 
+  /// The turns on which the project chat proposed an assumption record against
+  /// this issuance (issue #121). The arrow points from the turn, so proposing
+  /// writes nothing here — the same reason `respondsTo` below points inwards.
+  proposedOn Turn[]
+
   /// The register entries this issuance responded to (story 81). The arrow
   /// points from the entry, so linking one writes nothing here — which is
   /// what keeps "no route updates a submission" true (ADR-0026).
@@ -460,6 +465,20 @@ model AssumptionRecord {
 
   /// Entry order, so two captures dated the same day do not list at random.
   createdAt DateTime @map("created_at")
+
+  /// The agent's turn this record was confirmed from, or null on one that was
+  /// pasted in (issue #121, ADR-0058: "assumption_records gains a nullable turn
+  /// reference. The paste path stands; the chat path is the same record reached
+  /// without the paste").
+  ///
+  /// This is the **provenance** an assumption record exists to keep, which is
+  /// ADR-0058's own reason for refusing an ephemeral chat: the helper's output
+  /// quoted in the conversation is where these blocks came from, and the turn is
+  /// how anybody gets back to it. Unique, so one proposal becomes at most one
+  /// record — `turns.observation_id`'s shape, pointing the other way because the
+  /// record is what gains the column.
+  turnId String? @unique @map("turn_id")
+  turn   Turn?   @relation(fields: [turnId], references: [id], onDelete: Restrict)
 
   counterfactuals Counterfactual[]
   raisedFlags     RaisedFlag[]
@@ -1021,9 +1040,10 @@ model Turn {
   /// Which kind of capture the engineer made — `VOICE` or `TYPED` (ADR-0057).
   /// A database enum for ADR-0036's reason.
   ///
-  /// **Null on the agent's turn**, which is not a capture. It would also be
-  /// null on an engineer's turn in a project conversation, which is the project
-  /// chat's ticket and not this one.
+  /// **Null on the agent's turn**, which is not a capture — and null on an
+  /// engineer's turn in a **project** conversation since issue #121, where
+  /// there is no walk to record a kind or an instant against. The capture
+  /// machinery is carried whole or not at all, which is what the CHECK says.
   kind TurnKind?
 
   /// The name the phone gave this capture before it tried to send it, unique
@@ -1136,6 +1156,30 @@ model Turn {
   /// stays the engineer's second act under the observation.
   proposedIssueId String? @map("proposed_issue_id")
   proposedIssue   Issue?  @relation(fields: [proposedIssueId], references: [id], onDelete: Restrict)
+
+  /// What the agent proposed when what it proposed is an **assumption record**
+  /// (issue #121, ADR-0058 part 4): the submission it would be bound to, the
+  /// two blocks verbatim as a helper printed them, and the code edition.
+  ///
+  /// The other proposal shape, on the same row and under the same rules as the
+  /// draft observation's five above — columns rather than a proposals table
+  /// (ADR-0043's shape), all null on an engineer's turn, and all null on an
+  /// agent turn that answered in words instead. A CHECK holds them whole or
+  /// absent, and a second holds that a turn never proposes both: an observation
+  /// is a walk's conversation and an assumption record is a project's.
+  ///
+  /// **Nothing trims, normalises or re-wraps the blocks** — here as much as on
+  /// `assumption_records`, since what the confirm writes there is what is
+  /// sitting here (ADR-0029).
+  proposedSubmissionId String?     @map("proposed_submission_id")
+  proposedSubmission   Submission? @relation(fields: [proposedSubmissionId], references: [id], onDelete: Restrict)
+  proposedAssumptions  String?     @map("proposed_assumptions")
+  proposedFlags        String?     @map("proposed_flags")
+  proposedCodeEdition  String?     @map("proposed_code_edition")
+
+  /// The assumption record this proposal became, or null while it is still a
+  /// proposal. Unique from the record's side, which is where the column is.
+  assumptionRecord AssumptionRecord?
 
   /// The observation this draft became, or null while it is still a draft.
   ///
