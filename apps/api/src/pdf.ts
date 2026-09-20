@@ -18,6 +18,7 @@
  */
 
 import puppeteer from 'puppeteer';
+import type { Composed } from './report.js';
 
 /**
  * A browser per document, started and closed around one render.
@@ -28,7 +29,7 @@ import puppeteer from 'puppeteer';
  * already on a queue, and a long-lived browser is a second process to keep
  * alive, notice the death of, and shut down with the API.
  */
-export async function renderPdf(html: string): Promise<Buffer> {
+export async function renderPdf({ html, footer }: Composed): Promise<Buffer> {
   // The default sandbox, deliberately not disabled. The page is built by this
   // product, but it inlines photographs that arrived from outside it, and
   // `--no-sandbox` is the flag that would make one of them a problem worth
@@ -51,9 +52,18 @@ export async function renderPdf(html: string): Promise<Buffer> {
         // structure and not decoration, and Chrome drops backgrounds by
         // default.
         printBackground: true,
-        // `displayHeaderFooter` is left at its default of false. What Chrome
-        // puts there is the page URL and today's date, neither of which
-        // belongs on a document issued outside the tool.
+        // On since issue #119, with both templates supplied. What the ADR's
+        // note was against is Chrome's *defaults* — the page URL and today's
+        // date, neither of which belongs on a document issued outside the
+        // tool — and that reasoning is satisfied by saying what goes there
+        // rather than by leaving the margin empty. It is the only mechanism
+        // that puts a page number on every sheet: Chrome implements no `@page`
+        // margin boxes, so no stylesheet can.
+        displayHeaderFooter: true,
+        // An empty element and not an empty string: with `''` Chrome falls
+        // back to its own default header, which is the title and the date.
+        headerTemplate: '<div></div>',
+        footerTemplate: footer,
       }),
     );
   } finally {

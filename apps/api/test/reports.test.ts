@@ -122,7 +122,7 @@ async function pdfOf(app: TestApi, reportId: string): Promise<Buffer> {
  * HTML behind it. Items are joined with a space: a line of text arrives as
  * several of them, and a marker split across two would otherwise never match.
  */
-async function documentText(bytes: Buffer): Promise<string> {
+async function documentPages(bytes: Buffer): Promise<string[]> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const document = await pdfjs.getDocument({
     data: new Uint8Array(bytes),
@@ -139,7 +139,11 @@ async function documentText(bytes: Buffer): Promise<string> {
         .replace(/\s+/g, ' '),
     );
   }
-  return pages.join(' ');
+  return pages;
+}
+
+async function documentText(bytes: Buffer): Promise<string> {
+  return (await documentPages(bytes)).join(' ');
 }
 
 /** A walk with a finding on it, which is what a report is mostly about. */
@@ -322,9 +326,20 @@ test('the document carries the visit metadata and the per-floor schedule', async
 
   expect(text).toContain('R-6');
   expect(text).toContain('Riverside clinic');
-  expect(text).toContain('2026-07-23');
-  expect(text).toContain('Floor 3');
-  expect(text).toContain('Floor PH');
+
+  // The day in words, not the ISO face the wire carries (issue #119). This is
+  // the document that leaves the product: `2026-07-23` is a column, and a
+  // report read by somebody who was not on the walk — and who may not read
+  // month-first dates — gets the month said out loud.
+  expect(text).toContain('23 July 2026');
+  expect(text).not.toContain('2026-07-23');
+
+  // The schedule as whole rows, so what is being pinned is the row and not
+  // two cells that could have come from anywhere on the page. The floor cell
+  // is the bare designation, under a column that already says the word
+  // (issue #119, plate R-01).
+  expect(text).toMatch(/09:05\s+09:50\s+3\s+0/);
+  expect(text).toMatch(/10:10\s+—\s+PH\s+0/);
 
   // Every time on the page is the building's wall clock, four hours behind
   // the instants stored above in July (ADR-0054). The document is what the
@@ -594,8 +609,8 @@ test('a floor-only photograph prints nowhere, and its floor says how many', asyn
   // floor with none renders its zero (ADR-0038's reasoning). Uppercased on the
   // page by the `th` rule, as every other column heading is.
   expect(text).toContain('UNFILED');
-  expect(text).toMatch(/Floor 3\s+1/);
-  expect(text).toMatch(/Floor PH\s+0/);
+  expect(text).toMatch(/09:00\s+09:50\s+3\s+1/);
+  expect(text).toMatch(/10:10\s+—\s+PH\s+0/);
 });
 
 test('photographs that binned to no floor are counted under the schedule', async () => {
@@ -656,6 +671,191 @@ test("a finding's evidence includes its sightings' photographs", async () => {
   expect(text).toContain('derived-through-the-sighting.png');
   // And it is not also printed as a non-issue: the observation became one.
   expect(text).toContain('Every observation made on this visit became an issue');
+});
+
+// ── Read as issued output (issue #119, ADR-0059 point 3, plate R-01) ────────
+
+test('the job prints as it was entered, and comes back out of the text layer', async () => {
+  const app = await api();
+  const project = await createProject(
+    app,
+    'R-17',
+    'Mercy General — 4th Floor ICU Renovation',
+  );
+  const walk = await createSiteVisit(app, project.id, {
+    startedAt: '2026-07-23T13:00:00.000Z',
+  });
+  await startFloor(app, walk.id, '4', '2026-07-23T13:05:00.000Z');
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  // `text-transform: uppercase` reaches the PDF's text layer, not only its
+  // glyphs: the header block printed the job as `MERCY GENERAL — 4TH FLOOR
+  // ICU RENOVATION` and a reader searching the issued document for the name
+  // as written found nothing. The same defect ADR-0035 recorded for
+  // `letter-spacing`, arriving through a second property — and the footer
+  // printed the same name in its own case, so one document spelled the job
+  // two ways.
+  expect(text).toContain('Mercy General — 4th Floor ICU Renovation');
+  expect(text).not.toContain('MERCY GENERAL');
+
+  // The column headings keep theirs. They are labels and not names: nobody
+  // searches an issued report for the word `Arrived`, and the small caps are
+  // what separates a heading row from the rule under it at 8pt.
+  expect(text).toContain('ARRIVED');
+});
+
+test("a sighting's photographs print with that sighting", async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'R-18');
+
+  const first = await createObservation(app, walk.id, {
+    observed: 'Penetration above the ceiling left unsealed',
+    observedAt: '2026-07-23T13:20:00.000Z',
+    floor: '3',
+    qualifier: 'Corridor 3A',
+    side: 'A',
+  });
+  const finding = await createIssue(app, first.id, 'Safety / Code');
+
+  // Stamped to the finding by its filename, and on no sighting.
+  await addPhoto(app, walk.id, {
+    filename: 'stamped-to-the-issue-1.png',
+    takenAt: '2026-07-23T13:21:00.000Z',
+  });
+
+  const second = await createObservation(app, walk.id, {
+    observed: 'Same penetration, second look, still unsealed',
+    observedAt: '2026-07-23T14:40:00.000Z',
+    floor: '3',
+    qualifier: 'Corridor 3A',
+    side: 'A',
+  });
+  expect(
+    (await post(app, `/v1/issues/${finding.id}/observations/${second.id}`))
+      .status,
+  ).toBe(204);
+  const carried = await addPhoto(app, walk.id, {
+    filename: 'carried-by-the-second-look.png',
+    takenAt: '2026-07-23T14:41:00.000Z',
+  });
+  expect(
+    (await post(app, `/v1/photos/${carried.id}/observation`, {
+      observationId: second.id,
+    })).status,
+  ).toBe(200);
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const text = await documentText(await pdfOf(app, asked.id));
+
+  // ADR-0056's union is unchanged — both photographs print under this
+  // finding. What issue #119 changed is where each one lands: the page used
+  // to print them as one undifferentiated row after every sighting, so a
+  // reader could not tell which look produced which picture.
+  expect(text).toContain('stamped-to-the-issue-1.png');
+  expect(text).toContain('carried-by-the-second-look.png');
+
+  // The one carried by the second sighting prints inside it: after that
+  // sighting's words and before the finding's own evidence, which follows
+  // every sighting because it belongs to none of them.
+  const secondSighting = text.indexOf('Same penetration, second look');
+  const carriedAt = text.indexOf('carried-by-the-second-look.png');
+  const stampedAt = text.indexOf('stamped-to-the-issue-1.png');
+
+  expect(secondSighting).toBeGreaterThanOrEqual(0);
+  expect(carriedAt).toBeGreaterThan(secondSighting);
+  expect(stampedAt).toBeGreaterThan(carriedAt);
+});
+
+test('a sighting is never split from the location that labels it', async () => {
+  const app = await api();
+  const { walk } = await walked(app, 'R-19');
+
+  // A finding taller than a page, which `break-inside: avoid-page` cannot
+  // hold and is not asked to: the property is that where it does break, it
+  // breaks between sightings and never inside one. The page used to end with
+  // a bare `10:35 · Floor 1 — Corridor 1A, Side A` and start the next with
+  // the words it labelled.
+  const words = (n: number) =>
+    `Sighting ${n}. ${'The penetration above the ceiling is unsealed where the tray crosses the rated wall. '.repeat(6)}`;
+  const first = await createObservation(app, walk.id, {
+    observed: words(0),
+    observedAt: '2026-07-23T13:00:00.000Z',
+    floor: '1',
+    qualifier: 'Corridor 1A',
+    side: 'A',
+  });
+  const finding = await createIssue(app, first.id, 'Safety / Code');
+  for (let n = 1; n < 10; n += 1) {
+    const more = await createObservation(app, walk.id, {
+      observed: words(n),
+      observedAt: `2026-07-23T13:${String(n * 5).padStart(2, '0')}:00.000Z`,
+      floor: '1',
+      qualifier: 'Corridor 1A',
+      side: 'A',
+    });
+    expect(
+      (await post(app, `/v1/issues/${finding.id}/observations/${more.id}`))
+        .status,
+    ).toBe(204);
+  }
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const pages = await documentPages(await pdfOf(app, asked.id));
+
+  // The fixture has to actually break, or the assertion below is vacuous.
+  expect(pages.length).toBeGreaterThan(1);
+
+  for (let n = 0; n < 10; n += 1) {
+    // The building's wall clock, four hours behind the instants above.
+    const clock = `09:${String(n * 5).padStart(2, '0')}`;
+    const labelled = pages.filter((page) => page.includes(`${clock} ·`));
+    expect(labelled).toHaveLength(1);
+    // Its words are on the page its label is on, and not the next one.
+    expect(labelled[0]).toContain(`Sighting ${n}.`);
+  }
+});
+
+test('every page says which rendering it is and where it falls in it', async () => {
+  const time = fakeTimeSource(new Date('2026-07-23T18:45:00.000Z'));
+  const app = await api({ timeSource: time });
+  const project = await createProject(app, 'R-20', 'Riverside clinic');
+  const walk = await createSiteVisit(app, project.id, {
+    startedAt: '2026-07-23T13:00:00.000Z',
+    endedAt: '2026-07-23T16:20:00.000Z',
+  });
+
+  // Enough to run past one page: a report is printed, separated and scanned,
+  // and a findings page carrying neither the job nor a page number is a sheet
+  // nobody can file.
+  for (let n = 0; n < 24; n += 1) {
+    await createObservation(app, walk.id, {
+      observed: `Observation ${n}. ${'The ceiling grid is square to the corridor and the device rough-in is ahead of it. '.repeat(3)}`,
+      observedAt: `2026-07-23T13:${String(n * 2).padStart(2, '0')}:00.000Z`,
+      floor: '3',
+      qualifier: `Room ${100 + n}`,
+      side: 'A',
+    });
+  }
+
+  const asked = await generateReport(app, walk.id);
+  await reaches(app, walk.id, asked.id, 'rendered');
+  const pages = await documentPages(await pdfOf(app, asked.id));
+  expect(pages.length).toBeGreaterThan(1);
+
+  const last = pages.length;
+  pages.forEach((page, index) => {
+    expect(page).toContain('R-20');
+    expect(page).toContain(`page ${index + 1} of ${last}`);
+    // The rendering's own instant, in the project's zone like every other
+    // time on the page — and it is `rendering_since` on the row, so the
+    // document and the record it is a rendering of say the same thing.
+    expect(page).toContain('Rendered 23 July 2026 14:45');
+  });
 });
 
 test('a walk with nothing on it still renders, and says so', async () => {

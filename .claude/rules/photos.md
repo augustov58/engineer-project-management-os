@@ -75,7 +75,11 @@ apply to every path stay in `AGENTS.md`.
   sightings. **Promotion writes nothing to a photograph.** Two readers take that union —
   `withSightings` in `wire.ts`, across every walk, and `evidenceFor` in `report.ts`,
   narrowed to one — and they are deliberately not shared, being narrowed differently; the
-  rule they keep in step is ADR-0056's. Neither deduplicates, because the CHECK makes the
+  rule they keep in step is ADR-0056's. Since issue #119 the union is what the report
+  **prints** and no longer how it **groups**: a photograph its sighting carries prints inside
+  that sighting, one stamped to the finding prints under the finding, and `evidenceFor` is what
+  says which bytes to inline. Membership and the order within each half are unchanged, so the
+  API's answer and the issued document still name the same photographs. Neither deduplicates, because the CHECK makes the
   two halves disjoint. `GET /v1/site-visits/:id/issues-without-photos` reads **both** halves:
   the stamped clause alone sends the engineer back for a picture they already took.
 - A photograph and the observation it evidences are on the **same walk**, refused at the

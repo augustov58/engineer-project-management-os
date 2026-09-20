@@ -134,7 +134,11 @@ apply to every path stay in `AGENTS.md`.
 - The report prints **evidence beside what it evidences** (ADR-0056, issue #113): an
   observation's photographs in the non-issue table, a finding's with the finding and
   **derived** — what is stamped to it, union its sightings' — and nothing at all for a
-  floor-only photograph, which is unfiled. Each floor's schedule row prints its count of
+  floor-only photograph, which is unfiled. Since issue #119 that union is what **prints** and
+  no longer how the page **groups**: a photograph its sighting carries prints *inside that
+  sighting* and one stamped to the finding prints under the finding, because a finding seen
+  twice gave a reader no way to tell which look produced which picture. Same photographs, same
+  order within each half, nothing added or dropped. Each floor's schedule row prints its count of
   unfiled photographs and renders a zero, with one line under the table for those that
   binned to no floor. `.claude/rules/photos.md` carries the rest of that record's rules,
   including why the two readers of the union are not shared.
@@ -155,17 +159,42 @@ apply to every path stay in `AGENTS.md`.
   `rendered_at`, after the object is stored, so a key never points at bytes that are not
   there. There is no `content_type` column: a report is always `application/pdf`, and a
   column holding one value forever is a place for it to one day hold another.
+- **Two CSS properties reach a PDF's text layer rather than only its glyphs**, and both are
+  measured on this stack. `text-transform: uppercase` puts the uppercased string in the text
+  layer, so the job printed as `MERCY GENERAL — 4TH FLOOR ICU RENOVATION` and a search of the
+  issued document for the name as written found nothing (issue #119); the job now prints as it
+  was entered, while the **column headings keep their small caps** — they are labels and not
+  names. That is the same rule the section headings have carried since #13 and it is now
+  load-bearing twice: do not uppercase anything on this page that is a **name**.
 - **`letter-spacing` above about a tenth of an em destroys a PDF's text layer.** Chrome emits
   every glyph as its own text run, so a tracked-out heading prints as `N O TA B L E …` —
   unsearchable and uncopyable in the one artifact this product issues outside itself
   (ADR-0035). Measured on this stack: it breaks at `0.11em` and is fine at `0.09em`. Screen
   CSS habits do not carry to a document.
-- Photographs are inlined into the report as **data URIs** and bounded to 70mm tall
-  (ADR-0035). The renderer is handed one string and needs nothing reachable over the network,
-  where a linked `<img>` would need the API reachable from inside the process serving it; the
-  bound is there because a portrait phone photograph is otherwise a page each. Every value
-  printed is **HTML-escaped** — what was observed is free text the engineer spoke, and this
-  is the one place in the product where that text becomes markup.
+- **The report pages correctly, and every one of these was found by reading a real PDF**
+  (issue #119, ADR-0059 point 3). A finding taller than A4 *has* to break, so
+  `break-inside: avoid-page` on `.finding` is not what keeps it readable: `.sighting` carries
+  `break-inside: avoid`, which makes the break fall **between** sightings instead of between a
+  sighting's location line and the words it labels. `h2` carries `break-after: avoid`, or a
+  section head prints alone at the foot of a page. The **footer runs on every page** through
+  Chrome's `footerTemplate` and not through CSS — Chrome implements no `@page` margin boxes, so
+  a `<footer>` element flows and prints once, which left every page but the last an anonymous
+  sheet. It carries the job, the visit date, `rendering_since` and `page N of M`, and **no
+  zone**: the header states the frame once (ADR-0054) and a running footer would restate it per
+  page. `rendering_since` is read once in the worker and handed to `composeReport`, so the row
+  and the page cannot disagree about when; the composer reads no clock.
+- The day prints **in words** on the page — `17 September 2026` — and the ISO face stays the
+  wire's and the document's `<title>` (issue #119). `longDayIn` lives in `report.ts` and not in
+  `zone.ts`, because one record reads it (ADR-0033); it moves to the leaf when a second does.
+- Photographs are inlined into the report as **data URIs** and bounded to **45mm** tall since
+  issue #119, inside ADR-0035's 70mm rather than against it — 70mm stopped a portrait
+  photograph being a page of its own and was still nearly half a page for one picture. A figure
+  is **as wide as its photograph** and not a fixed column, or the rule is drawn round an empty
+  frame and a row of captions sits at as many heights as there are shapes. Inlined because the
+  renderer is handed one string and needs nothing reachable over the network, where a linked
+  `<img>` would need the API reachable from inside the process serving it (ADR-0035). Every
+  value printed is **HTML-escaped** — what was observed is free text the engineer spoke, and
+  this is the one place in the product where that text becomes markup.
 - An **observation is not its own screen and does not become one** (issue #118, ADR-0059
   point 3, plate F-02): it is a block on the walk and a row in the report. What the redesign
   asks of that block is four things and no route — its words at the **Record** step, 16/24;
