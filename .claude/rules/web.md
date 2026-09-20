@@ -24,6 +24,21 @@ apply to every path stay in `AGENTS.md`.
   are gated on being non-empty (ADR-0038). Different questions: on a project screen an empty
   count is noise, and on the morning screen the count *is* the screen, so a card that
   vanished would read as one that had not loaded. This asymmetry is intended.
+- The **desk screens are built to plates D-01…D-04** (issue #120, ADR-0059 point 3). Two
+  things there are decisions rather than layout. **Everything but *Open items* on the project
+  record is a disclosure carrying its count**, which is what takes the page from 4 479 px to
+  1 314 px — the plate draws one open section and a stack of collapsed ones, and a deterministic
+  rule is what makes the length a number rather than a function of the job. And **density rule
+  4 is a query parameter**: resolving an open item on the project record lands back on it
+  carrying `?kept=<id>`, which lifts that row out of *Resolved* and shows it where it was with
+  its undo, for exactly one load. Nothing is stored, a reload shows the plain filing, and an id
+  naming something unresolved keeps nothing. The screen cannot work it out for itself — a
+  server action revalidates and re-renders, and *which row just changed* is a fact only the
+  caller holds — so `resolveOpenItem` takes a `keepAt`, and the project record is the only
+  caller that passes one, being the only screen that files a resolved item somewhere else.
+  **The disposition form is the one desk form not behind a disclosure**: bar 4 asks for one
+  submit with its two required inputs visible at once, and density rule 1 is about a form that
+  *adds to* a record.
 - The morning screen, the two lists it drills through to and the pending items view default
   to **mine**, with `app/scope.tsx`'s one toggle to *ours* (issue #112, ADR-0055 part 5).
   **The default lives here and not in the API**: each of the three routes means every job's
@@ -51,12 +66,16 @@ apply to every path stay in `AGENTS.md`.
   other one here is: the walk's conducted-by, the open item's hand-on, the handoff fieldset's
   "if it is ours, whose", and the extraction confirmation's — which is the one field on that
   screen with nothing proposed behind it, since an extraction proposes a party.
-- The **field screens carry the design system's own parts** (issue #118, ADR-0059 point 3):
-  `app/section-head.tsx` is the brief's *Section* type step — 12/16 uppercase with a rule
-  under and the count pushed to the end — and it is what replaced `text-lg font-medium`
-  there; `app/disclosure.tsx` is density rule 1's native `<details>`, so the `<form>` inside
-  is untouched, which is 0025's rule reaching a container. Both are for the desk tickets to
-  adopt too and neither is wired to a desk screen yet.
+- **Every screen carries the design system's own parts** (issue #118 for the field, #120 for
+  the desk; ADR-0059 point 3): `app/section-head.tsx` is the brief's *Section* type step —
+  12/16 uppercase with a rule under and the count pushed to the end — and `app/disclosure.tsx`
+  is density rule 1's native `<details>`, so the `<form>` inside is untouched, which is 0025's
+  rule reaching a container. **`text-lg` has left the product entirely**, which is what those
+  two replaced; `desk-screens.test.tsx` sweeps every product source for it, having superseded
+  the field-scoped list `walk-screen.test.tsx` carried while 30 heads were still on the desk.
+  The `Disclosure` summary is **44 px everywhere**, field and desk alike: density rule 6 is a
+  floor (≥ 44 field, ≥ 32 desk) and one component with one height is one fewer number to keep
+  in step, where the two **select** heights below are a rule and not an accident.
 - **Two select heights and they are two numbers, not two designs**: `selectClassName` is 32 px
   and `fieldSelectClassName` 44 px (`app/native-select.ts`), which is density rule 6 — field
   targets ≥ 44 px, desk ≥ 32 px. `native-selects.test.tsx` sweeps for **both** names, so a
@@ -64,15 +83,23 @@ apply to every path stay in `AGENTS.md`.
   agree: the asymmetry is the rule.
 - The **record measure** is applied by the screen and not by the layout: `<main>` stays
   `max-w-5xl`, the desk measure, and a record screen wraps its own content in
-  `max-w-[var(--measure-record)]`. Both tokens were declared inert by issue #117; the walk is
-  the first consumer. A screen that used neither would silently be desk-width.
+  `max-w-[var(--measure-record)]`. Both tokens were declared inert by issue #117; the walk was
+  the first consumer and issue #120 added the register entry, the submission and the finding.
+  A screen that used neither would silently be desk-width. **The project record uses both** —
+  its head and its two count strips at desk width, its sections at the record's — and it is the
+  only screen in the product that does. The **extraction confirmation stays desk-width** though
+  the brief's list names it: it is the proposal beside the source in `lg:grid-cols-2`, which
+  704 px collapses to one column at every width.
 - The walk's **jumper is plain anchors**, sticky at 44 px, and each anchor is a 44 px target
   in its own right rather than a line of text inside a tall bar. `overflow-x-auto` and not
   wrapping: five anchors do not fit across a 390 px phone and a two-row bar is not a 44 px
   bar. Every section it names carries the matching `id` and `scroll-mt-14`, and
   `walk-screen.test.tsx` asserts the anchors and the ids agree — an anchor whose target was
   renamed scrolls nowhere and renders perfectly.
-- The **app shell's nav does not wrap** and overflows horizontally below about 700 px
-  (`layout.tsx`, measured at 390 px on 2026-09-19: the document is 735 px wide while the walk's
-  own content is 390 px). It predates issue #118, which changed no part of the shell, and it
-  is the one thing on a phone that still scrolls sideways. The desk ticket owns it.
+- The **app shell's nav wraps** since issue #120, and that is density rule 7's *one column
+  below 768 px*. Until then neither of its two flex rows carried `flex-wrap`, so the nav's
+  735 px min-content width reached the document through `<body>` and **every** screen scrolled
+  sideways on a phone — the walk included, though the walk's own content was 390 px. Measured
+  at 390 px on 2026-09-20: the document is 390 px on all seven screens checked. Wrapping and
+  **not** `overflow-x-auto`, which is what the walk's jumper does: the jumper is five anchors
+  that have to stay one 44 px bar, and a header may be two rows on a phone at no cost.

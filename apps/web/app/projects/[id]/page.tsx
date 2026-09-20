@@ -208,6 +208,14 @@ export default async function ProjectRecord({
         Each number is read unfiltered and each link carries `scope=ours`, so a
         count and the list it lands on cannot answer different questions — the
         baseline's bar 5 failure, fixed in issue #141 and drawn here as the rule.
+
+        **No route hint**, where the morning screen's two cards carry one. Plate
+        D-02 draws `?scope=ours`, but these two hrefs also carry the job's uuid,
+        so a hint short enough to read is a label that can drift from the link
+        under it and a truthful one is unreadable. The morning screen's is
+        derived from the href itself and stays true. What the hint was pointing
+        at — that the count and the list ask the same question — these two say
+        in words: *our court*.
       */}
       {(exposure.length > 0 || onTheClock.length > 0) && (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -224,9 +232,6 @@ export default async function ProjectRecord({
                 {exposure.length === 1 ? 'submission is' : 'submissions are'}{' '}
                 still standing on an unresolved open item &mdash; our court
               </span>
-              <span className="text-muted-foreground ml-auto font-mono text-xs">
-                ?scope=ours
-              </span>
             </Link>
           )}
 
@@ -242,9 +247,6 @@ export default async function ProjectRecord({
                 {onTheClock.length === 1
                   ? 'entry is sitting in our court past its turnaround'
                   : 'entries are sitting in our court past their turnaround'}
-              </span>
-              <span className="text-muted-foreground ml-auto font-mono text-xs">
-                ?scope=ours
               </span>
             </Link>
           )}
@@ -289,7 +291,7 @@ export default async function ProjectRecord({
                   item={item}
                   projectId={id}
                   users={users}
-                  keepAt={`/projects/${id}`}
+                  keepInPlace
                 />
               ))}
               {keptItem !== undefined && (

@@ -400,7 +400,14 @@ test('a submission says provisional in words beside the badge, naming what it st
       name: project.name,
       timezone: zone,
     },
-    openItems: [{ ...standing, unresolvedAtIssuance: true }],
+    openItems: [
+      { ...standing, unresolvedAtIssuance: true },
+      // Attached **after** the set went out, so no part of it (ADR-0027).
+      {
+        ...openItem('item-later', { unresolved: 'Fault current letter' }),
+        unresolvedAtIssuance: null,
+      },
+    ],
     chain: [],
   } as api.SubmissionDetail);
 
@@ -417,10 +424,17 @@ test('a submission says provisional in words beside the badge, naming what it st
     (one) => one.textContent === 'Provisional',
   );
   expect(badge).not.toBeUndefined();
-  expect(badge?.parentElement?.textContent).toContain(
-    'Issued on an open item that is still unresolved',
-  );
-  expect(badge?.parentElement?.textContent).toContain(standing.unresolved);
+  const said = badge?.parentElement?.textContent ?? '';
+  expect(said).toContain('Still standing on an unresolved open item');
+  expect(said).toContain(standing.unresolved);
+  expect(said).toContain('Fault current letter');
+
+  // **Standing on**, never *issued on*. This list is every attached item still
+  // unresolved, and one attached after the set went out was no part of it
+  // (`unresolved_at_issuance` null, ADR-0027) — so *issued on* would name a
+  // record the set did not go out on, and would contradict the line above it
+  // on a set that named nothing unresolved at issuance.
+  expect(said).not.toContain('Issued on');
 
   // ADR-0027's two facts stay two, because they stop agreeing the moment an
   // item resolves: one is stamped at issuance and the other is derived.

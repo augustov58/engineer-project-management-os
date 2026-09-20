@@ -259,12 +259,12 @@ export async function resolveOpenItem(
   projectId: string,
   id: string,
   /**
-   * Where to land so the item that just resolved **keeps its place** (issue
-   * #120, the brief's density rule 4, drawn on plate D-02): *"a resolved item
-   * keeps its place with its new state and its undo, and only the next load
-   * files it under Resolved."*
+   * Whether to land back on the project record so the item that just resolved
+   * **keeps its place** (issue #120, the brief's density rule 4, drawn on plate
+   * D-02): *"a resolved item keeps its place with its new state and its undo,
+   * and only the next load files it under Resolved."*
    *
-   * `null` everywhere but the project record, which is the only screen that
+   * False everywhere but the project record, which is the only screen that
    * files resolved items somewhere else — on a submission, an entry or a
    * finding the item stays exactly where it was and there is nothing to keep
    * it from. The screen cannot work this out for itself: a server action
@@ -272,8 +272,15 @@ export async function resolveOpenItem(
    * the caller holds. So it is said here and read back off the query string,
    * which is a rendering rule and not a record (ADR-0038's shape: what an
    * engineer is shown is the screen's question).
+   *
+   * **A boolean and never the path to land on.** A bound argument travels to
+   * the browser and back, so a path taken from one would be a destination the
+   * caller chose — `redirect()` given a stranger's string is an open redirect,
+   * which is the hole `app/sign-in/destination.ts` exists to close on the one
+   * other route that takes one. The destination is built here from `projectId`,
+   * which this action already has.
    */
-  keepAt: string | null,
+  keepInPlace: boolean,
   formData: FormData,
 ): Promise<void> {
   // An item answered in April must not read as answered today just because
@@ -289,9 +296,11 @@ export async function resolveOpenItem(
     { tolerateConflict: true },
   );
   revalidateOpenItems(projectId);
-  if (keepAt !== null) {
+  if (keepInPlace) {
     // After the revalidate, so the page this lands on is the fresh one.
-    redirect(`${keepAt}?kept=${encodeURIComponent(id)}`);
+    redirect(
+      `/projects/${encodeURIComponent(projectId)}?kept=${encodeURIComponent(id)}`,
+    );
   }
 }
 

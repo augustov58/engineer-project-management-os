@@ -27,7 +27,7 @@ export function OpenItemEntry({
   raisedFromFlag = false,
   users,
   timeZone,
-  keepAt = null,
+  keepInPlace = false,
   kept = false,
 }: {
   item: OpenItem;
@@ -60,12 +60,13 @@ export function OpenItemEntry({
   raisedFromFlag?: boolean;
   /** The zone of the job this record is on (ADR-0054). */
   timeZone: string;
-  /**
-   * Where resolving this one should land so that it **keeps its place** (issue
-   * #120, density rule 4). Only the project record passes it, because it is
-   * the only screen that files a resolved item somewhere else.
+   /**
+   * That resolving this one should land back on the project record so that it
+   * **keeps its place** (issue #120, density rule 4). Only the project record
+   * passes it, being the only screen that files a resolved item somewhere else.
+   * A boolean and not a path: see `resolveOpenItem`.
    */
-  keepAt?: string | null;
+  keepInPlace?: boolean;
   /**
    * That this is the row that just resolved, shown in place rather than filed
    * under *Resolved* (issue #120, density rule 4). It carries the word for
@@ -172,7 +173,7 @@ export function OpenItemEntry({
         </form>
       ) : (
         <form
-          action={resolveOpenItem.bind(null, projectId, item.id, keepAt)}
+          action={resolveOpenItem.bind(null, projectId, item.id, keepInPlace)}
           className="flex flex-wrap items-center gap-2 border-t pt-3"
         >
           <Input

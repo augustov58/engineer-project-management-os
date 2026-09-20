@@ -81,12 +81,11 @@ export default async function SubmissionRecord({
   // What this one corrected, which is the other end of the same link. Plate
   // D-04 prints it beside the issuance date: a reissue is the correction path
   // here, so which set it replaced belongs in the head rather than only in the
-  // chain below.
-  const supersedesId = submission.chain.find(
-    (entry) => entry.id === submission.id,
-  )?.supersedesId;
+  // chain below. Read off the record's own column — the chain carries it too,
+  // and finding this row inside its own chain to read a field it already has is
+  // a lookup that can only go wrong.
   const supersedes = submission.chain.find(
-    (entry) => entry.id === supersedesId,
+    (entry) => entry.id === submission.supersedesId,
   );
   // Said in words beside the badge and not only coloured (the brief's
   // `### Desk`): *provisional* is a claim about named records, and naming them
@@ -142,10 +141,17 @@ export default async function SubmissionRecord({
               screens disagreeing about a fact neither of them stores.
             */}
             {!superseded && <Badge variant="destructive">Provisional</Badge>}
+            {/*
+              **Standing on**, never *issued on*: `standingOn` is every attached
+              item still unresolved, and an item attached **after** the issuance
+              was no part of it (`unresolved_at_issuance` null, ADR-0027). Saying
+              *issued on* here would name items the set did not go out on, and
+              could contradict the line directly above it.
+            */}
             <span>
               {superseded
                 ? 'Still standing on an unresolved open item, though it is the replacement that exposure counts'
-                : 'Issued on an open item that is still unresolved'}
+                : 'Still standing on an unresolved open item'}
               {standingOn.length === 0
                 ? '.'
                 : `: ${standingOn.map((item) => item.unresolved).join('; ')}.`}
@@ -178,18 +184,15 @@ export default async function SubmissionRecord({
         )}
       </div>
 
+      {/*
+        No count in the head, where plate D-04 draws *2 sheets*. The sheet list
+        is **one block of text** and rows per sheet are a migration ADR-0026
+        priced and did not take, so a figure here would be this screen counting
+        newlines and calling the answer the size of the set — wrong the first
+        time a set carries a header line or a wrapped one.
+      */}
       <section className="space-y-3">
-        <SectionHead
-          aside={
-            <span className="tabular-nums">
-              {submission.sheetList.split('\n').filter((one) => one.trim() !== '')
-                .length}{' '}
-              sheets
-            </span>
-          }
-        >
-          The set
-        </SectionHead>
+        <SectionHead>The set</SectionHead>
         <pre className="overflow-x-auto rounded-lg border p-3 font-mono text-sm">
           {submission.sheetList}
         </pre>

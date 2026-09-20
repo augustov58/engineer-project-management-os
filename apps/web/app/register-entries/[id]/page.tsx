@@ -44,7 +44,7 @@ import { selectClassName } from '../../native-select';
 import { OpenItemEntry } from '../../open-item';
 import { SectionHead } from '../../section-head';
 import { clock, day } from '../../wall-clock';
-import { BallInCourtBadge, ClockBadge } from '../../ball-in-court';
+import { BallInCourtBadge, ClockBadge, inCourtDays } from '../../ball-in-court';
 
 /** The point of this screen is whose court it is in right now. */
 export const dynamic = 'force-dynamic';
@@ -98,14 +98,15 @@ export default async function RegisterEntryRecord({
   const numberById = new Map(
     (rounds?.entries ?? []).map((one) => [one.id, one.number]),
   );
+  const held = inCourtDays(entry.inCourtMs);
   const phaseName = new Map(phases.map((phase) => [phase.id, phase.name]));
   const onThisEntry = new Set(entry.openItems.map((item) => item.id));
   const attachable = unresolved.filter((item) => !onThisEntry.has(item.id));
   const answered = submissions.find((one) => one.id === entry.submissionId);
-  // Whose it is now and since when — the last handoff, which is what
-  // *ball-in-court* is (ADR-0036). Plate D-03's clock is one line and this is
-  // the half of it the badge does not carry.
-  const current = entry.handoffs.at(-1);
+  // Whose it is now and since when. `ballInCourt` **is** the last handoff,
+  // projected and derived on every read (ADR-0036); reading `handoffs.at(-1)`
+  // beside it would be a second way to answer the same question.
+  const current = entry.ballInCourt;
   const unresolvedHere = entry.openItems.filter(
     (item) => item.resolvedAt === null,
   );
@@ -136,8 +137,15 @@ export default async function RegisterEntryRecord({
         <p className="text-muted-foreground mt-1 text-xs">
           From {entry.fromParty} to {entry.toParty} &middot; logged{' '}
           {day(entry.createdAt, project.timezone)}
+          {/*
+            Calendar days and never working days, whatever a contract calls
+            them: `inCourtMs` sums wall-clock intervals and `inCourtDays` floors
+            on a 24-hour day (ADR-0037). The badge below reads `14 / 10 days`
+            off the same number, and two words for one unit is how they come to
+            disagree.
+          */}
           {entry.turnaroundDays !== null &&
-            ` · ${entry.turnaroundDays} working days`}
+            ` · ${entry.turnaroundDays}-day turnaround`}
         </p>
       </div>
 
@@ -155,10 +163,25 @@ export default async function RegisterEntryRecord({
       <section className="space-y-3">
         <SectionHead>Clock</SectionHead>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+          {/*
+            **Always the party's name**, never *our court* in its place — the
+            rule `ball-in-court.tsx` states and keeps: whether the ball is ours
+            is the stored boolean and not a reading of the name, so a job that
+            calls us by the firm's name must still show that name. The badge
+            beside this carries the second fact.
+          */}
           <span className="text-sm">
-            {current === undefined
+            {current === null
               ? 'Unheld'
-              : `${current.inOurCourt ? 'In our court' : `With ${current.party}`} since ${day(current.heldSince, project.timezone)}`}
+              : `${current.party} since ${day(current.heldSince, project.timezone)}`}
+            {/*
+              With no target `ClockBadge` renders nothing — an entry is not past
+              anything it has no number for — so the elapsed days would be on the
+              screen nowhere at all. Said here in that state only, because with a
+              target the badge already prints `{held} / {target} days`.
+            */}
+            {entry.turnaroundDays === null &&
+              ` · ${held} ${held === 1 ? 'day' : 'days'} in our court so far`}
           </span>
           <span className="ml-auto flex flex-wrap items-center gap-2">
             <BallInCourtBadge ballInCourt={entry.ballInCourt} />
@@ -200,17 +223,21 @@ export default async function RegisterEntryRecord({
               <p className="text-base whitespace-pre-wrap">{entry.response}</p>
             </>
           )}
+          {/*
+            Open, for the reason the disposition below is: answering an RFI is
+            the act this half of the screen exists for, and density rule 1 is
+            about a form that *adds to* a record. The two halves of one screen
+            cannot treat the same act two ways.
+          */}
           {entry.response === null && (
-            <Disclosure summary="Record the response">
-              <ResponseForm
-                submit={recordResponse.bind(
-                  null,
-                  entry.id,
-                  entry.registerId,
-                  project.id,
-                )}
-              />
-            </Disclosure>
+            <ResponseForm
+              submit={recordResponse.bind(
+                null,
+                entry.id,
+                entry.registerId,
+                project.id,
+              )}
+            />
           )}
         </section>
       )}
@@ -446,8 +473,15 @@ export default async function RegisterEntryRecord({
         </div>
       </Disclosure>
 
+      {/*
+        Open while something is outstanding (density rule 3): what is being
+        chased for this entry is live work, and the project record keeps its own
+        Open items open for the same reason. Collapsed once there is nothing
+        unresolved, which is when the section is finished.
+      */}
       <Disclosure
         summary={`Open items (${unresolvedHere.length} unresolved)`}
+        open={unresolvedHere.length > 0}
       >
         <div className="space-y-3">
           {entry.openItems.length === 0 ? (
