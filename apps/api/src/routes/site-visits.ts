@@ -28,6 +28,7 @@ import {
 } from '../wire.js';
 import { audit } from '../audit.js';
 import { actorOf, callerOf } from '../gate.js';
+import { readIn } from '../zone.js';
 
 /**
  * A site visit: one dated observation event against a building (issue #9).
@@ -246,7 +247,7 @@ export function siteVisitRoutes(
           actor: actorOf(request),
           subject: { type: 'site-visit', id: walk.id },
           action: 'site visit recorded',
-          detail: `started ${walk.startedAt.toISOString()}`,
+          detail: `started ${readIn(walk.startedAt, project.timezone)}`,
           at,
         });
         return walk;
@@ -381,7 +382,7 @@ export function siteVisitRoutes(
           actor: actorOf(request),
           subject: { type: 'site-visit', id: stamped.id },
           action: 'site visit ended',
-          detail: `ended ${ended.toISOString()}`,
+          detail: `ended ${readIn(ended, walk.project.timezone)}`,
           at,
         });
         return stamped;
@@ -462,7 +463,11 @@ export function siteVisitRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true, projectId: true },
+        select: {
+          id: true,
+          projectId: true,
+          project: { select: { timezone: true } },
+        },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
@@ -485,7 +490,7 @@ export function siteVisitRoutes(
             actor: actorOf(request),
             subject: { type: 'site-visit-floor', id: row.id },
             action: 'floor started',
-            detail: `Floor ${row.floor}, at ${row.startedAt.toISOString()}`,
+            detail: `Floor ${row.floor}, at ${readIn(row.startedAt, walk.project.timezone)}`,
             at,
           });
           return row;
@@ -521,7 +526,12 @@ export function siteVisitRoutes(
           floor: true,
           startedAt: true,
           completedAt: true,
-          siteVisit: { select: { projectId: true } },
+          siteVisit: {
+            select: {
+              projectId: true,
+              project: { select: { timezone: true } },
+            },
+          },
         },
       });
       if (floor === null) {
@@ -553,7 +563,7 @@ export function siteVisitRoutes(
           actor: actorOf(request),
           subject: { type: 'site-visit-floor', id: stamped.id },
           action: 'floor completed',
-          detail: `Floor ${floor.floor}, at ${completed.toISOString()}`,
+          detail: `Floor ${floor.floor}, at ${readIn(completed, floor.siteVisit.project.timezone)}`,
           at,
         });
         return stamped;

@@ -11,6 +11,7 @@ import { noSuchProject } from '../refusals.js';
 import { projectOnTheWire } from '../wire.js';
 import { audit } from '../audit.js';
 import { actorOf } from '../gate.js';
+import { dayIn, readIn } from '../zone.js';
 
 /**
  * No format for the project number is written down anywhere — only that it is
@@ -240,12 +241,21 @@ export function projectRoutes(
         // was not — the count is what tells the two apart, the way a
         // compare-and-set does on a proposal (issue #42).
         if (stamped.count === 1) {
+          // Read inside the transaction and only on the branch that writes: a
+          // job archived is a job that exists, and the no-op path pays for
+          // nothing. This route is the one of the twelve with no project in
+          // scope at all (issue #123) — the read below it is the response's
+          // and has to stay after the write.
+          const { timezone } = await tx.project.findUniqueOrThrow({
+            where: { id },
+            select: { timezone: true },
+          });
           await audit(tx, {
             projectId: id,
             actor: actorOf(request),
             subject: { type: 'project', id },
             action: 'project archived',
-            detail: `archived on ${at.toISOString()}`,
+            detail: `archived on ${readIn(at, timezone)}`,
             at,
           });
         }
@@ -299,7 +309,11 @@ export function projectRoutes(
 
       const project = await prisma.project.findUnique({
         where: { id },
-        select: { processingLocation: true, cloudSignoffReference: true },
+        select: {
+          processingLocation: true,
+          cloudSignoffReference: true,
+          timezone: true,
+        },
       });
       if (project === null) {
         return noSuchProject(reply);
@@ -332,7 +346,9 @@ export function projectRoutes(
           },
           where: { id, cloudSignoffReference: null },
           action: 'processing location set to cloud',
-          detail: `the firm signed off in writing on ${signedAt.toISOString()}, reference ${signoffReference}`,
+          // A day and no clock time: the screen types a date alone
+          // (`composeDay`), so the 00:00 would be one nobody entered.
+          detail: `the firm signed off in writing on ${dayIn(signedAt, project.timezone)}, reference ${signoffReference}`,
           lost: 'a written sign-off is already recorded on this project',
         };
       } else {

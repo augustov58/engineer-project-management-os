@@ -9,6 +9,7 @@ import { reportOnTheWire, reportsMade } from '../wire.js';
 import { RENDER_REPORT, type RenderReportJob } from '../worker.js';
 import { audit } from '../audit.js';
 import { actorOf } from '../gate.js';
+import { readIn } from '../zone.js';
 
 /** The reports asked for on a walk, in the order they were asked for. */
 function reportsOn(prisma: PrismaClient, siteVisitId: string) {
@@ -46,7 +47,12 @@ export function reportRoutes(
     async (request, reply) => {
       const walk = await prisma.siteVisit.findUnique({
         where: { id: request.params.id },
-        select: { id: true, projectId: true, startedAt: true },
+        select: {
+          id: true,
+          projectId: true,
+          startedAt: true,
+          project: { select: { timezone: true } },
+        },
       });
       if (walk === null) {
         return noSuchSiteVisit(reply);
@@ -65,7 +71,11 @@ export function reportRoutes(
           actor: actorOf(request),
           subject: { type: 'site-visit-report', id: row.id },
           action: 'site visit report asked for',
-          detail: `the walk of ${walk.startedAt.toISOString()}`,
+          // The start as it was typed, day and clock time both: a walk is
+          // filed under its day (ADR-0030) but two walks on one building in
+          // one day would then be one sentence, and `site visit recorded`
+          // names this same walk to the minute a few lines above it.
+          detail: `the walk of ${readIn(walk.startedAt, walk.project.timezone)}`,
           at,
         });
         return row;

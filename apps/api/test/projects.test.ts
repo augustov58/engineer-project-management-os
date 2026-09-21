@@ -241,7 +241,17 @@ test('an unknown project is a 404 to read and to archive', async () => {
 
 // ── Processing location (issue #21, stories 91 and 92) ───────────────────────
 
-const SIGNOFF_AT = '2026-08-20T00:00:00.000Z';
+/**
+ * Midnight on the 20th **where the building is**, which is what the screen
+ * sends: a sign-off is typed as a day and `composeDay` composes it in the
+ * project's zone. Midnight UTC would be the 19th at 20:00 there, and the
+ * audit line below — which renders the day back in that zone since issue
+ * #123 — would then correctly read a date nobody typed.
+ */
+const SIGNOFF_AT = '2026-08-20T04:00:00.000Z';
+
+/** The same day as the engineer entered it, which is what the line says. */
+const SIGNOFF_DAY = '2026-08-20';
 
 async function setProcessingLocation(
   app: TestApi,
@@ -468,7 +478,7 @@ test('going back to local clears the sign-off, and the audit is what keeps it', 
     PROJECT_RECORDED,
     expect.objectContaining({
       action: 'processing location set to cloud',
-      detail: `the firm signed off in writing on ${SIGNOFF_AT}, reference DPA-2026-014`,
+      detail: `the firm signed off in writing on ${SIGNOFF_DAY}, reference DPA-2026-014`,
     }),
     expect.objectContaining({
       action: 'processing location set to local',

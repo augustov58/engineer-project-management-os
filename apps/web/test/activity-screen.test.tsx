@@ -104,6 +104,39 @@ test('every line the feed returned is on the screen, in the order given', async 
   ]);
 });
 
+/**
+ * The row reads one clock (issue #123).
+ *
+ * The column is rendered here from `createdAt` and the prose beside it is
+ * composed by the API, so this is the half of that agreement the API's own
+ * test cannot see: the face the screen prints for the instant the line was
+ * written is the face the line's prose uses for the same instant.
+ */
+test("the timestamp column reads the building's clock, and says so once", async () => {
+  vi.mocked(api.listActivity).mockResolvedValue([
+    line(1, {
+      createdAt: '2026-07-23T17:00:00.000Z',
+      detail: 'started 2026-07-23 13:00',
+    }),
+  ]);
+
+  await activityScreen();
+
+  // 17:00 UTC is 13:00 where the building is, and the column and the prose
+  // print that one face — twice on the row, which is the agreement itself.
+  // Before this it read `13:00` beside `started 2026-07-23T17:00:00.000Z`.
+  const [row] = screen.getAllByRole('listitem');
+  const text = row.textContent ?? '';
+  expect(text.split('2026-07-23 13:00')).toHaveLength(3);
+  expect(text).not.toContain('T17:00:00.000Z');
+
+  // And the zone is named once on the screen rather than on every line,
+  // which is what makes a bare wall clock unambiguous (ADR-0059's rule).
+  expect(
+    screen.getAllByText(/America\/New_York/).length,
+  ).toBe(1);
+});
+
 test('the length is never rendered as a figure', async () => {
   // Thirty-seven lines, which under a default limit of 50 is the whole of
   // lately — and under a feed that had been bounded at 37 would be the bound.
