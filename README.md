@@ -64,8 +64,13 @@ year. The Next server forwards it to the API as `x-session-id`. Two things are w
 knowing before deploying:
 
 - `GET /v1/health` is gated with everything else, so a managed platform's HTTP health check
-  must be configured to send a session or be a TCP check. This deployment checks `/sign-in`
-  on the Next listener instead, which needs no credential (ADR-0045).
+  must be configured to send a session or be a TCP check. This deployment checks `/healthz`
+  on the Next listener instead: it needs no credential and it reaches the API through the one
+  door, so an API that is wedged or OOM-killed turns the check red rather than leaving a
+  machine the platform considers healthy (ADR-0045, and ADR-0052's sixth point since issue
+  #106). It checked `/sign-in` until then, and `/unlock` before that — both served entirely
+  by Next, so both proved only that Next was serving. `fly.toml` holds the path and
+  `apps/web/test/healthz.test.ts` asserts that literal against it.
 - `POST /v1/ingest/inbound-mail` is the one route the gate lets through with nothing at
   all, because inbound mail can present nothing. Its address is its credential (ADR-0042).
   `POST /v1/sessions` is **not** a second exemption: it presents an email and a password
