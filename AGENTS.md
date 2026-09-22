@@ -99,6 +99,8 @@ goes in that record's file and never here: this file carries only what applies t
 path, and stays under 8 KB — trimmed back under it on 2026-09-15, 2026-09-16 and
 2026-09-22. All three times it went over by growing a per-ticket history, which is the
 changelog's job; what belongs here is the standing rule a ticket left behind, not the ticket.
+`apps/web/test/instructions.test.ts` holds the cap now, so a fourth time is a red gate rather
+than a thing somebody notices.
 
 ## Agent skills
 

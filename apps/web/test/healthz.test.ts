@@ -121,7 +121,8 @@ test('the path the proxy lets past is the path a route answers on', () => {
 
 test('and it is the path the platform actually checks', () => {
   // Reaching out of the package for a deployment file, which this suite does
-  // nowhere else. The drift it catches is the whole of issue #94: a check
+  // here and in `instructions.test.ts` and nowhere else. The drift it catches
+  // is the whole of issue #94: a check
   // pointing at a path that proves the wrong thing is green for as long as the
   // wrong thing lives, and nothing else here would ever say so.
   const fly = readFileSync(resolve(process.cwd(), '../../fly.toml'), 'utf8');
