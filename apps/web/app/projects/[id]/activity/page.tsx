@@ -68,6 +68,15 @@ export default async function ProjectActivityPage({
           Every recorded change on this job, newest first. The most recent are
           shown; the whole record, oldest first, is the audit.
         </p>
+        {/*
+          The frame, stated once and governing the screen (ADR-0059's rule for
+          the report's header, applied here). Both halves of a row read this
+          clock since issue #123 — the column, and any time in the line beside
+          it — so saying it per row would say it once per line.
+        */}
+        <p className="text-muted-foreground mt-1 text-sm">
+          Times are the building&rsquo;s, in {project.timezone}.
+        </p>
       </div>
 
       {/*

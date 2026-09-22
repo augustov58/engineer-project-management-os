@@ -31,6 +31,7 @@ import { itemOnSubmission } from './submissions.js';
 import { namedUser, openItemOnTheWire } from '../wire.js';
 import { audit } from '../audit.js';
 import { actorOf, callerOf } from '../gate.js';
+import { dayIn } from '../zone.js';
 
 /**
  * The durable artifact of engineering reasoning (issue #8): two blocks
@@ -224,7 +225,12 @@ export function assumptionRecordRoutes(
     async (request, reply) => {
       const set = await prisma.submission.findUnique({
         where: { id: request.params.id },
-        select: { id: true, projectId: true, revision: true },
+        select: {
+          id: true,
+          projectId: true,
+          revision: true,
+          project: { select: { timezone: true } },
+        },
       });
       if (set === null) {
         return noSuchSubmission(reply);
@@ -287,7 +293,7 @@ export function assumptionRecordRoutes(
             actor: actorOf(request),
             subject: { type: 'assumption-record', id: created.id },
             action: 'assumption record captured',
-            detail: `revision ${set.revision}, ${created.codeEdition}, calculated ${created.calculatedAt.toISOString()}`,
+            detail: `revision ${set.revision}, ${created.codeEdition}, calculated ${dayIn(created.calculatedAt, set.project.timezone)}`,
             at,
           });
           return created;

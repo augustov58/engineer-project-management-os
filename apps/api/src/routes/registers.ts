@@ -32,6 +32,7 @@ import {
 } from '../wire.js';
 import { audit } from '../audit.js';
 import { actorOf, callerOf } from '../gate.js';
+import { dayIn } from '../zone.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -448,7 +449,14 @@ function findEntry(prisma: PrismaClient, id: string) {
       // counted: `previous_round_id` is unique, so there is at most one and
       // its existence is the whole of the refusal.
       nextRound: { select: { id: true } },
-      register: { select: { kind: true, projectId: true } },
+      register: {
+        select: {
+          kind: true,
+          projectId: true,
+          // The frame this entry's audit prose is written in (issue #123).
+          project: { select: { timezone: true } },
+        },
+      },
     },
   });
 }
@@ -685,7 +693,7 @@ export function registerRoutes(
           actor: actorOf(request),
           subject: { type: 'register-entry', id: entry.id },
           action: 'ball handed on',
-          detail: `${entry.number} — to ${handoff.party}${handoff.inOurCourt ? ', which is ours' : ''}, held since ${handoff.heldSince.toISOString()}`,
+          detail: `${entry.number} — to ${handoff.party}${handoff.inOurCourt ? ', which is ours' : ''}, held since ${dayIn(handoff.heldSince, entry.register.project.timezone)}`,
           at: handoff.createdAt,
         });
       });
@@ -922,7 +930,7 @@ export function registerRoutes(
           actor: actorOf(request),
           subject: { type: 'register-entry', id: entry.id },
           action: 'disposition recorded',
-          detail: `${entry.number} — ${request.body.disposition}, back to ${handoff.party}, dated ${handoff.heldSince.toISOString()}`,
+          detail: `${entry.number} — ${request.body.disposition}, back to ${handoff.party}, dated ${dayIn(handoff.heldSince, entry.register.project.timezone)}`,
           at: handoff.createdAt,
         });
       });

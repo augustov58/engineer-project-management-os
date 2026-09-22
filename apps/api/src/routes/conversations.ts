@@ -65,6 +65,7 @@ import {
 } from '../wire.js';
 import { audit } from '../audit.js';
 import { actorOf, callerOf, mintRunSession } from '../gate.js';
+import { readIn } from '../zone.js';
 import {
   type ObservationBody,
   observationBodySchema,
@@ -371,7 +372,13 @@ async function nextPosition(
 async function conversationOn(prisma: PrismaClient, siteVisitId: string) {
   return prisma.conversation.findUnique({
     where: { siteVisitId },
-    select: { id: true, projectId: true, siteVisitId: true },
+    select: {
+      id: true,
+      projectId: true,
+      siteVisitId: true,
+      // The frame this conversation's prose is written in (issue #123).
+      project: { select: { timezone: true } },
+    },
   });
 }
 
@@ -379,7 +386,13 @@ async function conversationOn(prisma: PrismaClient, siteVisitId: string) {
 async function conversationById(prisma: PrismaClient, id: string) {
   return prisma.conversation.findUnique({
     where: { id },
-    select: { id: true, projectId: true, siteVisitId: true },
+    select: {
+      id: true,
+      projectId: true,
+      siteVisitId: true,
+      // The frame this conversation's prose is written in (issue #123).
+      project: { select: { timezone: true } },
+    },
   });
 }
 
@@ -541,7 +554,11 @@ export function conversationRoutes(
             actor: actorOf(request),
             subject: { type: 'turn', id: turn.id },
             action: kind === 'VOICE' ? 'capture recorded' : 'capture typed',
-            detail: `${turn.captureKey ?? ''}, captured ${turn.recordedAt?.toISOString() ?? ''}`,
+            detail: `${turn.captureKey ?? ''}, captured ${
+              turn.recordedAt === null
+                ? ''
+                : readIn(turn.recordedAt, conversation.project.timezone)
+            }`,
             at,
           });
           return { turn, runId: run?.id ?? null };
@@ -648,7 +665,11 @@ export function conversationRoutes(
           recordedAt: true,
           transcript: true,
           conversation: {
-            select: { projectId: true, siteVisitId: true },
+            select: {
+              projectId: true,
+              siteVisitId: true,
+              project: { select: { timezone: true } },
+            },
           },
         },
       });
@@ -701,7 +722,7 @@ export function conversationRoutes(
               turn.transcript === observation.observed
                 ? 'capture committed verbatim'
                 : 'capture committed with corrections',
-            detail: `observed ${observation.observedAt.toISOString()}`,
+            detail: `observed ${readIn(observation.observedAt, turn.conversation.project.timezone)}`,
             at,
           });
 

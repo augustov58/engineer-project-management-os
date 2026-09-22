@@ -630,6 +630,63 @@ test('a refused mutation writes no line, and a no-op writes none either', async 
   ]);
 });
 
+/**
+ * The frame a line's prose is written in (issue #123, ADR-0054 decision 3 as
+ * amended).
+ *
+ * This is ADR-0052's fourth point and not a formatting assertion: the injected
+ * clock is nine hours from the typed side and shares nothing with it, so a
+ * route that rendered the stamp it holds — or that rendered nothing and kept
+ * the UTC face — reads a different sentence than the one asserted. The oracle
+ * is the arithmetic written here: `2026-07-23T17:00:00.000Z` is 13:00 where
+ * the building is, and nothing in the product computes the expected string.
+ */
+test("a line's prose reads the building's clock, not the frame it was stored in", async () => {
+  const clock = fakeTimeSource(new Date('2026-07-24T02:00:00.000Z'));
+  const app = await api({ timeSource: clock });
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+
+  // Typed the morning after, for a walk that happened the afternoon before.
+  await createSiteVisit(app, project.id, {
+    startedAt: '2026-07-23T17:00:00.000Z',
+  });
+
+  const recorded = (await trail(app, project.id)).find(
+    (line) => line.action === 'site visit recorded',
+  );
+  expect(recorded?.detail).toBe('started 2026-07-23 13:00');
+
+  // And the line's own instant is still the stamp, a day later: the prose
+  // carries a fact the column does not, which is why it keeps carrying one.
+  expect(recorded?.createdAt).toBe('2026-07-24T02:00:00.000Z');
+});
+
+/**
+ * The agreement issue #123 asks for, at the only place both halves exist.
+ *
+ * The feed renders `createdAt` in the project's zone beside `detail` verbatim
+ * (`apps/web/app/projects/[id]/activity/page.tsx`), so a walk recorded as it
+ * happens must read the same clock twice on one row. Before this the row said
+ * `13:00` and `started 2026-07-23T17:00:00.000Z` — one event, two faces.
+ */
+test('a line and the column the feed renders beside it read one clock', async () => {
+  const clock = fakeTimeSource(new Date('2026-07-23T17:00:00.000Z'));
+  const app = await api({ timeSource: clock });
+  const project = await createProject(app, 'A-1', 'Riser replacement');
+  await createSiteVisit(app, project.id, {
+    startedAt: '2026-07-23T17:00:00.000Z',
+  });
+
+  const recorded = (await trail(app, project.id)).find(
+    (line) => line.action === 'site visit recorded',
+  );
+  // The instant the feed's column is rendered from...
+  expect(recorded?.createdAt).toBe('2026-07-23T17:00:00.000Z');
+  // ...and the face in the prose beside it, which is that instant in
+  // `America/New_York` and is what the column reads too.
+  expect(recorded?.detail).toBe('started 2026-07-23 13:00');
+});
+
 test("a line's instant is the injected TimeSource's and never the wall clock", async () => {
   const clock = fakeTimeSource(new Date('2026-09-05T09:00:00.000Z'));
   const app = await api({ timeSource: clock });

@@ -44,3 +44,20 @@ export function clockIn(instant: Date, timeZone: string): string {
   // in some locales. Midnight is hour zero.
   return `${at.hour === '24' ? '00' : at.hour}:${at.minute}`;
 }
+
+/**
+ * Both, the way a person reads one — `2026-07-23 13:00`.
+ *
+ * The face an audit line's prose carries where the value it quotes was typed
+ * as a day *and* a clock time (issue #123, ADR-0054 decision 3 as amended); a
+ * value typed as a day alone takes `dayIn` and gets no clock, because the
+ * `00:00` would be one the engineer never entered. It is here rather than
+ * spelled into each route that writes such a line, which is ADR-0033's
+ * trigger reached the moment the second one did; how many there are is
+ * written down in `.claude/rules/memory.md` and deliberately not here. The
+ * order and the separator are the activity feed's own column's, so the two
+ * halves of a row cannot print one instant two ways.
+ */
+export function readIn(instant: Date, timeZone: string): string {
+  return `${dayIn(instant, timeZone)} ${clockIn(instant, timeZone)}`;
+}
