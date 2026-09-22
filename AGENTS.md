@@ -15,7 +15,7 @@ The Obsidian vault is the single source of truth for this project's documentatio
 ```
 
 - `PRD and Architecture.md` - product requirements, architecture, and the six-step Revised MVP sequence. It carries **no backlog**: the 2026-08-24 grilling deleted the original fourteen-item list and never replaced it. What is planned beyond the MVP is the five deferred items with named triggers.
-- `docs/adr/` - decision records 0001-0061. `docs/adr/README.md` is the index and **the only place with a status for every one**: in the files 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, and **0012-0019 carry none**. Six are superseded and **eight** Accepted with a qualifier — 0054's decision 3 is the eighth, extended by issue #123 that built it; it and 0058's part 4 are the **two** qualified by a ticket rather than by another record, and both were written by the ticket that changed the thing the record describes; **none is Proposed** since 0020, 2026-09-01.
+- `docs/adr/` - decision records 0001-0061. `docs/adr/README.md` is the index and **the only place with a status for every one**: in the files 0001-0011 carry a `- Status:` bullet and 0020-0061 a bare `Status:`, and **0012-0019 carry none**. Which are superseded and which Accepted with a qualifier is that index's to say, and is deliberately not tallied here.
 - `docs/glossary.md` - domain glossary.
 
 Never let the vault docs drift from reality. Update them as work happens (see CONTEXT.md for the update rules).
@@ -29,44 +29,13 @@ six-step **Revised MVP sequence** in `PRD and Architecture.md`, step 1 included:
 item's shape and not a checklist. Do not re-raise it. **Step 5 is done since #109**. The
 **inbound mail provider stays unwritten**, the last vendor pick.
 
-**Post-MVP has started** (issue #103). Sixteen tickets have landed: the timezone frame (#104,
-ADR-0054); **users and sessions replacing the edge gate** (#105, ADR-0055) — a `users`
-table, the first account a command on the machine, no shared secret anywhere;
-**the gates** (#106, ADR-0052) — `.github/workflows/ci.yml`
-runs every gate below on every push and PR, and does not deploy; **the helper
-skills** (#107, ADR-0053) — `apps/api/tools/` is a submodule pinned by commit at the helpers'
-own repository, its manifested helpers reachable as `POST /v1/tools/:name` through the one
-mutating route that **records nothing**; **extraction reachable** (#108); **the vendor
-picks** (#109, ADR-0060/0061) — `OCR=azure` is Azure AI Document Intelligence and
-`TRANSCRIBER=azure` Azure AI Speech **fast**, both refusing by default, no key in source;
-**the actor and the subject** (#111, ADR-0055 part 2) — every audit line says **who**,
-**which row** it touched and the run it was written during, the actor coming from the session
-and never a request body; and **the person on the record** (#112, ADR-0055 part 5) — a walk's
-`conducted_by` (the report prints it), an open item's `owner_id` replacing free text, the
-handoff that names who the ball came to, and *mine*/*ours* on the daily layer. Still no
-`created_by`: whose a record **is** differs from who typed it. **ADR-0055 is built whole.**
-**Evidence** (#113, ADR-0056) — `photos.observation_id` beside `issue_id`, at most one; a
-finding's evidence is **derived** through its sightings. **The conversation** (#114, ADR-0057
-as amended by ADR-0058) — a walk has exactly one, created with it; `voice_captures` is now
-`turns` under it, a capture is **spoken or typed**, and a typed one queues a run whose reply
-is a turn carrying the draft or a question. The run is an `agent_runs` row naming its
-conversation — the link, not the `kind` column ADR-0040 refused. **Confirming is still the
-engineer's**, and the forms are unchanged. And **the design system**
-(#117, ADR-0059 point 4) — the brief's tokens, the dark theme on with a `users.theme` override,
-every screen measured in both themes; and **the screens redesigned to the plates** — field
-(#118), the report as issued output (#119) and the desk (#120), which **complete ADR-0059
-point 3** and changed no route. And **the project chat** (#121, ADR-0058 part 4) — a
-conversation on a project that reads through the routes, asks any registered helper and
-proposes an **assumption record**, confirmed by the route that already wrote one with the turn
-on it as provenance. The first run allowed a helper; thirteen tools, asserted exactly. **ADR-0058 is built** save part 6, refused with its
-trigger; part 4's *one registry* sentence is **narrowed to the chat's list** by a dated
-amendment on that record, with its reason and its trigger. And **an audit line's prose reads
-the building's clock** (#123, ADR-0054 decision 3 as amended): twelve writers had put a UTC
-face in `detail`, which the feed prints beside a zone-rendered column, so a row carried one
-event in two frames. Lines written before 2026-09-21 **keep theirs** — append-only, so a dated
-correction and never a rewrite. `/healthz` is the platform check (ADR-0045); the per-slice record is
-[docs/changelog.md](./docs/changelog.md) and nothing else (ADR-0051). Work one ticket at a
-time, and only when asked.
+**Post-MVP has started** (issue #103). What has landed since is
+[docs/changelog.md](./docs/changelog.md) — one row per slice and the only per-slice record
+(ADR-0051) — and why each was built that way is the vault's ADR. Neither is retold here and
+no count of either is kept here: the count is the thing that goes stale. **ADR-0055 is built
+whole**, and **ADR-0058** save part 6, refused with its trigger.
+
+Work one ticket at a time, and only when asked.
 
 `pnpm dev` starts everything; `pnpm typecheck` and `pnpm test` run from the repo root and
 pass. Since #50 (ADR-0049) `pnpm test` covers `apps/web` too — component-level Vitest, no
@@ -84,6 +53,16 @@ See [README.md](./README.md).
 - Stack: TypeScript monorepo (pnpm), Next.js, Fastify (ADR-0021), PostgreSQL + Prisma, Redis + BullMQ, S3 docs, Pi SDK (`@earendil-works/pi-coding-agent`).
 - The product implements no calculation logic anywhere. Helper skills produce inputs to the
   record; it records what one produced and never reimplements its math.
+- **No `created_by`, on any table** (ADR-0055). Whose a record *is* differs from who typed it,
+  and the audit already holds the second fact — its actor comes from the session and never
+  from a request body. Check this before adding any person-shaped column.
+- **Confirming is the engineer's.** A run proposes a draft; a person commits it. No route
+  writes on a model's say-so, and the forms did not change when the chat arrived.
+- **No key in source** (ADR-0060/0061). `OCR=azure` and `TRANSCRIBER=azure` refuse by default,
+  and an unrecognised vendor name refuses too.
+- **The audit is append-only.** A line already written is corrected by a dated line after it
+  and never by a rewrite, so lines predating a fix still carry the shape it replaced.
+- `/healthz` is the platform check (ADR-0045).
 - The glossary's `_Avoid_` lists are **binding vocabulary**, in column names as much as in
   UI copy: the observation's content column is `observed` and not `note`; the record is a
   *site visit*, never an inspection or a walkthrough; a location has no *area* or *zone*; a
@@ -117,7 +96,9 @@ for #114.
 `prisma/schema.prisma`, `worker.ts` and the project page are listed in every file whose
 record they touch, so reading one loads all of those, on purpose. A rule about one record
 goes in that record's file and never here: this file carries only what applies to every
-path, and stays under 8 KB — trimmed back under it on 2026-09-15 and again on 2026-09-16.
+path, and stays under 8 KB — trimmed back under it on 2026-09-15, 2026-09-16 and
+2026-09-22. All three times it went over by growing a per-ticket history, which is the
+changelog's job; what belongs here is the standing rule a ticket left behind, not the ticket.
 
 ## Agent skills
 
