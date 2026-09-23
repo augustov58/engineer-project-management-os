@@ -10,6 +10,7 @@
 
 import { afterEach, describe, expect, test } from 'vitest';
 import { PROCESSING_LOCATION_IS_LOCAL } from '../src/refusals.js';
+import { EXTRACTION_TEXT_MAX, tooLargeToExtract } from '../src/worker.js';
 import {
   EXTRACTION_DIRECTIVE,
   extractionPrompt,
@@ -498,6 +499,50 @@ describe('the extraction run', () => {
     const failed = await reaches(app, queued.id, 'failed');
     expect(failed.failure).toBe('the model provider timed out');
     expect(failed.ocrText).toContain('fake OCR page');
+  });
+
+  test('text at the bound reaches the agent, and one character past it fails the row with the text kept whole', async () => {
+    // ADR-0052's one fixture at the size the rule exists for (issue #132):
+    // every other OCR page here is a few dozen characters, and the bound is
+    // three hundred thousand.
+    const atTheBound = 'x'.repeat(EXTRACTION_TEXT_MAX);
+    const pastTheBound = `${atTheBound}x`;
+    const read: number[] = [];
+    const app = await api({
+      ocr: {
+        read: (_bytes, _contentType, filename) =>
+          Promise.resolve(filename === 'at.pdf' ? atTheBound : pastTheBound),
+      },
+      agentRunService: {
+        proposeMemoryEdit: () => Promise.reject(new Error('not this run')),
+        proposeCapture: () => Promise.reject(new Error('not this run')),
+        proposeAssumptionRecord: () => Promise.reject(new Error('not this run')),
+        extractRegisterEntry: ({ source }) => {
+          read.push(source.text.length);
+          return Promise.resolve();
+        },
+      },
+    });
+    const project = await createProject(app, 'T-1', 'Office fit-out');
+    const { extraction: at } = await arrivalExtraction(app, project.id, {
+      files: [{ filename: 'at.pdf' }],
+    });
+    const { extraction: past } = await arrivalExtraction(app, project.id, {
+      files: [{ filename: 'past.pdf' }],
+    });
+
+    const ran = await settles(app, at.id);
+    expect(ran.state).toBe('finished');
+    expect(ran.ocrText).toHaveLength(EXTRACTION_TEXT_MAX);
+
+    const refused = await settles(app, past.id);
+    expect(refused.state).toBe('failed');
+    expect(refused.failure).toBe(tooLargeToExtract(EXTRACTION_TEXT_MAX + 1));
+    // Stored whole before the bound is read, so the screen reviews all of it.
+    expect(refused.ocrText).toBe(pastTheBound);
+    // The model was asked once, with the whole of the text at the bound, and
+    // never with the text past it.
+    expect(read).toEqual([EXTRACTION_TEXT_MAX]);
   });
 
   test('progress is the state over SSE, never a percentage', async () => {
