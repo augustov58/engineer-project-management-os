@@ -67,7 +67,14 @@ primary_region = "iad"
   # `kimi-coding/kimi-for-coding` here while the Pi settings named another. A
   # model the account does not have fails the run and is never swapped for one.
   # A smaller window than 1,048,576 tokens re-derives ADR-0063's text bound.
-  AGENT_MODEL = "alibaba-plan/deepseek-v4.1-flash"
+  #
+  # `alibaba-plan/deepseek-v4.1-flash` was the first choice and refused every
+  # call: this plan's endpoint rejects the `developer` role the SDK sends a
+  # reasoning model, and the SDK only knows DeepSeek lacks it on DeepSeek's own
+  # endpoint (issue #162). Qwen 3.8 Flash on the same plan answered a stand-in
+  # chat turn through its tool on the machine before it was chosen. Check any
+  # new model the same way before naming it here.
+  AGENT_MODEL = "alibaba-plan/qwen3.8-flash"
 
   # The two vendor adapters, on since 2026-09-14 (issue #109, ADR-0060 and
   # ADR-0061). This comment said they were set **nowhere** until then, and that

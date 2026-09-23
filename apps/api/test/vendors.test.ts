@@ -32,6 +32,7 @@ import {
 } from '../src/transcription.js';
 import {
   agentRunServiceFromEnv,
+  failIfTheModelFailed,
   modelChoice,
   pinModel,
   unconfiguredAgentRunService,
@@ -659,4 +660,77 @@ test('a run is moved onto the model that was named, and refuses one the deployme
     pinModel(runtime, session, modelChoice('alibaba-plan/no-such-model')),
   ).rejects.toThrow('the model alibaba-plan/no-such-model is not available to this deployment');
   expect(set).toEqual([available]);
+});
+
+test('a provider error fails the run with the provider’s sentence, and a clean stop does not (issue #162)', () => {
+  // What the SDK leaves behind, in shape: it does not throw on a provider
+  // error, it appends an assistant message that stopped on `error` and
+  // returns — so a run read *finished, proposed nothing*. This sentence is
+  // the one `alibaba-plan/deepseek-v4.1-flash` answered on 2026-09-23.
+  const refused =
+    '400 data: {"error":{"code":"invalid_parameter_error","message":"developer is not one of [\'system\', \'assistant\', \'user\', \'tool\', \'function\']"}}';
+  const asked = { role: 'user' };
+  const TOOL = 'assumption_record_propose';
+
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { role: 'assistant', stopReason: 'error', errorMessage: refused }]),
+  ).toThrow(refused);
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { role: 'assistant', stopReason: 'aborted' }]),
+  ).toThrow('the model provider stopped the run: aborted');
+  // Cut off at the output limit: the SDK compacts and retries an overflow
+  // once, and a second truncation is left as the last answer and returns.
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { role: 'assistant', stopReason: 'length' }]),
+  ).toThrow('the model’s answer was cut off at its output limit');
+
+  // An answer, and an answer after a tool call, are both a run that finished.
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { role: 'assistant', stopReason: 'stop' }]),
+  ).not.toThrow();
+  expect(() =>
+    failIfTheModelFailed(TOOL, [
+      asked,
+      { role: 'assistant', stopReason: 'toolUse' },
+      { role: 'toolResult' },
+      { role: 'assistant', stopReason: 'stop' },
+    ]),
+  ).not.toThrow();
+
+  // Only the **last** answer counts: an error the SDK retried past is not the
+  // outcome of the run.
+  expect(() =>
+    failIfTheModelFailed(TOOL, [
+      asked,
+      { role: 'assistant', stopReason: 'error', errorMessage: refused },
+      { role: 'assistant', stopReason: 'stop' },
+    ]),
+  ).not.toThrow();
+
+  // A run's job is its proposal. Once the route took it, a provider error on
+  // the model's wrap-up turn is not the run failing: the proposal is on the
+  // record and reviewable, and *failed* beside it would send the engineer to
+  // ask again for something they already have.
+  const answered = (status: number) => ({
+    role: 'toolResult',
+    toolName: TOOL,
+    isError: false,
+    content: [{ type: 'text', text: JSON.stringify({ status, body: {} }) }],
+  });
+  const afterwards = { role: 'assistant', stopReason: 'error', errorMessage: refused };
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { role: 'assistant', stopReason: 'toolUse' }, answered(201), afterwards]),
+  ).not.toThrow();
+
+  // A proposal the route **refused** is not one that landed, and neither is
+  // another tool's success or a tool that threw.
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, answered(409), afterwards]),
+  ).toThrow(refused);
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { ...answered(201), toolName: 'projects_get' }, afterwards]),
+  ).toThrow(refused);
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { ...answered(201), isError: true }, afterwards]),
+  ).toThrow(refused);
 });

@@ -961,6 +961,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(PROMPT);
+        failIfTheModelFailed('memory_propose_edit', session.messages);
       } finally {
         session.dispose();
       }
@@ -1016,6 +1017,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(capturePrompt(conversation));
+        failIfTheModelFailed('capture_propose', session.messages);
       } finally {
         session.dispose();
       }
@@ -1058,6 +1060,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(chatPrompt(conversation));
+        failIfTheModelFailed('assumption_record_propose', session.messages);
       } finally {
         session.dispose();
       }
@@ -1084,6 +1087,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(extractionPrompt(source));
+        failIfTheModelFailed('extraction_propose', session.messages);
       } finally {
         session.dispose();
       }
@@ -1132,6 +1136,85 @@ export function modelChoice(raw: string): ModelChoice {
     throw new Error(`AGENT_MODEL must be <provider>/<model>, got ${raw}`);
   }
   return { provider, id };
+}
+
+/**
+ * Fail the run if the model provider did (issue #162).
+ *
+ * `session.prompt` does **not** throw on a provider error: the SDK appends an
+ * assistant message that stopped on `error` — or `aborted`, or `length` when
+ * an answer was cut off — carrying the
+ * provider's sentence, and returns. Left there, every run type read as
+ * *finished, proposed nothing*: a chat that never answered, and an extraction
+ * saying *the agent found no correspondence here* about a document no model
+ * read. So the run's outcome is its **last** assistant message, read after the
+ * prompt returns — the last, because the SDK retries an error and only what it
+ * ended on is the answer.
+ *
+ * **Except once the run's proposal has landed.** A run's job is its one
+ * proposal, and the SDK calls the model again after every tool call; an error
+ * on that wrap-up turn is not the run failing — the proposal is on the record
+ * and reviewable, and *failed* beside it would send the engineer to ask again
+ * for something they have. *Landed* is the run's own proposal tool answered
+ * with a 2xx by the route, read off the tool result `asResult` wrote; a
+ * proposal the route refused has not landed.
+ *
+ * Exported for the test that holds it to that, over stand-ins for the
+ * messages: the SDK is never loaded by a test (ADR-0040).
+ */
+export function failIfTheModelFailed(
+  proposalTool: string,
+  messages: readonly {
+    role: string;
+    stopReason?: string;
+    errorMessage?: string;
+    toolName?: string;
+    isError?: boolean;
+    content?: unknown;
+  }[],
+): void {
+  const last = messages.findLast((message) => message.role === 'assistant');
+  const stopped = last?.stopReason;
+  if (stopped !== 'error' && stopped !== 'aborted' && stopped !== 'length') {
+    return;
+  }
+  if (messages.some((message) => proposalLanded(proposalTool, message))) {
+    return;
+  }
+  // `length` is an answer cut off at the output limit: the SDK compacts and
+  // retries an overflow once, and leaves a second truncation as the last
+  // answer and returns — which is *nothing proposed* for the same wrong reason.
+  throw new Error(
+    stopped === 'length'
+      ? 'the model’s answer was cut off at its output limit'
+      : (last?.errorMessage ?? `the model provider stopped the run: ${stopped}`),
+  );
+}
+
+/** Whether one message is the run's proposal tool answered with a 2xx. */
+function proposalLanded(
+  proposalTool: string,
+  message: { role: string; toolName?: string; isError?: boolean; content?: unknown },
+): boolean {
+  if (
+    message.role !== 'toolResult' ||
+    message.toolName !== proposalTool ||
+    message.isError === true ||
+    !Array.isArray(message.content)
+  ) {
+    return false;
+  }
+  return message.content.some((part: { type?: string; text?: string }) => {
+    if (part.type !== 'text' || typeof part.text !== 'string') {
+      return false;
+    }
+    try {
+      const { status } = JSON.parse(part.text) as { status?: unknown };
+      return typeof status === 'number' && status >= 200 && status < 300;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
