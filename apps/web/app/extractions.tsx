@@ -361,11 +361,10 @@ export function ExtractionConfirmForm({
               id="extract-heldSince"
               name="heldSince"
               type="date"
-              defaultValue={
-                extraction.proposedHeldSince === null
-                  ? undefined
-                  : day(extraction.proposedHeldSince, timeZone)
-              }
+              // A date, as the document gives it, and never read in the job's
+              // zone: it has none, and reading it in one moved it a day west
+              // of UTC (issue #154).
+              defaultValue={extraction.proposedHeldSince ?? undefined}
             />
             <p className="text-muted-foreground text-xs">
               The date on the document. Left blank, today.

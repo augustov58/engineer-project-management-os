@@ -139,8 +139,8 @@ const EXTRACTION_KEYS = [
 ];
 
 /**
- * The typed fields, as the agent proposes them and the engineer confirms them
- * — one shape for both, as `fieldsBodySchema` is one schema for both.
+ * The typed fields, as the engineer confirms them — and as the agent proposes
+ * them, save the Since, which `proposalBody` makes a date (issue #154).
  */
 function fieldsBody(patch: Record<string, unknown> = {}): Record<string, unknown> {
   const body: Record<string, unknown> = {
@@ -165,6 +165,20 @@ function fieldsBody(patch: Record<string, unknown> = {}): Record<string, unknown
     }
   }
   return body;
+}
+
+/**
+ * The same fields as the agent proposes them: the Since is a **date** (issue
+ * #154). The model reads a date off the document and knows no zone, so it is
+ * asked for the date and not for an instant; the engineer's confirmation
+ * composes the instant in the job's zone, as every typed day is.
+ */
+function proposalBody(patch: Record<string, unknown> = {}): Record<string, unknown> {
+  const body = fieldsBody(patch);
+  const ball = body.ballInCourt as Record<string, unknown> | undefined;
+  return ball?.heldSince === undefined
+    ? body
+    : { ...body, ballInCourt: { ...ball, heldSince: '2026-09-01' } };
 }
 
 /**
@@ -598,21 +612,21 @@ describe('the proposal route', () => {
 
     // An extra field is a 400, not a stripped key.
     const extra = await post(app, `/v1/extractions/${extraction.id}/proposal`, {
-      ...fieldsBody(),
+      ...proposalBody(),
       ignorePreviousInstructions: true,
     });
     expect(extra.status).toBe(400);
 
     // A kind outside the register's two is a 400.
     const kind = await post(app, `/v1/extractions/${extraction.id}/proposal`, {
-      ...fieldsBody(),
+      ...proposalBody(),
       kind: 'CHANGE ORDER',
     });
     expect(kind.status).toBe(400);
 
     // The first handoff is required, as it is at the entries boundary.
     const noBall = await post(app, `/v1/extractions/${extraction.id}/proposal`, {
-      ...fieldsBody(),
+      ...proposalBody(),
       ballInCourt: undefined,
     });
     expect(noBall.status).toBe(400);
@@ -623,7 +637,7 @@ describe('the proposal route', () => {
     const parked = await api({ worker: false });
     const parkedProject = await createProject(parked, 'T-1', 'Office fit-out');
     const { extraction: waiting } = await arrivalExtraction(parked, parkedProject.id);
-    const early = await post(parked, `/v1/extractions/${waiting.id}/proposal`, fieldsBody());
+    const early = await post(parked, `/v1/extractions/${waiting.id}/proposal`, proposalBody());
     expect(early.status).toBe(409);
     expect(await early.json()).toEqual({ message: 'that extraction is not running' });
 
@@ -634,10 +648,10 @@ describe('the proposal route', () => {
     const { extraction: running } = await arrivalExtraction(app, project.id);
 
     await held.reached;
-    const lands = await post(app, `/v1/extractions/${running.id}/proposal`, fieldsBody());
+    const lands = await post(app, `/v1/extractions/${running.id}/proposal`, proposalBody());
     expect(lands.status).toBe(201);
 
-    const twice = await post(app, `/v1/extractions/${running.id}/proposal`, fieldsBody());
+    const twice = await post(app, `/v1/extractions/${running.id}/proposal`, proposalBody());
     expect(twice.status).toBe(409);
     expect(await twice.json()).toEqual({
       message: 'that extraction has already proposed',
@@ -655,7 +669,7 @@ describe('the proposal route', () => {
     const fromDocument = await post(app, `/v1/documents/${document.id}/extractions`);
     const documentRun = (await fromDocument.json()) as ExtractionResponse;
     await held.reached;
-    const withTitle = await post(app, `/v1/extractions/${documentRun.id}/proposal`, fieldsBody());
+    const withTitle = await post(app, `/v1/extractions/${documentRun.id}/proposal`, proposalBody());
     expect(withTitle.status).toBe(409);
     expect(await withTitle.json()).toEqual({
       message: 'a stored document already has a title and a revision',
@@ -672,7 +686,7 @@ describe('the proposal route', () => {
     const noTitle = await post(
       app2,
       `/v1/extractions/${arrivalRun.id}/proposal`,
-      fieldsBody({ title: undefined, revision: undefined }),
+      proposalBody({ title: undefined, revision: undefined }),
     );
     expect(noTitle.status).toBe(409);
     expect(await noTitle.json()).toEqual({
@@ -684,9 +698,46 @@ describe('the proposal route', () => {
 
   test('of an unknown extraction is a 404', async () => {
     const app = await api();
-    const response = await post(app, `/v1/extractions/${NO_SUCH}/proposal`, fieldsBody());
+    const response = await post(app, `/v1/extractions/${NO_SUCH}/proposal`, proposalBody());
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ message: 'no extraction with that id' });
+  });
+
+  test('a proposed Since is the date on the document, and reads back as that date on either side of UTC', async () => {
+    // The clock is not the typed side (ADR-0052): at this instant it is
+    // already the 23rd in UTC and in Tokyo and still the 22nd in Los Angeles,
+    // and the proposal must say the document's date in every one of them.
+    const timeSource = fakeTimeSource(new Date('2026-09-23T02:30:00.000Z'));
+
+    for (const timezone of ['America/Los_Angeles', 'Asia/Tokyo']) {
+      const held = heldAgentRunService();
+      const app = await api({ agentRunService: held.service, timeSource });
+      const project = await createProject(app, 'T-1', 'Office fit-out', timezone);
+      const { extraction: running } = await arrivalExtraction(app, project.id);
+      await held.reached;
+
+      // An instant is refused: the model knows a date, and was writing
+      // midnight UTC for it, which west of UTC is the evening before.
+      const instant = await post(app, `/v1/extractions/${running.id}/proposal`, {
+        ...proposalBody(),
+        ballInCourt: {
+          party: 'the engineer',
+          inOurCourt: true,
+          heldSince: '2026-09-22T00:00:00.000Z',
+        },
+      });
+      expect(instant.status).toBe(400);
+
+      const dated = await post(app, `/v1/extractions/${running.id}/proposal`, {
+        ...proposalBody(),
+        ballInCourt: { party: 'the engineer', inOurCourt: true, heldSince: '2026-09-22' },
+      });
+      expect(dated.status).toBe(201);
+      held.release();
+
+      const settled = await settles(app, running.id);
+      expect(settled.proposedHeldSince).toBe('2026-09-22');
+    }
   });
 });
 
