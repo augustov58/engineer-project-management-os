@@ -40,6 +40,13 @@ apply to every path stay in `AGENTS.md`.
   (ADR-0032). A derived binding has nowhere to keep a correction, and a floor time fixed the
   next morning would silently move photographs between floors. There is no provenance
   column: "the engineer cleared it" and "no window contained it" are the same stored fact.
+- **Nothing back-fills** (issue #138, dated lines on ADR-0032 and ADR-0056). The grammar
+  resolves against the findings that exist when the photograph is added, so one named
+  `issue-7` before Issue 7 is raised stays unbound, and raising it later reads no photograph.
+  A back-fill would be a second writer of a stamped column and would move a photograph the
+  engineer may already have corrected by hand. The ordinary path — bind it to the
+  observation, then promote — reaches the report with no filename at all. Do not add a write
+  to `photos` in the promotion transaction; every writer of `photos` is in `routes/photos.ts`.
 - `photos.taken_at` is **required** and never falls back to the `TimeSource`, unlike
   `observations.observed_at` — that fallback would bin a timestamp-less photograph to
   whichever floor was being walked at the moment of the request (ADR-0032). Nothing reads
