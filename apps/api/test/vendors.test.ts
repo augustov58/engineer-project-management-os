@@ -678,6 +678,11 @@ test('a provider error fails the run with the provider’s sentence, and a clean
   expect(() =>
     failIfTheModelFailed(TOOL, [asked, { role: 'assistant', stopReason: 'aborted' }]),
   ).toThrow('the model provider stopped the run: aborted');
+  // Cut off at the output limit: the SDK compacts and retries an overflow
+  // once, and a second truncation is left as the last answer and returns.
+  expect(() =>
+    failIfTheModelFailed(TOOL, [asked, { role: 'assistant', stopReason: 'length' }]),
+  ).toThrow('the model’s answer was cut off at its output limit');
 
   // An answer, and an answer after a tool call, are both a run that finished.
   expect(() =>

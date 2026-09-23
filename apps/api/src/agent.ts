@@ -1142,7 +1142,8 @@ export function modelChoice(raw: string): ModelChoice {
  * Fail the run if the model provider did (issue #162).
  *
  * `session.prompt` does **not** throw on a provider error: the SDK appends an
- * assistant message that stopped on `error` — or `aborted` — carrying the
+ * assistant message that stopped on `error` — or `aborted`, or `length` when
+ * an answer was cut off — carrying the
  * provider's sentence, and returns. Left there, every run type read as
  * *finished, proposed nothing*: a chat that never answered, and an extraction
  * saying *the agent found no correspondence here* about a document no model
@@ -1173,14 +1174,20 @@ export function failIfTheModelFailed(
   }[],
 ): void {
   const last = messages.findLast((message) => message.role === 'assistant');
-  if (last?.stopReason !== 'error' && last?.stopReason !== 'aborted') {
+  const stopped = last?.stopReason;
+  if (stopped !== 'error' && stopped !== 'aborted' && stopped !== 'length') {
     return;
   }
   if (messages.some((message) => proposalLanded(proposalTool, message))) {
     return;
   }
+  // `length` is an answer cut off at the output limit: the SDK compacts and
+  // retries an overflow once, and leaves a second truncation as the last
+  // answer and returns — which is *nothing proposed* for the same wrong reason.
   throw new Error(
-    last.errorMessage ?? `the model provider stopped the run: ${last.stopReason}`,
+    stopped === 'length'
+      ? 'the model’s answer was cut off at its output limit'
+      : (last?.errorMessage ?? `the model provider stopped the run: ${stopped}`),
   );
 }
 
