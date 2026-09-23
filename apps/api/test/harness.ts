@@ -1878,7 +1878,8 @@ export function fakeAgentRunService(
     ballInCourt: {
       party: 'the engineer',
       inOurCourt: true,
-      heldSince: '2026-09-01T09:00:00.000Z',
+      // A date, as the model is asked for one (issue #154).
+      heldSince: '2026-09-01',
     },
     title: 'RFI-001 baseplate detail',
     revision: 'A',

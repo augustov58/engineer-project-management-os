@@ -1314,6 +1314,7 @@ export interface Extraction {
   proposedTurnaroundDays: number | null;
   proposedParty: string | null;
   proposedInOurCourt: boolean | null;
+  /** A date, `YYYY-MM-DD`, and not an instant: never read it in a zone (issue #154). */
   proposedHeldSince: string | null;
   proposedTitle: string | null;
   proposedRevision: string | null;

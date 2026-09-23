@@ -2245,7 +2245,10 @@ model RegisterEntryExtraction {
   proposedTurnaroundDays Int?          @map("proposed_turnaround_days")
   proposedParty          String?       @map("proposed_party")
   proposedInOurCourt     Boolean?      @map("proposed_in_our_court")
-  proposedHeldSince      DateTime?     @map("proposed_held_since")
+  /// A **date** and not an instant (issue #154, ADR-0064): the date on the
+  /// document, which is all the model knows. The confirmation composes the
+  /// instant in the job's zone, as every typed day is (ADR-0054).
+  proposedHeldSince      DateTime?     @map("proposed_held_since") @db.Date
   proposedTitle          String?       @map("proposed_title")
   proposedRevision       String?       @map("proposed_revision")
 

@@ -36,7 +36,8 @@ apply to every path stay in `AGENTS.md`.
 - An **extraction proposes a party and never a person**, and is refused one: there is no
   `proposed_user_id`, the agent has read correspondence and which engineer here the ball
   comes to is not in it. The refusal is on the propose **route** and not in the schema —
-  `fieldsBodySchema` stays one shape for the agent and the engineer alike, which is the split
+  `fieldsBodySchema` stays one shape for the agent and the engineer alike (save the Since,
+  a date on the proposal since issue #154 — see `ingest.md`), which is the split
   "which kind carries a question" already has.
 - A handoff carries `party` **and** `in_our_court`, and neither derives from the other
   (ADR-0036). The clock reads the boolean; the screen shows the name. Do not read "ours" off

@@ -446,10 +446,13 @@ export function extractionRunTools(call: CallApi, extractionId: string) {
         ballInCourt: Type.Object({
           party: Type.String({ description: 'Whose court the ball starts in.' }),
           inOurCourt: Type.Boolean({ description: 'Whether the ball starts in our court.' }),
+          // A date and not an instant (issue #154): the model knows the date
+          // on the letter and no zone to put it in. The confirmation composes
+          // the instant in the job's zone.
           heldSince: Type.Optional(
             Type.String({
-              format: 'date-time',
-              description: 'From when — the date on the document, as an ISO timestamp.',
+              format: 'date',
+              description: 'From when — the date on the document, as YYYY-MM-DD.',
             }),
           ),
         }),

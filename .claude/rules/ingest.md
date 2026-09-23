@@ -216,6 +216,13 @@ apply to every path stay in `AGENTS.md`.
   neither, a number already in the register is still a conflict. **Reject keeps the source**
   exactly as it arrived and keeps the proposal on the record. `PATCH`, `PUT` and `DELETE`
   on an extraction are 404.
+- **A proposed Since is a date and never an instant** (issue #154, ADR-0064).
+  `proposed_held_since` is a `DATE`, the tool asks for `YYYY-MM-DD`, the wire carries
+  `YYYY-MM-DD` and the screen pre-fills it **as given** — never through `day()`, which reads an
+  instant in the job's zone and moved a midnight-UTC proposal a day early west of UTC. The
+  model knows the date on the letter and no zone. Confirming composes the instant through
+  `composeDay`, as every typed day is. `proposalBodySchema` is the one place the agent's
+  boundary differs from the engineer's; every other field stays one schema.
 - The confirmation screen reviews against **what the agent read** — the OCR text and the
   envelope — and never a rendering of the file: arrival bytes are served as
   `application/octet-stream` attachments on purpose (ADR-0042), and this screen does not

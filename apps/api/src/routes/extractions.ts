@@ -41,7 +41,7 @@ const NO_SUCH_FILE = {
  * The typed shape the agent's output is constrained to, and the same shape
  * the engineer edits at confirmation — one schema for both, so the boundary
  * the agent is held to and the boundary the engineer is held to cannot drift
- * apart.
+ * apart. The Since is the one exception, and `proposalBodySchema` says why.
  *
  * Every field is the register entry's own, with its own bounds, plus the
  * document's `title` and `revision` on the arrival path — the two fields
@@ -66,6 +66,31 @@ const fieldsBodySchema = {
     ballInCourt: handoffBodySchema,
     title: { type: 'string', pattern: NOT_BLANK, maxLength: 200 },
     revision: { type: 'string', pattern: NOT_BLANK, maxLength: 32 },
+  },
+} as const;
+
+/**
+ * The agent's shape: the engineer's, save that the Since is a **date** (issue
+ * #154, ADR-0064).
+ *
+ * The one field where the two are held to different boundaries, and on
+ * purpose. The model reads a date off a letter and is told no zone, so asked
+ * for an instant it wrote midnight UTC — which the confirmation screen, reading
+ * an instant in the job's zone, showed as the evening before. The engineer's
+ * confirmation carries an instant composed in that zone, as every typed day
+ * does. Built from the one above so every other field stays one schema.
+ */
+const proposalBodySchema = {
+  ...fieldsBodySchema,
+  properties: {
+    ...fieldsBodySchema.properties,
+    ballInCourt: {
+      ...handoffBodySchema,
+      properties: {
+        ...handoffBodySchema.properties,
+        heldSince: { type: 'string', format: 'date' },
+      },
+    },
   },
 } as const;
 
@@ -177,10 +202,14 @@ function stateOf(extraction: {
 /**
  * An extraction on the wire: its state derived, and its source named by
  * filename rather than by a key. The arrival's envelope rides on the source
- * so the confirmation screen can show what the agent was handed.
+ * so the confirmation screen can show what the agent was handed. The proposed
+ * Since is a date and goes out as one, `YYYY-MM-DD` — Prisma hands a `DATE`
+ * back as midnight UTC, which is exactly the instant a screen must not read in
+ * the job's zone (issue #154).
  */
 function extractionOnTheWire(extraction: StoredExtraction) {
-  const { ingestedDocumentFile, documentVersion, ...rest } = extraction;
+  const { ingestedDocumentFile, documentVersion, proposedHeldSince, ...rest } =
+    extraction;
   const source =
     ingestedDocumentFile !== null
       ? {
@@ -195,7 +224,12 @@ function extractionOnTheWire(extraction: StoredExtraction) {
           filename: documentVersion!.filename,
           document: documentVersion!.document,
         };
-  return { ...rest, source, state: stateOf(extraction) };
+  return {
+    ...rest,
+    proposedHeldSince: proposedHeldSince?.toISOString().slice(0, 10) ?? null,
+    source,
+    state: stateOf(extraction),
+  };
 }
 
 /** A file or document already has a run in flight or a proposal awaiting the engineer. */
@@ -492,7 +526,7 @@ export function extractionRoutes(
    */
   v1.post<{ Params: { id: string }; Body: FieldsBody }>(
     '/extractions/:id/proposal',
-    { schema: { body: fieldsBodySchema } },
+    { schema: { body: proposalBodySchema } },
     async (request, reply) => {
       const extraction = await prisma.registerEntryExtraction.findUnique({
         where: { id: request.params.id },
@@ -569,10 +603,12 @@ export function extractionRoutes(
             proposedTurnaroundDays: turnaroundDays ?? null,
             proposedParty: ballInCourt.party,
             proposedInOurCourt: ballInCourt.inOurCourt,
+            // A date, which a `DATE` column takes as that day's midnight UTC
+            // and keeps only the day of (issue #154).
             proposedHeldSince:
               ballInCourt.heldSince === undefined
                 ? null
-                : new Date(ballInCourt.heldSince),
+                : new Date(`${ballInCourt.heldSince}T00:00:00.000Z`),
             proposedTitle: title ?? null,
             proposedRevision: revision ?? null,
           },
