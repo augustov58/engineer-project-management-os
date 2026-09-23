@@ -98,6 +98,28 @@ apply to every path stay in `AGENTS.md`.
   run, straight off that session and with no special case anywhere: `actorOf(request)` in
   `gate.ts` reads `userId`, `agentRunId` and `extractionId` from the row the gate validated.
   The agent is never the actor.
+- **A failed sign-in is a record, and the throttle counts it** (issue #125, ADR-0062).
+  `sign_in_failures` holds the address exactly as presented, where the attempt came from,
+  and when — **no password and no hash of one** — and `POST /v1/sessions` refuses an address
+  with ten refusals **from one source** in the trailing quarter-hour, or a source with thirty
+  across every address, **before the hash is verified**. The source is on the address count
+  deliberately: without it, somebody who knew an engineer's address could spend its ten and
+  hold that engineer out of a walk indefinitely, which is a stranger doing what only the
+  disable route may. What it gives up is bounding a *distributed* guess at one account, which
+  nothing here bounds anyway. Until this, argon2id was the only throttle there was, which ADR-0055 named
+  as a gap it did not price. It is an arithmetic over those rows and not a counter beside
+  them, which is ADR-0042's shape; the **window is fifteen minutes and not that ADR's hour**,
+  because the cost of being wrong here is an engineer who cannot start a walk. A throttled
+  caller is told **nothing new** — the same 401 and the same sentence — so the bullet above
+  stays literally true and the ingest webhook stays the one route an anonymous caller gets
+  anything else from. **Three things write no row**: an attempt already over the limit, a body
+  that is not credentials, and a successful sign-in. **The source is forwarded by `apps/web`
+  on the sign-in call and on no other**, as `x-sign-in-source`, because `index.ts` binds
+  `127.0.0.1` and every request the API sees is made by the Next server — `request.ip` is
+  loopback for the whole internet. Null in `pnpm dev` and in every test that does not set it.
+  There is **no lock and no second count**: ADR-0042 has both because its limit stands in the
+  gate's place, and this one stands behind the password. There is **no lockout**, ever — a
+  stranger's typing must never do what only ADR-0055 part 5's route may.
 - **`actorOf` is the one way an actor is built from a request**, and it reads the session and
   nothing the caller sent: a body that could name the actor could name somebody else. A test
   in `apps/api/test/audit.test.ts` asserts that `routes/sessions.ts` is the only file that

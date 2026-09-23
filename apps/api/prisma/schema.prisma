@@ -2389,3 +2389,61 @@ model Session {
   @@index([userId, createdAt])
   @@map("sessions")
 }
+
+/// One refused attempt at `POST /v1/sessions` (issue #125,
+/// [[0062-a-failed-sign-in-is-a-record-and-the-throttle-counts-it]],
+/// [[glossary]]: **Failed sign-in**).
+///
+/// This is the table ADR-0055 said would have to exist before sign-in could be
+/// throttled at all: *"a failed sign-in writes nothing today, because a refused
+/// write writes no audit line, so there is nothing to count"*. The limit is an
+/// arithmetic over these rows in the trailing quarter-hour, which is the shape
+/// ADR-0042 gave the ingest address's limit and ADR-0037 gave the clock.
+///
+/// It is **not** an audit line and could not be one: nothing was mutated, the
+/// caller has no session and therefore no actor, and the audit's actor comes
+/// from the session the gate validated and never from a request body.
+///
+/// **No password and no hash of one.** There is no question a stored guess
+/// answers that is worth keeping a table of near-misses to a real password,
+/// and `export.test.ts` searches the whole exported document for `$argon2id$`.
+model SignInFailure {
+  id String @id @default(uuid())
+
+  /// The address exactly as it was presented, which is deliberately not a
+  /// link to a `users` row.
+  ///
+  /// An address that names no account still has to be counted — it is how a
+  /// stranger spraying one password across guessed addresses is bounded — and
+  /// keying on the user would mean writing a row only when the account exists,
+  /// which is the asymmetry `unmatchableHash` exists to prevent. Nothing
+  /// normalises the case either: only the exact spelling can ever sign in, so
+  /// only the exact spelling is worth bounding.
+  ///
+  /// Capped at 254 characters by the route (RFC 5321), because this is the one
+  /// route in the product with no body schema and nothing else bounds it.
+  email String
+
+  /// Where the attempt came from, as `apps/web` reported it on the sign-in
+  /// call: `fly-client-ip`, which Fly's proxy overwrites on every request and
+  /// which is the **only** header read for it. `x-forwarded-for` is
+  /// deliberately not a fallback — a browser sets that one itself, and
+  /// honouring it would let a stranger spend an engineer's attempts by naming
+  /// their address (ADR-0062 decision 4).
+  ///
+  /// Null where nothing reported one, which is `pnpm dev` and any caller that
+  /// reaches the API directly. The API cannot learn this for itself: it binds
+  /// `127.0.0.1` and every request it sees is made by the Next server.
+  source String?
+
+  /// When it was refused, from the injected TimeSource and never a database
+  /// default (ADR-0022) — the limit is read against the same clock.
+  attemptedAt DateTime @map("attempted_at")
+
+  /// The two counts the throttle makes, and the only reads of this table.
+  /// The first carries `source` because the count does: an address's ten are
+  /// spent per source, so that a stranger cannot spend an engineer's.
+  @@index([email, source, attemptedAt])
+  @@index([source, attemptedAt])
+  @@map("sign_in_failures")
+}

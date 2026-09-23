@@ -25,6 +25,33 @@ export const SESSION_COOKIE = 'session';
 export const SESSION_HEADER = 'x-session-id';
 
 /**
+ * Where a sign-in came from, as the API reads it (issue #125, ADR-0062).
+ *
+ * The same name `apps/api/src/routes/sessions.ts` writes down, spelled twice
+ * for the reason `x-session-id` is: there is no module the two apps share.
+ *
+ * It is sent on the **sign-in call and on no other**, because it is counted on
+ * no other: the throttle in front of `POST /v1/sessions` bounds refused
+ * attempts per address and per source, and the API cannot learn a source for
+ * itself — it binds loopback, and every request it sees is made by this server.
+ */
+export const SIGN_IN_SOURCE_HEADER = 'x-sign-in-source';
+
+/**
+ * Where Fly's proxy puts the engineer's own address, and **the only header
+ * read for it**.
+ *
+ * `x-forwarded-for` is deliberately not a fallback. Fly overwrites this header
+ * on every request, so it is the proxy's word; `x-forwarded-for` is a header a
+ * *browser* can set on its own request to this server, and honouring one would
+ * let a stranger spend somebody else's thirty attempts by naming their address
+ * — a stranger doing to an engineer the one thing ADR-0062 says nothing here
+ * may do. Null under `pnpm dev`, where there is no proxy and the source half of
+ * the limit simply does not apply.
+ */
+export const SOURCE_HEADER = 'fly-client-ip';
+
+/**
  * Where the engineer signs in, and the one path the gate lets a *person* by.
  *
  * Since issue #106 `proxy.ts` lets a second path by, `/healthz`, which no

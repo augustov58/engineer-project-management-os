@@ -106,6 +106,7 @@ export function exportRoutes(
       ingestedDocumentFiles,
       registerEntryExtractions,
       users,
+      signInFailures,
     ] = await Promise.all([
       prisma.project.findMany(by),
       prisma.projectPhase.findMany(by),
@@ -141,6 +142,7 @@ export function exportRoutes(
       prisma.ingestedDocumentFile.findMany(by),
       prisma.registerEntryExtraction.findMany(by),
       prisma.user.findMany(by),
+      prisma.signInFailure.findMany(by),
     ]);
 
     return {
@@ -229,6 +231,23 @@ export function exportRoutes(
          * for this reason.
          */
         users: users.map(({ passwordHash: _dropped, ...rest }) => rest),
+
+        /**
+         * The refused sign-ins, whole (issue #125, ADR-0062).
+         *
+         * Nothing is dropped because the record carries nothing to drop: the
+         * address somebody typed, where it came from and when, and **no
+         * password and no hash of one**. That is the line ADR-0047's rule
+         * draws, arriving from the other side for once — `ingest_token` and
+         * `password_hash` come out because they open something, and this row
+         * opens nothing.
+         *
+         * It is also the one reader this record has. There is no screen, which
+         * is the answer this route gave for itself: the route is the
+         * deliverable. A screen answering "who has been trying to sign in as
+         * me" is worth building the first time somebody asks it.
+         */
+        signInFailures,
       },
     };
   });

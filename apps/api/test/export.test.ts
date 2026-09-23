@@ -73,6 +73,7 @@ const TABLES = [
   'ingestedDocumentFiles',
   'registerEntryExtractions',
   'users',
+  'signInFailures',
 ] as const;
 
 /**

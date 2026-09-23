@@ -65,6 +65,11 @@ test('users and sessions exist, and no roles, permissions or tenants table is in
   expect(tables).toContain('users');
   expect(tables).toContain('sessions');
 
+  // A refused sign-in is a record, which is the decision issue #125 had to
+  // take before it could count one (ADR-0062). It is not an audit line: the
+  // caller has no session and so has no actor, and nothing was mutated.
+  expect(tables).toContain('sign_in_failures');
+
   // And the three ADR-0055 keeps out. `roles` and `permissions` are the
   // decision deferred with a named trigger — the first time one engineer must
   // be *prevented* from doing something rather than *recorded* doing it — and
