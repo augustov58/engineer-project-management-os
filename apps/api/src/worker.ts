@@ -79,6 +79,37 @@ export const PROPOSE_CAPTURE = 'propose-capture';
 export const PROPOSE_ASSUMPTION_RECORD = 'propose-assumption-record';
 
 /**
+ * The most OCR text one extraction run hands the model, in characters (issue
+ * #132, ADR-0063). Past it the row fails with `tooLargeToExtract` and the
+ * agent is never called — refused, never truncated, ADR-0042's rule for a
+ * sender's body out of ADR-0039's base64 lesson. `ocr_text` is still stored
+ * whole first (ADR-0043).
+ *
+ * Derived, not chosen. The model `AGENT=pi` resolves to on `epmos-t1` is
+ * `kimi-coding/kimi-for-coding`: a 262,144-token window and 32,768 tokens of
+ * output. A run is at least two model calls — the proposal is a tool call and
+ * its result goes back — so two outputs are reserved: 196,608 tokens left.
+ * The rest of the packet is 269,814 characters at its bounds (the prompt with
+ * the envelope's body, sender and subject and the filename at their maximums,
+ * the one tool's schema, the SDK's system prompt), which at Kimi's documented
+ * low end of three characters a token is 89,938. That leaves 106,670 tokens,
+ * 320,010 characters, rounded down so the margin carries the tool call and its
+ * answer. The one real document measured was 56,236 characters (2026-09-15).
+ * No model is pinned in this repository: a smaller window on the machine is
+ * the trigger to derive this again.
+ *
+ * What it bounds is the vendor: Azure Document Intelligence S0 accepts 2,000
+ * pages or 500 MB (ADR-0060), which is millions of characters. This product's
+ * own document boundary is 48 MiB of file, which bounds bytes and not text.
+ */
+export const EXTRACTION_TEXT_MAX = 300_000;
+
+/** Why an extraction past the bound failed, with how far past it was. */
+export function tooLargeToExtract(length: number): string {
+  return `the document is too large to extract: its text is ${length.toLocaleString('en-US')} characters and one run reads at most ${EXTRACTION_TEXT_MAX.toLocaleString('en-US')}`;
+}
+
+/**
  * The id and nothing else. Everything the job needs is on the row, so a job
  * that sat in Redis across a restart cannot carry a stale copy of it.
  */
@@ -653,6 +684,12 @@ export function buildWorker({
         where: { id: extraction.id },
         data: { ocrText: text },
       });
+      // After the store and before the packet, so a document too large to
+      // read fails here with what the vendor read kept, rather than late at
+      // the model provider after its input has been paid for.
+      if (text.length > EXTRACTION_TEXT_MAX) {
+        throw new Error(tooLargeToExtract(text.length));
+      }
 
       const source: ExtractionSourcePacket = {
         filename: sourceFile.filename,
