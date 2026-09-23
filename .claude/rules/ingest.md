@@ -196,9 +196,8 @@ apply to every path stay in `AGENTS.md`.
 - **The text the model is handed is bounded at 300,000 characters**, `EXTRACTION_TEXT_MAX` in
   `worker.ts` (issue #132, ADR-0063), and past it the row **fails with a sentence** and the
   agent is never called — refused, never truncated, the sender's bound above arriving at the
-  document. The check sits **after**
-  `ocr_text` is stored, so the text is kept whole and the confirmation screen still reviews
-  all of it. The number is **derived and not chosen**: the window of the model `AGENT=pi`
+  document. The check sits **after** `ocr_text` is stored, so the text is kept whole and the
+  confirmation screen still reviews all of it. The number is **derived and not chosen**: the window of the model `AGENT=pi`
   resolves to on the machine, less two outputs and the rest of the packet at its bounds, at
   three characters a token; the arithmetic is at the constant and in the ADR. What it bounds is
   the vendor's 2,000 pages. **No model is pinned here**, so a smaller window on the machine is
