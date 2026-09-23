@@ -961,6 +961,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(PROMPT);
+        failIfTheModelFailed(session.messages);
       } finally {
         session.dispose();
       }
@@ -1016,6 +1017,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(capturePrompt(conversation));
+        failIfTheModelFailed(session.messages);
       } finally {
         session.dispose();
       }
@@ -1058,6 +1060,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(chatPrompt(conversation));
+        failIfTheModelFailed(session.messages);
       } finally {
         session.dispose();
       }
@@ -1084,6 +1087,7 @@ export function piAgentRunService({
       try {
         await pinModel(modelRuntime, session, model);
         await session.prompt(extractionPrompt(source));
+        failIfTheModelFailed(session.messages);
       } finally {
         session.dispose();
       }
@@ -1132,6 +1136,32 @@ export function modelChoice(raw: string): ModelChoice {
     throw new Error(`AGENT_MODEL must be <provider>/<model>, got ${raw}`);
   }
   return { provider, id };
+}
+
+/**
+ * Fail the run if the model provider did (issue #162).
+ *
+ * `session.prompt` does **not** throw on a provider error: the SDK appends an
+ * assistant message that stopped on `error` — or `aborted` — carrying the
+ * provider's sentence, and returns. Left there, every run type read as
+ * *finished, proposed nothing*: a chat that never answered, and an extraction
+ * saying *the agent found no correspondence here* about a document no model
+ * read. So the run's outcome is its **last** assistant message, read after the
+ * prompt returns — the last, because the SDK retries an error and only what it
+ * ended on is the answer.
+ *
+ * Exported for the test that holds it to that, over stand-ins for the
+ * messages: the SDK is never loaded by a test (ADR-0040).
+ */
+export function failIfTheModelFailed(
+  messages: readonly { role: string; stopReason?: string; errorMessage?: string }[],
+): void {
+  const last = messages.findLast((message) => message.role === 'assistant');
+  if (last?.stopReason === 'error' || last?.stopReason === 'aborted') {
+    throw new Error(
+      last.errorMessage ?? `the model provider stopped the run: ${last.stopReason}`,
+    );
+  }
 }
 
 /**
