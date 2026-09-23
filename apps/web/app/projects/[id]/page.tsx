@@ -270,11 +270,12 @@ export default async function ProjectRecord({
         summary. That is density rules 1, 2 and 3 together, and it is what takes
         this screen from the baseline's 4 479 px, five and a half screens.
 
-        **Conversation** is the second section and the other one plate D-02
-        draws unrolled (issue #121). It is the same panel the walk has, which is
-        what the brief means by *"one component, two contexts"* — a `<section>`
-        and not a disclosure, because a chat behind a summary is a chat nobody
-        opens, and the plate draws it open.
+        **Conversation** is the other section plate D-02 draws unrolled (issue
+        #121) and it is the **last** one since issue #164, the author's call
+        against the plate: second on the page, it buried the record as it grew.
+        It is the same panel the walk has, which is what the brief means by
+        *"one component, two contexts"* — a `<section>` and not a disclosure,
+        because a chat behind a summary is a chat nobody opens.
       */}
       <div className="max-w-[var(--measure-record)] space-y-6">
         <section className="space-y-3">
@@ -326,50 +327,6 @@ export default async function ProjectRecord({
             <NewOpenItemForm submit={createOpenItem.bind(null, id)} />
           </Disclosure>
         </section>
-
-        {/*
-          The project chat (issue #121, ADR-0058 part 4). The **latest**
-          conversation, which is what the newest-first read answers with first:
-          a job has any number of them, and the one anybody is in is the one
-          they were last in. Opening a new one is not a control here — nothing
-          on the plate draws one, and the first question opens the first
-          conversation by itself.
-
-          The panel is on the page **before** there is a conversation, which is
-          what makes that true: a GET may not write one, so the typed bar's
-          action opens it and then asks.
-        */}
-        <ConversationPanel
-          anchor="conversation"
-          turns={conversation?.turns ?? []}
-          live={
-            <ChatProgress
-              conversationId={conversation?.id ?? null}
-              initial={conversation?.turns ?? []}
-              initialRuns={conversation?.runs ?? []}
-            />
-          }
-          issues={issues}
-          timeZone={project.timezone}
-          typed={askOnProject.bind(null, id, conversation?.id ?? null)}
-          typedPlaceholder="Ask about this job…"
-          typedLabel="What you want to know"
-          hint={
-            <>
-              The agent reads this job and asks the helpers. It proposes;
-              confirming is yours, and nothing it says is a record until you
-              capture it.
-            </>
-          }
-          confirmRecord={(turnId) =>
-            confirmAssumptionRecord.bind(null, turnId, id)
-          }
-          submissions={submissions.map((set) => ({
-            id: set.id,
-            revision: set.revision,
-            phaseName: phaseName.get(set.phaseId) ?? '',
-          }))}
-        />
 
         {/*
           Density rule 3's first example, and it sits directly under the section
@@ -794,6 +751,54 @@ export default async function ProjectRecord({
             <NewPhaseForm projectId={id} />
           </div>
         </Disclosure>
+
+        {/*
+          The project chat (issue #121, ADR-0058 part 4), **last on the record**
+          since issue #164: second and open, as plate D-02 drew it, a
+          conversation that grows for as long as the job runs buried the record
+          it was about. Its turns scroll in a capped list, which the panel does
+          for a project and not for a walk. The **latest**
+          conversation, which is what the newest-first read answers with first:
+          a job has any number of them, and the one anybody is in is the one
+          they were last in. Opening a new one is not a control here — nothing
+          on the plate draws one, and the first question opens the first
+          conversation by itself.
+
+          The panel is on the page **before** there is a conversation, which is
+          what makes that true: a GET may not write one, so the typed bar's
+          action opens it and then asks.
+        */}
+        <ConversationPanel
+          anchor="conversation"
+          turns={conversation?.turns ?? []}
+          live={
+            <ChatProgress
+              conversationId={conversation?.id ?? null}
+              initial={conversation?.turns ?? []}
+              initialRuns={conversation?.runs ?? []}
+            />
+          }
+          issues={issues}
+          timeZone={project.timezone}
+          typed={askOnProject.bind(null, id, conversation?.id ?? null)}
+          typedPlaceholder="Ask about this job…"
+          typedLabel="What you want to know"
+          hint={
+            <>
+              The agent reads this job and asks the helpers. It proposes;
+              confirming is yours, and nothing it says is a record until you
+              capture it.
+            </>
+          }
+          confirmRecord={(turnId) =>
+            confirmAssumptionRecord.bind(null, turnId, id)
+          }
+          submissions={submissions.map((set) => ({
+            id: set.id,
+            revision: set.revision,
+            phaseName: phaseName.get(set.phaseId) ?? '',
+          }))}
+        />
       </div>
     </div>
   );

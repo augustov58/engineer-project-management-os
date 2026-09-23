@@ -143,7 +143,7 @@ export function ConversationPanel({
       <SectionHead aside={live}>Conversation</SectionHead>
 
       {turns.length > 0 && (
-        <ul className="divide-y rounded-lg border">
+        <TurnList capped={walk === undefined}>
           {turns.map((turn) => {
             /*
               The capture an agent turn answers, and the answer to a capture:
@@ -440,7 +440,7 @@ export function ConversationPanel({
               </li>
             );
           })}
-        </ul>
+        </TurnList>
       )}
 
       {/*
@@ -490,5 +490,35 @@ export function ConversationPanel({
         <p className="text-muted-foreground text-xs">{hint}</p>
       </div>
     </section>
+  );
+}
+
+/**
+ * The list of turns, and on a **project** it is a fixed-height list that
+ * scrolls (issue #164). A job's conversation grows for as long as the job
+ * runs, and at full length it buried the record it was about.
+ * `flex-col-reverse` on the scroller is what opens it at the **newest** turn
+ * with no script — a reversed flex container starts scrolled to its end — so
+ * the panel stays a server component and the turns stay in its first paint
+ * (ADR-0028). The list inside keeps its order.
+ *
+ * A walk's is uncapped: there the conversation is the capture record the
+ * engineer is working down, and whether to cap it is a question nobody has
+ * answered.
+ */
+function TurnList({
+  capped,
+  children,
+}: {
+  capped: boolean;
+  children: ReactNode;
+}) {
+  if (!capped) {
+    return <ul className="divide-y rounded-lg border">{children}</ul>;
+  }
+  return (
+    <div className="flex max-h-[28rem] flex-col-reverse overflow-y-auto rounded-lg border">
+      <ul className="divide-y">{children}</ul>
+    </div>
   );
 }
