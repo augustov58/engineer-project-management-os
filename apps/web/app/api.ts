@@ -1,5 +1,11 @@
 import { redirect } from 'next/navigation';
-import { SESSION_COOKIE, SESSION_HEADER, SIGN_IN_PATH } from './session';
+import {
+  SESSION_COOKIE,
+  SESSION_HEADER,
+  SIGN_IN_PATH,
+  SIGN_IN_SOURCE_HEADER,
+  SOURCE_HEADER,
+} from './session';
 
 const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://127.0.0.1:3001';
 
@@ -1408,6 +1414,30 @@ export async function currentUser(): Promise<SignedInUser | undefined> {
 }
 
 /**
+ * Where the engineer signing in actually is, as a header to pass on, or
+ * nothing (issue #125, ADR-0062).
+ *
+ * `next/headers` is imported here rather than at the top of the file for the
+ * reason `apiFetch` imports `cookies` inside itself: this module is read by
+ * client components too, and a top-level server-only import puts it in the
+ * browser's graph, which Turbopack refuses to build.
+ *
+ * One header and no fallback, for the reason `session.ts` gives: the one Fly
+ * sets is the proxy's word, and the obvious alternative is a browser's. An
+ * absent or empty value is no source at all rather than a made-up one — the
+ * API reads that as null and counts the address alone, which is the half that
+ * bounds a guess at an actual account.
+ */
+async function signInSource(): Promise<Record<string, string>> {
+  const { headers } = await import('next/headers');
+  const value = (await headers()).get(SOURCE_HEADER);
+
+  return value === null || value.trim() === ''
+    ? {}
+    : { [SIGN_IN_SOURCE_HEADER]: value.trim() };
+}
+
+/**
  * Sign in. Answers the session id, or undefined for every way of not being an
  * account here — the API says one sentence for all of them and so does this.
  */
@@ -1417,7 +1447,15 @@ export async function createSession(
 ): Promise<string | undefined> {
   const response = await apiFetch('/sessions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      // Where the engineer is, forwarded on this call and on no other
+      // (issue #125, ADR-0062). The throttle in front of the sign-in route
+      // counts refused attempts per source as well as per address, and this
+      // is the only side of the wire that can know one: the API binds
+      // loopback and every request it sees comes from this server.
+      ...(await signInSource()),
+    },
     body: JSON.stringify({ email, password }),
     // Made with no session on purpose; a 401 here is the answer, not a
     // reason to send anybody anywhere.

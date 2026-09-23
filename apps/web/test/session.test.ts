@@ -48,6 +48,19 @@ test('the session is attached in exactly one place', () => {
   expect(naming).toEqual(['app/api.ts', 'app/session.ts']);
 });
 
+test('where a sign-in came from is named in the two places the session id is', () => {
+  // Issue #125 puts a second header on the wire (ADR-0062), and it gets the
+  // same guard as the first: `session.ts` names it, `api.ts` sets it, and a
+  // third file naming it would be a second place deciding what the API is
+  // told about where a caller is.
+  const naming = productSources()
+    .filter((source) => source.text.includes('SIGN_IN_SOURCE_HEADER'))
+    .map((source) => source.path)
+    .sort();
+
+  expect(naming).toEqual(['app/api.ts', 'app/session.ts']);
+});
+
 test('the cookie is reached for in three places, and none of them is a screen', () => {
   // `session.ts` names it; `proxy.ts` reads it in front of every request;
   // `api.ts` reads it to forward it; the sign-in action writes it and the
