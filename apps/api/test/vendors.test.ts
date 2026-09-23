@@ -30,6 +30,12 @@ import {
   transcriberFromEnv,
   unconfiguredTranscriber,
 } from '../src/transcription.js';
+import {
+  agentRunServiceFromEnv,
+  modelChoice,
+  pinModel,
+  unconfiguredAgentRunService,
+} from '../src/agent.js';
 
 const ENDPOINT = 'https://example-resource.cognitiveservices.azure.com';
 const KEY = 'a-key-that-is-never-in-source';
@@ -577,4 +583,80 @@ test('a vendor named without its credential takes the process down at startup', 
     /AZURE_DOCUMENT_INTELLIGENCE_KEY is not set/,
   );
   expect(() => transcriberFromEnv()).toThrow(/AZURE_SPEECH_KEY is not set/);
+});
+
+// --- which model the agent runs (issue #157, ADR-0065) ----------------------
+
+/** What `index.ts` hands the agent adapter; nothing here reaches either. */
+const AGENT_OPTIONS = { apiBaseUrl: 'http://127.0.0.1:1', workspaceRoot: '.agent-workspaces' };
+
+test('no agent named is still the refusing default, whatever model is named', () => {
+  setEnv('AGENT', undefined);
+  setEnv('AGENT_MODEL', 'alibaba-plan/deepseek-v4.1-flash');
+
+  expect(agentRunServiceFromEnv(AGENT_OPTIONS)).toBe(unconfiguredAgentRunService);
+});
+
+test('an agent named without a model takes the process down at startup', () => {
+  // Left to the SDK, the model is whichever credentialed provider comes first
+  // in its own table — which is how the machine ran a model nobody chose.
+  setEnv('AGENT', 'pi');
+  setEnv('AGENT_MODEL', undefined);
+
+  expect(() => agentRunServiceFromEnv(AGENT_OPTIONS)).toThrow(/AGENT_MODEL is not set/);
+});
+
+test('a model named without its provider takes the process down at startup', () => {
+  setEnv('AGENT', 'pi');
+
+  for (const malformed of ['deepseek-v4.1-flash', '/deepseek-v4.1-flash', 'alibaba-plan/']) {
+    setEnv('AGENT_MODEL', malformed);
+    expect(() => agentRunServiceFromEnv(AGENT_OPTIONS)).toThrow(
+      `AGENT_MODEL must be <provider>/<model>, got ${malformed}`,
+    );
+  }
+});
+
+test('naming the agent and its model builds the adapter', () => {
+  setEnv('AGENT', 'pi');
+  setEnv('AGENT_MODEL', 'alibaba-plan/deepseek-v4.1-flash');
+
+  expect(agentRunServiceFromEnv(AGENT_OPTIONS)).not.toBe(unconfiguredAgentRunService);
+});
+
+test('a model id may carry its own slash; the provider is everything before the first', () => {
+  expect(modelChoice('alibaba-plan/deepseek-v4.1-flash')).toEqual({
+    provider: 'alibaba-plan',
+    id: 'deepseek-v4.1-flash',
+  });
+  expect(modelChoice('openrouter/deepseek/deepseek-chat')).toEqual({
+    provider: 'openrouter',
+    id: 'deepseek/deepseek-chat',
+  });
+});
+
+test('a run is moved onto the model that was named, and refuses one the deployment does not have', async () => {
+  // The SDK is never loaded by a test (ADR-0040), so the two objects a run
+  // pins through are stood in for by their shapes. Whether the real ones do
+  // this on the machine was read there, and is recorded in ADR-0065.
+  const available = { provider: 'alibaba-plan', id: 'deepseek-v4.1-flash' };
+  const runtime = {
+    getModel: (provider: string, id: string) =>
+      provider === available.provider && id === available.id ? available : undefined,
+  };
+  const set: unknown[] = [];
+  const session = {
+    setModel: async (model: typeof available) => {
+      set.push(model);
+    },
+  };
+
+  await pinModel(runtime, session, modelChoice('alibaba-plan/deepseek-v4.1-flash'));
+  expect(set).toEqual([available]);
+
+  // Never a fallback: a run on a model nobody named is the defect.
+  await expect(
+    pinModel(runtime, session, modelChoice('alibaba-plan/no-such-model')),
+  ).rejects.toThrow('the model alibaba-plan/no-such-model is not available to this deployment');
+  expect(set).toEqual([available]);
 });

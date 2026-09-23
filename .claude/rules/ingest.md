@@ -200,8 +200,10 @@ apply to every path stay in `AGENTS.md`.
   confirmation screen still reviews all of it. The number is **derived and not chosen**: the window of the model `AGENT=pi`
   resolves to on the machine, less two outputs and the rest of the packet at its bounds, at
   three characters a token; the arithmetic is at the constant and in the ADR. What it bounds is
-  the vendor's 2,000 pages. **No model is pinned here**, so a smaller window on the machine is
-  the trigger to derive it again, and a test drives text exactly at the bound and one past it.
+  the vendor's 2,000 pages. **The model is pinned since issue #157** (`AGENT_MODEL`, ADR-0065),
+  on a 1,048,576-token window that leaves the bound safe and conservative — kept at 300,000 by
+  the author's choice rather than raised. **Changing `AGENT_MODEL` to a smaller window** is the
+  trigger to derive it again, and a test drives text exactly at the bound and one past it.
 - The extraction agent's tool list is an allowlist naming `extraction_propose` and nothing
   else (0040, 0041). The packet reaches the model as delimited untrusted data under an
   explicit non-instruction directive, and the typed-shape constraint lives at the proposal

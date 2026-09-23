@@ -24,6 +24,7 @@
 
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { requireEnv } from './env.js';
 import { SESSION_HEADER } from './gate.js';
 import { registry } from './helpers.js';
 import { Type, type TObject } from 'typebox';
@@ -924,11 +925,14 @@ Never both. The engineer edits every field before confirming, and the confirm is
 export function piAgentRunService({
   apiBaseUrl,
   workspaceRoot,
+  model,
 }: {
   /** Where the internal API is reachable from this process. */
   apiBaseUrl: string;
   /** The directory the per-project workspaces live under. */
   workspaceRoot: string;
+  /** The model every run is moved onto, and never a fallback (issue #157). */
+  model: ModelChoice;
 }): AgentRunService {
   return {
     async proposeMemoryEdit({ runId, projectId, sessionId }) {
@@ -955,6 +959,7 @@ export function piAgentRunService({
         customTools: tools.map((tool) => sdk.defineTool(tool)),
       });
       try {
+        await pinModel(modelRuntime, session, model);
         await session.prompt(PROMPT);
       } finally {
         session.dispose();
@@ -1009,6 +1014,7 @@ export function piAgentRunService({
         customTools: tools.map((tool) => sdk.defineTool(tool)),
       });
       try {
+        await pinModel(modelRuntime, session, model);
         await session.prompt(capturePrompt(conversation));
       } finally {
         session.dispose();
@@ -1050,6 +1056,7 @@ export function piAgentRunService({
         customTools: tools.map((tool) => sdk.defineTool(tool)),
       });
       try {
+        await pinModel(modelRuntime, session, model);
         await session.prompt(chatPrompt(conversation));
       } finally {
         session.dispose();
@@ -1075,6 +1082,7 @@ export function piAgentRunService({
         customTools: tools.map((tool) => sdk.defineTool(tool)),
       });
       try {
+        await pinModel(modelRuntime, session, model);
         await session.prompt(extractionPrompt(source));
       } finally {
         session.dispose();
@@ -1094,6 +1102,65 @@ export function agentRunServiceFromEnv(options: {
   workspaceRoot: string;
 }): AgentRunService {
   return process.env['AGENT'] === 'pi'
-    ? piAgentRunService(options)
+    ? piAgentRunService({
+        ...options,
+        // Required with the adapter and read here, so a deployment that names
+        // the adapter and not the model does not boot (issue #157).
+        model: modelChoice(requireEnv('AGENT_MODEL')),
+      })
     : unconfiguredAgentRunService;
+}
+
+/** Which model a run uses: the provider and the model's own id. */
+export interface ModelChoice {
+  provider: string;
+  id: string;
+}
+
+/**
+ * `AGENT_MODEL` read as `<provider>/<model>` (issue #157, ADR-0065).
+ *
+ * The provider is everything before the **first** slash, because a model id
+ * may carry one of its own. Both halves are required: a bare model id would
+ * leave the provider to the SDK, which is the choice this exists to take away.
+ */
+export function modelChoice(raw: string): ModelChoice {
+  const slash = raw.indexOf('/');
+  const provider = raw.slice(0, slash);
+  const id = raw.slice(slash + 1);
+  if (slash === -1 || provider === '' || id === '') {
+    throw new Error(`AGENT_MODEL must be <provider>/<model>, got ${raw}`);
+  }
+  return { provider, id };
+}
+
+/**
+ * Move a built session onto the model a person chose (issue #157, ADR-0065).
+ *
+ * Left alone, `createAgentSession` chooses: `findInitialModel` tries the Pi
+ * settings' default and then the first credentialed provider in the SDK's own
+ * table — and a package's provider is registered while the session is being
+ * built, *after* that search, so a default naming one is skipped. On
+ * `epmos-t1` that ran `kimi-coding/kimi-for-coding` while the settings named
+ * another model. By the time the session exists the package's provider is
+ * registered in the `ModelRuntime` this product passed in, so the choice is
+ * looked up there and set.
+ *
+ * **Never a fallback.** A model the deployment cannot find is the run's
+ * failure, in a sentence naming it; running whatever the SDK picked instead is
+ * the defect this replaces. `setModel` refuses a provider with no credential
+ * in its own words, which lands on the row the same way.
+ */
+export async function pinModel<M>(
+  modelRuntime: { getModel(provider: string, id: string): M | undefined },
+  session: { setModel(model: M): Promise<void> },
+  choice: ModelChoice,
+): Promise<void> {
+  const model = modelRuntime.getModel(choice.provider, choice.id);
+  if (model === undefined) {
+    throw new Error(
+      `the model ${choice.provider}/${choice.id} is not available to this deployment`,
+    );
+  }
+  await session.setModel(model);
 }
