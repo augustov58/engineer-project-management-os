@@ -97,14 +97,19 @@ apply to every path stay in `AGENTS.md`.
   `walk-screen.test.tsx` asserts the anchors and the ids agree — an anchor whose target was
   renamed scrolls nowhere and renders perfectly.
 - The **project record carries the conversation panel** since issue #121 (ADR-0058 part 4,
-  plate D-02): a `<section>` and the second thing on the record, open, because a chat behind a
-  summary is a chat nobody opens. It is the **same component** the walk has and the brief's
+  plate D-02): a `<section>`, open, because a chat behind a summary is a chat nobody opens —
+  and since issue #164 the **last** thing on the record, not the second: the author's call
+  against the plate, because a conversation grows for as long as the job runs and second on the
+  page it buried the record. On a project its turns are a **capped list that scrolls**
+  (`max-h-[28rem]`), opened at the newest by `flex-col-reverse` rather than a script, so the
+  panel stays a server component; the walk's is uncapped, a separate question. It is the **same component** the walk has and the brief's
   *"one component, two contexts"* held — see `.claude/rules/conversations.md` for what is a
   prop and what is read off the turn. Measured at 390 px on job 260117 on 2026-09-20: the
   document stays 390 px, and the panel costs **+261 px** idle, **+363 px** carrying a
   question and **+1 224 px** with a live proposal open. The record read 1 831 px without it
   on those rows, so it is past plate D-02's ≤ 1 800 closed target **before** this section —
-  the job grew since #120's 1 314 px, which was measured on the rows of that morning.
+  the job grew since #120's 1 314 px, which was measured on the rows of that morning. Those
+  figures predate #164's cap: a long conversation no longer adds its full height.
 - The **app shell's nav wraps** since issue #120, and that is density rule 7's *one column
   below 768 px*. Until then neither of its two flex rows carried `flex-wrap`, so the nav's
   735 px min-content width reached the document through `<body>` and **every** screen scrolled

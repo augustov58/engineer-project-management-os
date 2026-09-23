@@ -305,6 +305,19 @@ test('the commit sits under the agent turn that proposed, and nowhere else', asy
   ]);
 });
 
+test('a walk’s conversation is not height-capped', async () => {
+  // Issue #164 capped the **project** conversation. On a walk the conversation
+  // is the capture record the engineer is working down, and whether to cap it
+  // there is a separate question nobody has answered.
+  vi.mocked(api.getSiteVisit).mockResolvedValue({
+    ...visit,
+    conversation: { ...visit.conversation, turns: [capture(1), answer(2, draft)] },
+  });
+  const root = await paint();
+  expect(root.querySelector('#conversation > ul')).not.toBeNull();
+  expect(root.querySelector('#conversation [class*="overflow-y-auto"]')).toBeNull();
+});
+
 test('evidence reads the same under an observation and under its capture', async () => {
   // Two screens show one observation's evidence — under the observation, and
   // under the capture it was confirmed from — and issue #118 first wrote them

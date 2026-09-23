@@ -358,6 +358,28 @@ test('the project record carries the conversation panel, open and typed-only', a
   expect(root.textContent).not.toContain('Hold a moment and speak');
 });
 
+test('the conversation is the last thing on the project record, and its turns scroll in a capped list', async () => {
+  vi.mocked(api.listSubmissions).mockResolvedValue([submission]);
+  vi.mocked(api.listProjectConversations).mockResolvedValue([conversation]);
+  const root = await projectRecord();
+
+  // Issue #164, the author's call against plate D-02: second on the record,
+  // open and growing without bound, a conversation buried the job it was
+  // about. It follows every record section now.
+  const record = root.querySelector('[class*="--measure-record"]');
+  expect(record?.lastElementChild?.id).toBe('conversation');
+
+  // Its turns are one fixed-height list that scrolls, and `flex-col-reverse`
+  // is what opens it at the newest turn with no script: the panel stays a
+  // server component (ADR-0028's first paint).
+  const scroller = record?.querySelector('#conversation ul')?.parentElement;
+  expect(scroller?.className).toMatch(/(?<![\w-])max-h-/);
+  expect(scroller?.className).toContain('overflow-y-auto');
+  expect(scroller?.className).toContain('flex-col-reverse');
+  // The bar to type into is outside the scroller, so it never scrolls away.
+  expect(scroller?.querySelector('textarea[aria-label="What you want to know"]')).toBeNull();
+});
+
 test('a proposed assumption record is read and confirmed on the project record', async () => {
   vi.mocked(api.listSubmissions).mockResolvedValue([submission]);
   vi.mocked(api.listProjectConversations).mockResolvedValue([conversation]);
