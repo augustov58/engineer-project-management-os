@@ -15,6 +15,7 @@ import {
   generateSiteVisitReport,
   raiseIssue,
   recordObservation,
+  removePhoto,
   reobserveIssue,
   retryTranscription,
   setConductedBy,
@@ -656,6 +657,34 @@ export default async function SiteVisitRecord({
                         projectId,
                       )}
                     />
+                    {/*
+                      A photograph added in error comes off the walk while the
+                      walk is open (issue #65, ADR-0066) — and only then, which
+                      is the boundary the API holds: an ended walk is the one
+                      whose report goes out. Behind a closed disclosure, which
+                      is the second step; no dialog.
+                    */}
+                    {visit.endedAt === null && (
+                      <Disclosure summary="Remove this photograph">
+                        <form
+                          action={removePhoto.bind(null, photo.id, id, projectId)}
+                          className="grid gap-2"
+                        >
+                          <p className="text-muted-foreground text-xs">
+                            The file and its bindings go. The audit keeps its
+                            name, where it was binned and what it evidenced. This
+                            cannot be undone.
+                          </p>
+                          <Button
+                            type="submit"
+                            variant="destructive"
+                            className="h-auto min-h-11 px-4 py-2 break-all whitespace-normal"
+                          >
+                            Remove {photo.filename}
+                          </Button>
+                        </form>
+                      </Disclosure>
+                    )}
                   </div>
                 </li>
               ))}

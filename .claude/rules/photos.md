@@ -101,9 +101,19 @@ apply to every path stay in `AGENTS.md`.
   Evidence column is the opposite answer and printed only when something is in it: a column
   of blanks under that heading, in a document issued under the author's name, reads as
   evidence that went missing.
-- Nothing deletes a photograph and nothing rewrites its filename: the name is the mechanism,
-  so a correction touches only the bindings. `PATCH`, `PUT` and `DELETE` on one are 404, as
-  they are for a submission and an issue, and a test asserts it.
+- Nothing rewrites a photograph's filename: the name is the mechanism, so a correction
+  touches only the bindings. `PATCH` and `PUT` on one are 404, as they are for a submission
+  and an issue, and a test asserts it.
+- **A photograph added in error is removed while its walk is open** (issue #65, ADR-0066) —
+  `DELETE /v1/photos/:id`, the only route that takes a record's content off the record. Past
+  the walk's end it is a **409**: an ended walk is the one whose report goes out. A report
+  rendered *during* the walk keeps what it printed, as every rendering does (ADR-0035). The row goes with an
+  audit line that **carries what the row said** (name, floor, what it evidenced, when taken,
+  which walk), by a compare-and-set on the walk still being open; the **bytes go after**,
+  outside the transaction — ADR-0032's order reversed for the reverse act, so a failure leaves
+  garbage and never a row pointing at nothing. Nothing cascades: nothing points *at* a
+  photograph. On the screen it is *Remove*, behind a closed disclosure — *delete* is struck
+  under **Archived**. **A document added in error is not answered by this** (ADR-0039's twin).
 - Photo binning runs **in the request**, not on BullMQ, despite the PRD diagram and the spec
   stack line putting it on a worker (ADR-0032). It is date comparison and one regular
   expression. **Transcription and rendering a report are what is on the queue** (ADR-0034,

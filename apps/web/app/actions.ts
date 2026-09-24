@@ -970,6 +970,25 @@ export async function bindPhotoToObservation(
 }
 
 /**
+ * Removing a photograph added in error, while its walk is open (issue #65,
+ * ADR-0066). A 404 is a removal that already happened and a 409 a walk that
+ * ended in between; both are answered by re-rendering what is now true, as a
+ * lost race on any other correction here is, rather than by an error screen.
+ */
+export async function removePhoto(
+  photoId: string,
+  siteVisitId: string,
+  projectId: string,
+): Promise<void> {
+  const path = `/photos/${photoId}`;
+  const response = await apiFetch(path, { method: 'DELETE' });
+  if (!response.ok && response.status !== 404 && response.status !== 409) {
+    throw new Error(`DELETE ${apiPath(path)} returned ${response.status}`);
+  }
+  revalidatePhoto(siteVisitId, projectId);
+}
+
+/**
  * Every screen a photograph appears on. The finding's is one of them: its
  * photo evidence is the rows pointing at it, so binding one changes that
  * screen without anything being written to the issue.

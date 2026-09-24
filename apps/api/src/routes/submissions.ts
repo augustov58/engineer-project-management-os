@@ -853,7 +853,8 @@ export function submissionRoutes(
         });
       }
 
-      // The one route in this product that deletes a row. The join goes and
+      // One of two routes in this product that delete a row; the other
+      // removes a photograph added in error (issue #65). The join goes and
       // the line stays, which is the whole point of an append-only record: a
       // claim about what an issuance rested on can be taken off the set, and
       // never off the log.

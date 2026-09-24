@@ -19,6 +19,7 @@ import {
 } from '../wire.js';
 import { audit } from '../audit.js';
 import { actorOf } from '../gate.js';
+import { readIn } from '../zone.js';
 
 /**
  * The largest value a Prisma `Int` column holds. An identifier above it is not
@@ -620,6 +621,99 @@ export function photoRoutes(
         return row;
       });
       return photoOnTheWire(corrected);
+    },
+  );
+
+  /**
+   * Removing a photograph added in error (issue #65, ADR-0066) — the wrong
+   * afternoon, a receipt, a person, off a camera roll that sent a hundred.
+   *
+   * **Only while the walk is open.** Its end is a one-way stamp (ADR-0030),
+   * and an ended walk is the one whose report goes out: past it, removing a
+   * picture would leave the record disagreeing with the document it produced.
+   * So an ended walk refuses, and writes nothing. A report rendered *during*
+   * the walk keeps what it printed, as every rendering does (ADR-0035).
+   *
+   * **The line is what survives**, so it says what the row said — the name,
+   * where it was binned, what it evidenced, when it was taken, and on which
+   * walk. The row goes in the same transaction as the line; the **bytes go
+   * after**, outside it, which is ADR-0032's store-then-row order reversed for
+   * the reverse act: an orphaned object is garbage no reader reaches, and a row
+   * pointing at bytes that are gone is not. Nothing cascades — a photograph is
+   * a leaf, pointing at its walk and its evidence and pointed at by nothing.
+   */
+  v1.delete<{ Params: { id: string } }>(
+    '/photos/:id',
+    async (request, reply) => {
+      const found = await prisma.photo.findUnique({
+        where: { id: request.params.id },
+        select: {
+          id: true,
+          filename: true,
+          takenAt: true,
+          floor: true,
+          storageKey: true,
+          observation: { select: observedWhere },
+          issue: { select: { number: true } },
+          siteVisit: {
+            select: {
+              id: true,
+              startedAt: true,
+              endedAt: true,
+              projectId: true,
+              project: { select: { timezone: true } },
+            },
+          },
+        },
+      });
+      if (found === null) {
+        return noSuchPhoto(reply);
+      }
+      const walk = found.siteVisit;
+      if (walk.endedAt !== null) {
+        return reply.code(409).send({
+          message: 'that walk has ended, and its photographs are part of its record',
+        });
+      }
+
+      const zone = walk.project.timezone;
+      const at = timeSource.now();
+      const removed = await prisma.$transaction(async (tx) => {
+        // Compare-and-set on the walk still being open, so a walk ended
+        // between the read above and this write refuses rather than losing a
+        // photograph its report may already carry.
+        const gone = await tx.photo.deleteMany({
+          where: { id: found.id, siteVisit: { endedAt: null } },
+        });
+        if (gone.count === 0) {
+          return false;
+        }
+        await audit(tx, {
+          projectId: walk.projectId,
+          actor: actorOf(request),
+          subject: { type: 'photo', id: found.id },
+          action: 'photograph removed',
+          detail: `${found.filename} — ${found.floor === null ? 'no floor' : `Floor ${found.floor}`}, evidencing ${evidences(found)}, taken ${readIn(found.takenAt, zone)}, on the walk started ${readIn(walk.startedAt, zone)}`,
+          at,
+        });
+        return true;
+      });
+      if (!removed) {
+        // Either the walk ended in between, or a second removal won the race;
+        // the two answers differ, so the row says which.
+        const still = await prisma.photo.findUnique({
+          where: { id: found.id },
+          select: { id: true },
+        });
+        return still === null
+          ? noSuchPhoto(reply)
+          : reply.code(409).send({
+              message: 'that walk has ended, and its photographs are part of its record',
+            });
+      }
+
+      await objectStore.delete(found.storageKey);
+      return reply.code(204).send();
     },
   );
 

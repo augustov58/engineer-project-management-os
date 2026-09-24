@@ -189,6 +189,30 @@ test('every creation form on the walk is behind a closed disclosure', async () =
   expect(disclosures.filter((one) => one.hasAttribute('open'))).toEqual([]);
 });
 
+test('a photograph is removable while the walk is open, behind a closed disclosure, and not after', async () => {
+  // Issue #65, ADR-0066. The walk's end is the boundary the API holds, so the
+  // screen offers the control only on this side of it — a button that could
+  // only ever be refused is not a control.
+  vi.mocked(api.getSiteVisit).mockResolvedValue({ ...visit, endedAt: null });
+  const open = await paint();
+  const removal = [...open.querySelectorAll('details')].find((one) =>
+    one.querySelector('summary')?.textContent?.includes('Remove this photograph'),
+  );
+  expect(removal).toBeDefined();
+  // Closed: the disclosure is the second step, and no dialog is used.
+  expect(removal?.hasAttribute('open')).toBe(false);
+  const button = removal?.querySelector('button[type="submit"]');
+  expect(button?.textContent).toContain(photo.filename);
+  // A field target (density rule 6), and a filename wraps rather than
+  // widening the row past a phone.
+  expect(button?.className).toContain('min-h-11');
+  expect(button?.className).toContain('whitespace-normal');
+
+  vi.mocked(api.getSiteVisit).mockResolvedValue(visit);
+  const ended = await paint();
+  expect(ended.textContent).not.toContain('Remove this photograph');
+});
+
 test('the control bar 3 measures is a native select at the field target', async () => {
   const root = await paint();
 

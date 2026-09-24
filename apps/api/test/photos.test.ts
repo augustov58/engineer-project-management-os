@@ -927,21 +927,100 @@ test('the list of a walk that does not exist is a 404', async () => {
 
 // ── Nothing edits a photograph beyond its bindings ───────────────────────
 
-test.each(['PATCH', 'PUT', 'DELETE'])(
+test.each(['PATCH', 'PUT'])(
   'nothing rewrites a photograph: %s is refused',
   async (method) => {
     const app = await api();
     const { walk } = await walked(app, `X-${method}`);
     const photo = await addPhoto(app, walk.id);
 
-    // A DELETE carries no body, and so no content-type either.
-    const carries = method !== 'DELETE';
     const response = await app.fetch(`/v1/photos/${photo.id}`, {
       method,
-      ...(carries ? { headers: json, body: JSON.stringify({ filename: 'x.jpg' }) } : {}),
+      headers: json,
+      body: JSON.stringify({ filename: 'x.jpg' }),
     });
     expect(response.status, method).toBe(404);
 
     expect((await visit(app, walk.id)).photos).toEqual([photo]);
   },
 );
+
+// ── Removing a photograph added in error (issue #65, ADR-0066) ───────────
+
+function remove(app: TestApi, photoId: string) {
+  return app.fetch(`/v1/photos/${photoId}`, { method: 'DELETE' });
+}
+
+async function trail(app: TestApi, projectId: string) {
+  const response = await app.fetch(`/v1/projects/${projectId}/memory/audit`);
+  expect(response.status).toBe(200);
+  return (await response.json()) as { action: string; detail: string; subject: { id: string } | null }[];
+}
+
+test('a photograph added in error is removed while its walk is open, and the audit keeps what it said', async () => {
+  const app = await api();
+  const { project, walk } = await walked(app, 'R-1');
+  const found = await finding(app, walk.id);
+  // Bound to the finding by its name, so the photograph is the finding's only
+  // evidence and its removal has something to change on the walk.
+  const photo = await addPhoto(app, walk.id, {
+    filename: `3-west stair-issue-${found.number}.jpg`,
+  });
+  expect(photo.issueNumber).toBe(found.number);
+  expect(await withoutPhotos(app, walk.id)).toEqual([]);
+
+  const response = await remove(app, photo.id);
+  expect(response.status).toBe(204);
+
+  // Gone from the walk, and its bytes with it.
+  expect((await visit(app, walk.id)).photos).toEqual([]);
+  expect((await app.fetch(`/v1/photos/${photo.id}/bytes`)).status).toBe(404);
+  // The finding it evidenced is back on the list of those with none: its
+  // evidence is derived, so nothing else had to be written for this.
+  expect((await withoutPhotos(app, walk.id)).map((one) => one.number)).toEqual([
+    found.number,
+  ]);
+
+  // The row is gone and the line is what survives, so it says what the row
+  // said: the name, where it was binned, what it evidenced, and when.
+  const line = (await trail(app, project.id)).at(-1)!;
+  expect(line.action).toBe('photograph removed');
+  expect(line.subject?.id).toBe(photo.id);
+  expect(line.detail).toContain(photo.filename);
+  expect(line.detail).toContain('Floor 3');
+  expect(line.detail).toContain(`Issue ${found.number}`);
+  expect(line.detail).toContain('taken 2026-07-23 09:20');
+
+  // A second removal finds nothing.
+  expect((await remove(app, photo.id)).status).toBe(404);
+});
+
+test('once the walk has ended a photograph is not removed, and nothing is written', async () => {
+  const app = await api();
+  const { project, walk } = await walked(app, 'R-2');
+  const photo = await addPhoto(app, walk.id);
+  const ended = await post(app, `/v1/site-visits/${walk.id}/end`, {
+    endedAt: '2026-07-23T15:00:00.000Z',
+  });
+  expect(ended.status).toBe(200);
+  const before = await trail(app, project.id);
+
+  // The walk's end is the boundary (ADR-0066): past it a report may have
+  // been issued with this picture in it, and the record would stop agreeing
+  // with the document it produced.
+  const response = await remove(app, photo.id);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({
+    message: 'that walk has ended, and its photographs are part of its record',
+  });
+
+  expect((await visit(app, walk.id)).photos).toEqual([photo]);
+  expect((await app.fetch(`/v1/photos/${photo.id}/bytes`)).status).toBe(200);
+  expect(await trail(app, project.id)).toEqual(before);
+});
+
+test('removing a photograph that does not exist is a 404', async () => {
+  const app = await api();
+  const response = await remove(app, NO_SUCH);
+  expect(response.status).toBe(404);
+});

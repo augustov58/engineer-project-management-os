@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 
 /**
@@ -11,15 +11,21 @@ import { dirname, join, normalize, resolve, sep } from 'node:path';
  * in the vault — so the port is what the product depends on and the adapter is
  * what deployment chooses.
  *
- * Deliberately two methods. A presigned URL is not here: it would be a second
- * thing reachable without the single edge secret ADR-0020 puts in front of
- * every route. Bytes go out through the API. (ADR-0020 was Proposed when this
- * was written and was Accepted 2026-09-01; the reason stands either way, and
- * stands harder now the gate is built — issue #84.)
+ * Deliberately no presigned URL: it would be a second thing reachable without
+ * the single edge secret ADR-0020 puts in front of every route. Bytes go out
+ * through the API. (ADR-0020 was Proposed when this was written and was
+ * Accepted 2026-09-01; the reason stands either way, and stands harder now the
+ * gate is built — issue #84.)
+ *
+ * `delete` arrived with the one record that may be removed, a photograph added
+ * in error while its walk is open (issue #65, ADR-0066). Removing a key that is
+ * not there is not an error: the caller removes the row first, so a retried or
+ * half-finished removal must be able to finish.
  */
 export interface ObjectStore {
   put(key: string, bytes: Buffer, contentType: string): Promise<void>;
   get(key: string): Promise<Buffer>;
+  delete(key: string): Promise<void>;
 }
 
 /**
@@ -48,6 +54,10 @@ export class FilesystemObjectStore implements ObjectStore {
 
   get(key: string): Promise<Buffer> {
     return readFile(this.#path(key));
+  }
+
+  delete(key: string): Promise<void> {
+    return rm(this.#path(key), { force: true });
   }
 
   /**
