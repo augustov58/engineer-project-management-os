@@ -24,6 +24,7 @@ import { photoRoutes } from './routes/photos.js';
 import { projectRoutes } from './routes/projects.js';
 import { registerRoutes } from './routes/registers.js';
 import { reportRoutes } from './routes/reports.js';
+import { searchRoutes } from './routes/search.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { siteVisitRoutes } from './routes/site-visits.js';
 import { submissionRoutes } from './routes/submissions.js';
@@ -111,7 +112,7 @@ export function buildServer({
   };
 
   // One `register` call carries the version, so it is written once rather than
-  // spelled into every path (ADR-0023). The twenty-one below are plain functions
+  // spelled into every path (ADR-0023). The twenty-two below are plain functions
   // and not plugins on purpose: a plugin would open an encapsulation context of
   // its own, and there is nothing here that wants one.
   app.register(
@@ -137,6 +138,7 @@ export function buildServer({
       extractionRoutes(v1, dependencies);
       activityRoutes(v1, dependencies);
       toolRoutes(v1, dependencies);
+      searchRoutes(v1, dependencies);
     },
     { prefix: API_PREFIX },
   );
