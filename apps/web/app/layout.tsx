@@ -107,6 +107,21 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 People
               </Link>
             </div>
+            {/*
+              Keyword search across every job (issue #66, ADR-0067): a native
+              GET form, so it submits with no script and a search is a URL to
+              bookmark or send, like the scope toggle's two links.
+            */}
+            <form action="/search" role="search" className="min-w-0">
+              <input
+                type="search"
+                name="q"
+                maxLength={200}
+                aria-label="Search every job"
+                placeholder="Search every job"
+                className="border-input bg-background h-8 w-44 min-w-0 rounded-md border px-2 text-sm"
+              />
+            </form>
             {user !== undefined && (
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 {/*

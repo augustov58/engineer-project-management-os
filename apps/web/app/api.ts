@@ -317,6 +317,43 @@ async function read<T>(path: string): Promise<T> {
 }
 
 /**
+ * One keyword-search result (issue #66, ADR-0067). `linkId` is what the
+ * record's screen is keyed by — a finding's **number**, a walk's id for an
+ * observation, a submission's id for its assumption record — and `hrefFor` on
+ * the search page is the one place a kind becomes a path. `excerpt` marks the
+ * match between `\u0002` and `\u0003` and is otherwise text.
+ */
+export interface SearchResult {
+  kind:
+    | 'project'
+    | 'open-item'
+    | 'submission'
+    | 'assumption-record'
+    | 'observation'
+    | 'issue'
+    | 'register-entry'
+    | 'document'
+    | 'arrival'
+    | 'extraction'
+    | 'memory';
+  id: string;
+  projectId: string;
+  projectNumber: string;
+  projectName: string;
+  archived: boolean;
+  title: string;
+  excerpt: string | null;
+  linkId: string;
+}
+
+/** Every job, searched by keyword; at most fifty, best first. */
+export async function searchEveryJob(q: string): Promise<SearchResult[]> {
+  return (await read<{ results: SearchResult[] }>(
+    `/search?q=${encodeURIComponent(q)}`,
+  )).results;
+}
+
+/**
  * The path one of the two daily lists is read at (issue #112).
  *
  * `mine` is the screens' default and the routes' — both of them — is *ours*:
