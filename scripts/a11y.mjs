@@ -5,7 +5,7 @@
  * ADR-0068 sets the bar: **WCAG 2.2 AA on every screen**, heard through
  * **VoiceOver on an iPhone in Safari** for the walk and **NVDA with Chrome** at
  * the desk. This file is what an agent can measure of it, and **only** that:
- * axe-core's WCAG 2.0, 2.1 and 2.2 A and AA rules, run in the page the way
+ * axe-core's WCAG 2.0 and 2.1 A and AA rules and its one 2.2 rule, run in the page the way
  * `contrast.mjs` runs its measurement. What a screen reader actually says —
  * the order it reads a walk in, whether a live update is announced, whether a
  * control's name makes sense out loud — is a person's to check with the
@@ -32,8 +32,12 @@
 
 import { routesFor, show, signIn } from './contrast.mjs';
 
-/** WCAG 2.2 AA is every level-A and level-AA rule of 2.0, 2.1 and 2.2. */
-export const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'];
+/**
+ * Every level-A and level-AA rule axe has for WCAG 2.0 and 2.1, and 2.2's AA.
+ * axe-core 4.13 has **no 2.2 Level A rules** and one 2.2 AA rule
+ * (`target-size`), so 2.2's own criteria are mostly the listening half's.
+ */
+export const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 /** The two widths: the walk's phone and the desk (the design brief's). */
 export const WIDTHS = [
