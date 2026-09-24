@@ -19,6 +19,7 @@ import {
 } from '../wire.js';
 import { audit } from '../audit.js';
 import { actorOf } from '../gate.js';
+import { readIn } from '../zone.js';
 
 /**
  * The largest value a Prisma `Int` column holds. An identifier above it is not
@@ -620,6 +621,108 @@ export function photoRoutes(
         return row;
       });
       return photoOnTheWire(corrected);
+    },
+  );
+
+  /**
+   * Removing a photograph added in error (issue #65, ADR-0066) — the wrong
+   * afternoon, a receipt, a person, off a camera roll that sent a hundred.
+   *
+   * **Only while the walk is open.** Its end is a one-way stamp (ADR-0030),
+   * and an ended walk is the one whose report goes out: past it, removing a
+   * picture would leave the record disagreeing with the document it produced.
+   * So an ended walk refuses, and writes nothing. A report rendered *during*
+   * the walk keeps what it printed, as every rendering does (ADR-0035).
+   *
+   * **The line is what survives**, so it says what the row said — the name,
+   * where it was binned, what it evidenced, when it was taken, and on which
+   * walk. The row goes in the same transaction as the line, under a lock on
+   * the walk's row so an end in flight is waited for; the **bytes go
+   * after**, outside it, which is ADR-0032's store-then-row order reversed for
+   * the reverse act: an orphaned object is garbage no reader reaches, and a row
+   * pointing at bytes that are gone is not. Nothing cascades — a photograph is
+   * a leaf, pointing at its walk and its evidence and pointed at by nothing.
+   */
+  v1.delete<{ Params: { id: string } }>(
+    '/photos/:id',
+    async (request, reply) => {
+      const found = await prisma.photo.findUnique({
+        where: { id: request.params.id },
+        select: {
+          id: true,
+          filename: true,
+          takenAt: true,
+          floor: true,
+          storageKey: true,
+          observation: { select: observedWhere },
+          issue: { select: { number: true } },
+          siteVisit: {
+            select: {
+              id: true,
+              startedAt: true,
+              endedAt: true,
+              projectId: true,
+              project: { select: { timezone: true } },
+            },
+          },
+        },
+      });
+      if (found === null) {
+        return noSuchPhoto(reply);
+      }
+      const walk = found.siteVisit;
+      if (walk.endedAt !== null) {
+        return reply.code(409).send({
+          message: 'that walk has ended, and its photographs are part of its record',
+        });
+      }
+
+      const zone = walk.project.timezone;
+      const at = timeSource.now();
+      const outcome = await prisma.$transaction(async (tx) => {
+        // The walk's row, locked for the rest of this transaction. Ending a
+        // walk is an UPDATE of that row, so the two serialize: an end already
+        // in flight is waited for and then seen, and one that comes after
+        // waits for this. A filter on the delete alone is a plain read under
+        // READ COMMITTED and would not wait for an uncommitted end.
+        const [open] = await tx.$queryRaw<{ ended_at: Date | null }[]>`
+          SELECT "ended_at" FROM "site_visits" WHERE "id" = ${walk.id} FOR UPDATE`;
+        if (open?.ended_at !== null) {
+          return 'ended' as const;
+        }
+        const gone = await tx.photo.deleteMany({ where: { id: found.id } });
+        if (gone.count === 0) {
+          // A second removal won the race.
+          return 'gone' as const;
+        }
+        await audit(tx, {
+          projectId: walk.projectId,
+          actor: actorOf(request),
+          subject: { type: 'photo', id: found.id },
+          action: 'photograph removed',
+          detail: `${found.filename} — ${found.floor === null ? 'no floor' : `Floor ${found.floor}`}, evidencing ${evidences(found)}, taken ${readIn(found.takenAt, zone)}, on the walk started ${readIn(walk.startedAt, zone)}`,
+          at,
+        });
+        return 'removed' as const;
+      });
+      if (outcome === 'gone') {
+        return noSuchPhoto(reply);
+      }
+      if (outcome === 'ended') {
+        return reply.code(409).send({
+          message: 'that walk has ended, and its photographs are part of its record',
+        });
+      }
+
+      // The record is already right, so a store that fails here leaves
+      // garbage and not a broken record (ADR-0066 point 4) — and answering
+      // 500 for a removal that happened would tell the engineer it did not.
+      try {
+        await objectStore.delete(found.storageKey);
+      } catch (error) {
+        request.log.error(error, 'a removed photograph’s bytes were left in the store');
+      }
+      return reply.code(204).send();
     },
   );
 
