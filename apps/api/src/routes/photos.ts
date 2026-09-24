@@ -636,7 +636,8 @@ export function photoRoutes(
    *
    * **The line is what survives**, so it says what the row said — the name,
    * where it was binned, what it evidenced, when it was taken, and on which
-   * walk. The row goes in the same transaction as the line; the **bytes go
+   * walk. The row goes in the same transaction as the line, under a lock on
+   * the walk's row so an end in flight is waited for; the **bytes go
    * after**, outside it, which is ADR-0032's store-then-row order reversed for
    * the reverse act: an orphaned object is garbage no reader reaches, and a row
    * pointing at bytes that are gone is not. Nothing cascades — a photograph is
@@ -678,15 +679,21 @@ export function photoRoutes(
 
       const zone = walk.project.timezone;
       const at = timeSource.now();
-      const removed = await prisma.$transaction(async (tx) => {
-        // Compare-and-set on the walk still being open, so a walk ended
-        // between the read above and this write refuses rather than losing a
-        // photograph its report may already carry.
-        const gone = await tx.photo.deleteMany({
-          where: { id: found.id, siteVisit: { endedAt: null } },
-        });
+      const outcome = await prisma.$transaction(async (tx) => {
+        // The walk's row, locked for the rest of this transaction. Ending a
+        // walk is an UPDATE of that row, so the two serialize: an end already
+        // in flight is waited for and then seen, and one that comes after
+        // waits for this. A filter on the delete alone is a plain read under
+        // READ COMMITTED and would not wait for an uncommitted end.
+        const [open] = await tx.$queryRaw<{ ended_at: Date | null }[]>`
+          SELECT "ended_at" FROM "site_visits" WHERE "id" = ${walk.id} FOR UPDATE`;
+        if (open?.ended_at !== null) {
+          return 'ended' as const;
+        }
+        const gone = await tx.photo.deleteMany({ where: { id: found.id } });
         if (gone.count === 0) {
-          return false;
+          // A second removal won the race.
+          return 'gone' as const;
         }
         await audit(tx, {
           projectId: walk.projectId,
@@ -696,23 +703,25 @@ export function photoRoutes(
           detail: `${found.filename} — ${found.floor === null ? 'no floor' : `Floor ${found.floor}`}, evidencing ${evidences(found)}, taken ${readIn(found.takenAt, zone)}, on the walk started ${readIn(walk.startedAt, zone)}`,
           at,
         });
-        return true;
+        return 'removed' as const;
       });
-      if (!removed) {
-        // Either the walk ended in between, or a second removal won the race;
-        // the two answers differ, so the row says which.
-        const still = await prisma.photo.findUnique({
-          where: { id: found.id },
-          select: { id: true },
+      if (outcome === 'gone') {
+        return noSuchPhoto(reply);
+      }
+      if (outcome === 'ended') {
+        return reply.code(409).send({
+          message: 'that walk has ended, and its photographs are part of its record',
         });
-        return still === null
-          ? noSuchPhoto(reply)
-          : reply.code(409).send({
-              message: 'that walk has ended, and its photographs are part of its record',
-            });
       }
 
-      await objectStore.delete(found.storageKey);
+      // The record is already right, so a store that fails here leaves
+      // garbage and not a broken record (ADR-0066 point 4) — and answering
+      // 500 for a removal that happened would tell the engineer it did not.
+      try {
+        await objectStore.delete(found.storageKey);
+      } catch (error) {
+        request.log.error(error, 'a removed photograph’s bytes were left in the store');
+      }
       return reply.code(204).send();
     },
   );

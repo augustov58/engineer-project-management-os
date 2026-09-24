@@ -109,8 +109,9 @@ apply to every path stay in `AGENTS.md`.
   the walk's end it is a **409**: an ended walk is the one whose report goes out. A report
   rendered *during* the walk keeps what it printed, as every rendering does (ADR-0035). The row goes with an
   audit line that **carries what the row said** (name, floor, what it evidenced, when taken,
-  which walk), by a compare-and-set on the walk still being open; the **bytes go after**,
-  outside the transaction — ADR-0032's order reversed for the reverse act, so a failure leaves
+  which walk), under a `FOR UPDATE` lock on the walk's row, so an end in flight is waited for
+  and seen; the **bytes go after**, outside the transaction, and a store that fails there is
+  logged and the removal still answers 204 — ADR-0032's order reversed for the reverse act, so a failure leaves
   garbage and never a row pointing at nothing. Nothing cascades: nothing points *at* a
   photograph. On the screen it is *Remove*, behind a closed disclosure — *delete* is struck
   under **Archived**. **A document added in error is not answered by this** (ADR-0039's twin).
