@@ -56,6 +56,12 @@ interface Match {
  * Each kind's query: the matching rows, best first, at most {@link MOST}, and
  * the excerpt drawn only for those — `ts_headline` reads the whole text it is
  * handed, which for an extraction is up to {@link OCR_SEARCHED} characters.
+ *
+ * **Each `body` is the same fields as that table's `search_vector`**, in the
+ * migration's order: a row matched on a field the excerpt leaves out comes
+ * back with no match marked and no sign of why it matched. A field added to
+ * one is added to the other. A job's own match needs no excerpt; its title is
+ * the two fields it is indexed on.
  */
 function matches(query: Prisma.Sql): Prisma.Sql[] {
   const top = (select: Prisma.Sql) => Prisma.sql`
@@ -82,7 +88,8 @@ function matches(query: Prisma.Sql): Prisma.Sql[] {
       SELECT 'submission' AS "kind", s."id", s."project_id", s."id" AS "link_id",
         s."revision" || ' to ' || s."recipient" AS "title",
         ts_rank(s."search_vector", ${query}) AS "rank",
-        s."recipient" || ' ' || s."recipient_role" || ' ' || s."sheet_list" AS "body"
+        s."recipient" || ' ' || s."recipient_role" || ' ' || s."sheet_list" || ' ' ||
+          s."revision" AS "body"
       FROM "submissions" s WHERE s."search_vector" @@ ${query}`),
     top(Prisma.sql`
       SELECT 'assumption-record' AS "kind", a."id", s."project_id", s."id" AS "link_id",
@@ -95,7 +102,8 @@ function matches(query: Prisma.Sql): Prisma.Sql[] {
     top(Prisma.sql`
       SELECT 'observation' AS "kind", o."id", v."project_id", v."id" AS "link_id",
         'Floor ' || o."floor" || ' — ' || o."qualifier" AS "title",
-        ts_rank(o."search_vector", ${query}) AS "rank", o."observed" AS "body"
+        ts_rank(o."search_vector", ${query}) AS "rank",
+        o."observed" || ' ' || o."floor" || ' ' || o."qualifier" AS "body"
       FROM "observations" o JOIN "site_visits" v ON v."id" = o."site_visit_id"
       WHERE o."search_vector" @@ ${query}
         AND NOT EXISTS (SELECT 1 FROM "issue_observations" io WHERE io."observation_id" = o."id")`),
@@ -104,7 +112,7 @@ function matches(query: Prisma.Sql): Prisma.Sql[] {
     top(Prisma.sql`
       SELECT 'issue' AS "kind", i."id", i."project_id", i."number"::text AS "link_id",
         'Issue ' || i."number" AS "title", ts_rank(o."search_vector", ${query}) AS "rank",
-        o."observed" AS "body"
+        o."observed" || ' ' || o."floor" || ' ' || o."qualifier" AS "body"
       FROM "observations" o
         JOIN "issue_observations" io ON io."observation_id" = o."id"
         JOIN "issues" i ON i."id" = io."issue_id"
@@ -117,7 +125,7 @@ function matches(query: Prisma.Sql): Prisma.Sql[] {
       SELECT 'register-entry' AS "kind", e."id", r."project_id", e."id" AS "link_id",
         e."number" || ' — ' || e."subject" AS "title",
         ts_rank(e."search_vector", ${query}) AS "rank",
-        e."subject" || ' ' || e."from_party" || ' ' || e."to_party" || ' ' ||
+        e."number" || ' ' || e."subject" || ' ' || e."from_party" || ' ' || e."to_party" || ' ' ||
           coalesce(e."question", '') || ' ' || coalesce(e."response", '') AS "body"
       FROM "register_entries" e JOIN "registers" r ON r."id" = e."register_id"
       WHERE e."search_vector" @@ ${query}`),
@@ -127,7 +135,7 @@ function matches(query: Prisma.Sql): Prisma.Sql[] {
       FROM "documents" d WHERE d."search_vector" @@ ${query}
       UNION ALL
       SELECT 'document', d."id", d."project_id", d."project_id", d."title",
-        ts_rank(dv."search_vector", ${query}), dv."filename"
+        ts_rank(dv."search_vector", ${query}), dv."filename" || ' ' || dv."revision"
       FROM "document_versions" dv JOIN "documents" d ON d."id" = dv."document_id"
       WHERE dv."search_vector" @@ ${query}`),
     top(Prisma.sql`
@@ -142,7 +150,11 @@ function matches(query: Prisma.Sql): Prisma.Sql[] {
         coalesce(x."proposed_title", x."proposed_number", 'An extraction') AS "title",
         ts_rank(x."search_vector", ${query}) AS "rank",
         left(coalesce(x."ocr_text", ''), ${OCR_SEARCHED}) || ' ' ||
-          coalesce(x."proposed_subject", '') || ' ' || coalesce(x."proposed_question", '') AS "body"
+          coalesce(x."proposed_number", '') || ' ' || coalesce(x."proposed_subject", '') || ' ' ||
+          coalesce(x."proposed_from_party", '') || ' ' || coalesce(x."proposed_to_party", '') || ' ' ||
+          coalesce(x."proposed_question", '') || ' ' || coalesce(x."proposed_response", '') || ' ' ||
+          coalesce(x."proposed_party", '') || ' ' || coalesce(x."proposed_title", '') || ' ' ||
+          coalesce(x."proposed_revision", '') AS "body"
       FROM "register_entry_extractions" x WHERE x."search_vector" @@ ${query}`),
     top(Prisma.sql`
       SELECT 'memory' AS "kind", m."id", m."project_id", m."project_id" AS "link_id",

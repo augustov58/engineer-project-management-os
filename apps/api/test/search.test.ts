@@ -143,6 +143,36 @@ test('words match by their stem, a phrase by its order, and the match is marked 
   ]);
 });
 
+test('whatever field a record matched on, the excerpt shows the match', async () => {
+  // The excerpt is drawn from the same fields the row is indexed on, or a
+  // record matched by, say, its number comes back with an excerpt that shows
+  // nothing about why (found by review).
+  const app = await api();
+  const project = await createProject(app, 'S-7', 'Field coverage');
+  const phase = await createPhase(app, project.id, '90% CD');
+  await createSubmission(app, project.id, { phaseId: phase.id, revision: 'Quetzalrev' });
+  const [register] = await listRegisters(app, project.id);
+  await createRegisterEntry(app, register!.id, { number: 'RFI-Quokka' });
+  const walk = await createSiteVisit(app, project.id);
+  await createObservation(app, walk.id, { qualifier: 'Narwhal corridor' });
+  await addDocument(app, project.id, {
+    title: 'Plain title',
+    version: { revision: 'Wombatrev' },
+  });
+
+  const cases: [string, string][] = [
+    ['quetzalrev', 'submission'],
+    ['quokka', 'register-entry'],
+    ['narwhal', 'observation'],
+    ['wombatrev', 'document'],
+  ];
+  for (const [word, kind] of cases) {
+    const hit = (await search(app, word)).find((one) => one.kind === kind);
+    expect(hit, word).toBeDefined();
+    expect(marked(hit!.excerpt).toLowerCase(), word).toContain(`[${word}]`);
+  }
+});
+
 test('search runs across every job, archived ones included and said to be', async () => {
   const app = await api();
   const live = await createProject(app, 'S-3', 'Live job');
