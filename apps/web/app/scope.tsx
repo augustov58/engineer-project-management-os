@@ -78,6 +78,8 @@ export function ScopeToggle({
   return (
     <div
       className="bg-muted/30 inline-flex rounded-lg border p-0.5"
+      // A group, so the name is read: a plain `div` takes none (issue #158).
+      role="group"
       aria-label="Whose"
     >
       {(['mine', 'ours'] as const).map((option) => (

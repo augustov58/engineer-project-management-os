@@ -211,7 +211,8 @@ yourself. The rules that apply to every path stay in `AGENTS.md`.
 - The confirm form's field ids are keyed on the **turn** and never on the submission. Two
   proposals against one issuance — an ordinary second ask — put four duplicated ids on the
   page, and every label then focuses the first form's field. That is the pre-existing
-  `id="party"` defect on a register entry, and it is not worth having twice.
+  `id="party"` defect on a register entry — fixed by issue #158 with `useId` — and it is not
+  worth having twice.
 - **The project bar is typed only**, which is plate D-02 and the record rather than the
   drawing: a project conversation has no capture machinery and nothing transcribes for it, so
   a microphone there would be a control with no route behind it. Plate F-03's *"one capture bar

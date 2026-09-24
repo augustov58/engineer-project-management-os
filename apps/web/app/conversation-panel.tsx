@@ -517,7 +517,14 @@ function TurnList({
     return <ul className="divide-y rounded-lg border">{children}</ul>;
   }
   return (
-    <div className="flex max-h-[28rem] flex-col-reverse overflow-y-auto rounded-lg border">
+    // Focusable and named: a region that scrolls is one a keyboard has to reach,
+    // and a screen reader announces it by name (issue #158, WCAG 2.1.1).
+    <div
+      tabIndex={0}
+      role="region"
+      aria-label="The conversation so far"
+      className="flex max-h-[28rem] flex-col-reverse overflow-y-auto rounded-lg border"
+    >
       <ul className="divide-y">{children}</ul>
     </div>
   );

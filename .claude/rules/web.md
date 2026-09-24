@@ -117,3 +117,14 @@ apply to every path stay in `AGENTS.md`.
   at 390 px on 2026-09-20: the document is 390 px on all seven screens checked. Wrapping and
   **not** `overflow-x-auto`, which is what the walk's jumper does: the jumper is five anchors
   that have to stay one 44 px bar, and a header may be two rows on a phone at no cost.
+- **The screen-reader bar is WCAG 2.2 AA on every screen** (issue #158, ADR-0068): VoiceOver
+  on an iPhone for the walk, NVDA with Chrome at the desk. `scripts/a11y.mjs` is the automated
+  half of its audit — axe-core over `contrast.mjs`'s `SCREENS` at 390 px and 1,280 px, axe's
+  source handed in by the driver and not a dependency — and the listening half is a person's,
+  against the checklist in the vault's `docs/accessibility-audit.md`. A **new screen goes into
+  `SCREENS`**, which is what puts it under both audits. Three rules it turned up, each held by a
+  test: an **id rendered twice on one screen takes a `useId` prefix** (the register entry's
+  handoff fields did not, and every label named the first form's field); a name on a container
+  needs a **role that takes one** (`role="group"` on the mine/ours toggle); and a region that
+  **scrolls is focusable and named** (`tabIndex={0}`, `role="region"`, an `aria-label` — the
+  project chat's list from #164).

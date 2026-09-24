@@ -42,7 +42,8 @@
  */
 
 /**
- * The fifteen signed-in screens, by route shape.
+ * The sixteen signed-in screens, by route shape (Search the sixteenth, since
+ * issue #66).
  *
  * **What to measure belongs in this file too**, not only how: a later
  * measurement that walked a different set would not be comparable with the one
@@ -74,6 +75,9 @@ export const SCREENS = [
     screen: 'Extraction confirm',
     route: '/projects/:extractionProjectId/extractions/:extractionId',
   },
+  // Issue #66. A results page with something on it, which is what a word the
+  // database really holds gives it.
+  { screen: 'Search', route: '/search?q=:searchWord' },
 ];
 
 /** `SCREENS` with the ids filled in. Throws rather than walking a `:name`. */
@@ -249,13 +253,13 @@ export function measureInPage() {
  * and the pause after it is for the web font — a fallback face would change
  * the size a threshold is chosen by, not the colour.
  */
-async function show(page, url) {
+export async function show(page, url) {
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForTimeout(250);
 }
 
 /** Sign in through the form, which is the only way in (ADR-0055). */
-async function signIn(page, { baseUrl, email, password }) {
+export async function signIn(page, { baseUrl, email, password }) {
   await show(page, `${baseUrl}/sign-in`);
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', password);
