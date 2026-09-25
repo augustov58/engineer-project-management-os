@@ -32,7 +32,7 @@ export function IngestAddress({ address }: { address: string | null }) {
   }
 
   return (
-    <div className="space-y-2 rounded-lg border p-4">
+    <div className="bg-card space-y-2 rounded-lg border p-4">
       <p className="font-mono text-sm break-all">{address}</p>
       <p className="text-muted-foreground text-xs">
         Forward mail here and it lands on this job. Treat it as a password: it
@@ -103,7 +103,7 @@ export function IngestedDocumentList({
   return (
     <ul className="space-y-3">
       {arrivals.map((arrival) => (
-        <li key={arrival.id} className="space-y-3 rounded-lg border p-4">
+        <li key={arrival.id} className="bg-card space-y-3 rounded-lg border p-4">
           <div className="flex items-start justify-between gap-4">
             <Envelope arrival={arrival} />
             <Badge

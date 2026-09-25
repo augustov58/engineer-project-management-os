@@ -188,7 +188,7 @@ export function SubmissionForm({
           <legend className="mb-1.5 text-sm font-medium">
             What this set rests on
           </legend>
-          <div className="space-y-1.5 rounded-lg border p-3">
+          <div className="bg-card space-y-1.5 rounded-lg border p-3">
             {offered.map(({ item, carried }) => (
               <label key={item.id} className="flex items-start gap-2 text-sm">
                 {/*

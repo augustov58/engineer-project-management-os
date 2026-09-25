@@ -29,7 +29,7 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
       <h3 className="text-muted-foreground text-sm font-medium">{title}</h3>
-      <ol className="divide-y rounded-lg border">{children}</ol>
+      <ol className="bg-card divide-y rounded-lg border">{children}</ol>
     </div>
   );
 }
@@ -52,7 +52,7 @@ export function AssumptionRecordEntry({
   timeZone: string;
 }) {
   return (
-    <li className="space-y-4 rounded-lg border p-4">
+    <li className="bg-card space-y-4 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-3">
         <Badge variant="secondary">{record.codeEdition}</Badge>
         <span className="text-muted-foreground text-sm">

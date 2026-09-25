@@ -24,11 +24,15 @@ export function DiffView({
       {diffLines(base, proposed).map((line, index) => (
         <p
           key={index}
+          // The legend's green and red (ADR-0069, issue #169), which were a
+          // hard-coded emerald and red outside the palette until then. Here
+          // they read as added and removed, carried by the `+` / `-` below, so
+          // colour is never the only signal.
           className={
             line.kind === 'added'
-              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+              ? 'bg-success/10 text-success dark:bg-success/20'
               : line.kind === 'removed'
-                ? 'bg-red-500/10 text-red-700 line-through dark:text-red-400'
+                ? 'bg-destructive/10 text-destructive line-through dark:bg-destructive/20'
                 : 'text-muted-foreground'
           }
         >
@@ -110,7 +114,7 @@ export function MemoryHistory({
         }))
         .reverse()
         .map(({ version, previous, ordinal }, index) => (
-          <li key={version.id} className="rounded-lg border">
+          <li key={version.id} className="bg-card rounded-lg border">
             <div className="flex flex-wrap items-baseline gap-3 px-4 py-3">
               <Badge variant="outline" className="font-mono">
                 {ordinal}

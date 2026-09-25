@@ -62,7 +62,7 @@ function HandoffFields({
   // the first form's field and a screen reader name the wrong one (issue #158).
   const id = useId();
   return (
-    <fieldset className="space-y-3 rounded-lg border p-3">
+    <fieldset className="bg-card space-y-3 rounded-lg border p-3">
       <legend className="text-muted-foreground px-1 text-sm">{legend}</legend>
 
       <div className="grid gap-3 sm:grid-cols-2">

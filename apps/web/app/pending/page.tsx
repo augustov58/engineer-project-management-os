@@ -106,7 +106,7 @@ export default async function PendingItems({
       </form>
 
       {items.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="bg-card overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>

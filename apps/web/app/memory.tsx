@@ -256,7 +256,7 @@ function ProposalCard({
   const [pending, start] = useTransition();
 
   return (
-    <li className="rounded-lg border">
+    <li className="bg-card rounded-lg border">
       {/*
         Drawn by the same component the version history draws its diffs with
         (issue #63) — one rendering of "what changed", not two that can drift.

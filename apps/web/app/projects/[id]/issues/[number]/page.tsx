@@ -138,7 +138,7 @@ export default async function IssueRecord({
           The sightings are the history. There is no per-visit status beside
           them, because "still there on the second walk" is one of these rows.
         */}
-        <ul className="divide-y rounded-lg border">
+        <ul className="bg-card divide-y rounded-lg border">
           {found.observations.map((sighting) => (
             <li key={sighting.id} className="space-y-1 px-4 py-3">
               <div className="text-muted-foreground flex flex-wrap items-baseline gap-3 text-sm">
@@ -218,7 +218,7 @@ export default async function IssueRecord({
         <SectionHead>Lifecycle</SectionHead>
 
         {closedAt !== null ? (
-          <div className="space-y-3 rounded-lg border p-4">
+          <div className="bg-card space-y-3 rounded-lg border p-4">
             <p className="text-sm">
               <span className="text-muted-foreground">
                 Closed {day(closedAt, project.timezone)} &mdash;{' '}
@@ -238,7 +238,7 @@ export default async function IssueRecord({
         ) : (
           <form
             action={closeIssue.bind(null, found.id, id)}
-            className="flex flex-wrap items-center gap-2 rounded-lg border p-3"
+            className="bg-card flex flex-wrap items-center gap-2 rounded-lg border p-3"
           >
             <Input
               name="note"
@@ -293,7 +293,7 @@ export default async function IssueRecord({
         {attachable.length > 0 && (
           <form
             action={attachOpenItemToIssue.bind(null, found.id, id)}
-            className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+            className="bg-card flex flex-wrap items-end gap-2 rounded-lg border p-3"
           >
             {/* Native, because the action reads this out of FormData. */}
             <select

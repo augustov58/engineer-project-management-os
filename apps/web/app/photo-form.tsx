@@ -110,7 +110,7 @@ export function PhotoForm({
       </div>
 
       {chosen.length > 0 && (
-        <ul className="divide-y rounded-lg border text-xs">
+        <ul className="bg-card divide-y rounded-lg border text-xs">
           {chosen.map((file, index) => (
             <li
               // Two files of the same name can be picked from two folders, so

@@ -193,7 +193,7 @@ export default async function SubmissionRecord({
       */}
       <section className="space-y-3">
         <SectionHead>The set</SectionHead>
-        <pre className="overflow-x-auto rounded-lg border p-3 font-mono text-sm">
+        <pre className="bg-card overflow-x-auto rounded-lg border p-3 font-mono text-sm">
           {submission.sheetList}
         </pre>
       </section>
@@ -244,7 +244,7 @@ export default async function SubmissionRecord({
         {attachable.length > 0 && (
           <form
             action={attachOpenItem.bind(null, id, projectId)}
-            className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+            className="bg-card flex flex-wrap items-end gap-2 rounded-lg border p-3"
           >
             {/* Native, because the action reads this out of FormData. */}
             <select
@@ -363,7 +363,7 @@ export default async function SubmissionRecord({
       */}
       {submission.chain.length > 1 && (
         <Disclosure summary={`Issued and reissued (${submission.chain.length})`}>
-          <ol className="divide-y rounded-lg border">
+          <ol className="bg-card divide-y rounded-lg border">
             {submission.chain.map((entry) => {
               const here = entry.id === submission.id;
               const row = (

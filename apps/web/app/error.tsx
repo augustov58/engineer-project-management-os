@@ -24,7 +24,7 @@ export default function ErrorScreen({
   retry: () => void;
 }) {
   return (
-    <div className="space-y-4 rounded-lg border p-6">
+    <div className="bg-card space-y-4 rounded-lg border p-6">
       <h1 className="text-2xl font-semibold tracking-tight">
         This page could not finish
       </h1>

@@ -120,7 +120,7 @@ export default async function ProjectActivityPage({
               </>
             );
             const shape =
-              'flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border p-3 text-sm';
+              'bg-card flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border p-3 text-sm';
             return (
               <li key={entry.id}>
                 {/*

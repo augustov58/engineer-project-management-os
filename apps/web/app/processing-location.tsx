@@ -72,7 +72,7 @@ export function ProcessingLocation({ project }: { project: Project }) {
   const local = project.processingLocation === 'LOCAL';
 
   return (
-    <div className="space-y-3 rounded-lg border p-4">
+    <div className="bg-card space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">Processing location</span>
         <Badge variant={local ? 'outline' : 'secondary'}>

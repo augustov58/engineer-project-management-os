@@ -16,6 +16,7 @@ import SearchPage from '../app/search/page';
 
 vi.mock('next/font/google', () => ({
   Geist: () => ({ variable: '__variable_1a2b3c' }),
+  Geist_Mono: () => ({ variable: '__variable_4d5e6f' }),
 }));
 
 vi.mock('next/navigation', () => ({

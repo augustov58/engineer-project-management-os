@@ -30,7 +30,7 @@ export default async function UsersPage() {
 
       <NewUserForm />
 
-      <ul className="divide-y rounded-md border">
+      <ul className="bg-card divide-y rounded-md border">
         {users.map((user) => (
           <li
             key={user.id}

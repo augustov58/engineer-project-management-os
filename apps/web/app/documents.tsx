@@ -90,7 +90,7 @@ export function DocumentList({
   }
 
   return (
-    <ul className="divide-y rounded-lg border">
+    <ul className="bg-card divide-y rounded-lg border">
       {documents.map((document) => (
         <li key={document.id} className="space-y-1 py-2">
           <div className="flex flex-wrap items-center gap-3 px-4 pt-1">
@@ -187,7 +187,7 @@ export function LinkedDocumentList({
   }
 
   return (
-    <ul className="divide-y rounded-lg border">
+    <ul className="bg-card divide-y rounded-lg border">
       {versions.map((version) => (
         <li key={version.id}>
           <a

@@ -451,7 +451,7 @@ export function ConversationPanel({
         panel, so the primary action of the walk stays within thumb reach of the
         bottom of the viewport (density rule 7).
       */}
-      <div className="grid gap-2 rounded-lg border p-3">
+      <div className="bg-card grid gap-2 rounded-lg border p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
           {/*
             **The recorder is a walk's.** Plate D-02 draws the project chat as
@@ -514,7 +514,7 @@ function TurnList({
   children: ReactNode;
 }) {
   if (!capped) {
-    return <ul className="divide-y rounded-lg border">{children}</ul>;
+    return <ul className="bg-card divide-y rounded-lg border">{children}</ul>;
   }
   return (
     // Focusable and named: a region that scrolls is one a keyboard has to reach,
@@ -523,7 +523,7 @@ function TurnList({
       tabIndex={0}
       role="region"
       aria-label="The conversation so far"
-      className="flex max-h-[28rem] flex-col-reverse overflow-y-auto rounded-lg border"
+      className="bg-card flex max-h-[28rem] flex-col-reverse overflow-y-auto rounded-lg border"
     >
       <ul className="divide-y">{children}</ul>
     </div>
