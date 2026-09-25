@@ -1,3 +1,4 @@
+import { SearchCheck } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ISSUE_CATEGORIES, listOpenIssues } from '../api';
+import { EmptyState } from '../empty-state';
+import { PageHeader } from '../page-header';
 import { selectClassName } from '../native-select';
 import { day } from '../wall-clock';
 
@@ -50,18 +53,18 @@ export default async function OpenIssues({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Open issues</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {issues.length === 0
-            ? 'Nothing open.'
-            : `${issues.length} still open across every project`}
-        </p>
-      </div>
+      <PageHeader
+        title="Open issues"
+        description={
+          issues.length === 0
+            ? undefined
+            : `${issues.length} still open across every project`
+        }
+      />
 
       <form
         method="get"
-        className="bg-muted/30 flex flex-wrap items-end gap-3 rounded-lg border p-3"
+        className="bg-card flex flex-wrap items-end gap-3 rounded-lg border p-4 shadow-xs"
       >
         <div className="grid gap-1.5">
           <Label htmlFor="category">Category</Label>
@@ -97,21 +100,27 @@ export default async function OpenIssues({
           Filter
         </Button>
 
-        <p className="text-muted-foreground w-full text-sm">
+        <p className="text-muted-foreground w-full text-xs">
           Closed findings are not here. They stay on the job they were found
           on, where the lifecycle is the point of the record.
         </p>
       </form>
 
+      {issues.length === 0 && (
+        <EmptyState icon={<SearchCheck aria-hidden />}>
+          Nothing open{category === '' ? '' : ` in ${category}`}.
+        </EmptyState>
+      )}
+
       {issues.length > 0 && (
-        <div className="bg-card overflow-x-auto rounded-lg border">
+        <div className="bg-card overflow-x-auto rounded-lg border shadow-xs">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-28">Raised</TableHead>
-                <TableHead className="w-24">Project</TableHead>
+                <TableHead className="hidden w-28 sm:table-cell">Raised</TableHead>
+                <TableHead className="hidden w-24 sm:table-cell">Project</TableHead>
                 <TableHead className="w-16">Issue</TableHead>
-                <TableHead>Category</TableHead>
+                <TableHead className="hidden sm:table-cell">Category</TableHead>
                 <TableHead>Last seen</TableHead>
               </TableRow>
             </TableHeader>
@@ -123,10 +132,10 @@ export default async function OpenIssues({
                 const latest = issue.observations.at(-1);
                 return (
                   <TableRow key={issue.id}>
-                    <TableCell className="text-muted-foreground align-top tabular-nums">
+                    <TableCell className="text-muted-foreground hidden align-top tabular-nums sm:table-cell">
                       {day(issue.createdAt, issue.project.timezone)}
                     </TableCell>
-                    <TableCell className="align-top">
+                    <TableCell className="hidden align-top sm:table-cell">
                       <Link
                         href={`/projects/${issue.project.id}`}
                         className="font-mono text-sm underline-offset-4 hover:underline"
@@ -134,27 +143,37 @@ export default async function OpenIssues({
                         {issue.project.projectNumber}
                       </Link>
                     </TableCell>
-                    <TableCell className="align-top">
+                    <TableCell className="align-top whitespace-normal">
                       {/* The identifier, which is what a report prints. */}
                       <Link
                         href={`/projects/${issue.project.id}/issues/${issue.number}`}
                         className="font-mono text-sm underline-offset-4 hover:underline"
                       >
+                        <span className="sm:hidden">
+                          {issue.project.projectNumber} &middot;{' '}
+                        </span>
                         {issue.number}
                       </Link>
+                      {/* On a phone the category and the day ride here. */}
+                      <span className="mt-1 block sm:hidden">
+                        <Badge variant="secondary">{issue.category}</Badge>
+                      </span>
+                      <span className="text-muted-foreground block text-xs tabular-nums sm:hidden">
+                        raised {day(issue.createdAt, issue.project.timezone)}
+                      </span>
                     </TableCell>
-                    <TableCell className="align-top font-medium">
-                      {issue.category}
+                    <TableCell className="hidden align-top sm:table-cell">
+                      <Badge variant="secondary">{issue.category}</Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground align-top">
+                    <TableCell className="text-muted-foreground align-top whitespace-normal sm:min-w-56">
                       {latest === undefined ? (
                         <span>&mdash;</span>
                       ) : (
                         <>
-                          {latest.location}
-                          <Badge variant="outline" className="ml-2">
+                          <span className="text-foreground">{latest.location}</span>
+                          <span className="block text-xs tabular-nums">
                             {latest.siteVisit.visitedOn}
-                          </Badge>
+                          </span>
                         </>
                       )}
                     </TableCell>

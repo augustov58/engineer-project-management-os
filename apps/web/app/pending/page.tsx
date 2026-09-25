@@ -1,3 +1,4 @@
+import { ListChecks } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,8 @@ import {
 } from '@/components/ui/table';
 import { selectClassName } from '../native-select';
 import { listPendingItems } from '../api';
+import { EmptyState } from '../empty-state';
+import { PageHeader } from '../page-header';
 import { ScopeToggle, isMine, scopeHref, scopeOf } from '../scope';
 import { day } from '../wall-clock';
 
@@ -46,25 +49,21 @@ export default async function PendingItems({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Pending items</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {items.length === 0
-            ? isMine(scope)
-              ? 'Nothing unresolved is sitting with me.'
-              : 'Nothing unresolved.'
+      <PageHeader
+        title="Pending items"
+        description={
+          items.length === 0
+            ? undefined
             : `${items.length} unresolved${
                 isMine(scope) ? ' and sitting with me' : ''
-              } across every project`}
-        </p>
-        <div className="mt-3">
-          <ScopeToggle scope={scope} href={here} />
-        </div>
-      </div>
+              } across every project`
+        }
+        aside={<ScopeToggle scope={scope} href={here} />}
+      />
 
       <form
         method="get"
-        className="bg-muted/30 flex flex-wrap items-end gap-3 rounded-lg border p-3"
+        className="bg-card flex flex-wrap items-end gap-3 rounded-lg border p-4 shadow-xs"
       >
         {/*
           A GET form replaces the whole query string, so the toggle above has
@@ -99,29 +98,37 @@ export default async function PendingItems({
           Filter
         </Button>
 
-        <p className="text-muted-foreground w-full text-sm">
+        <p className="text-muted-foreground w-full text-xs">
           Leave blank for anyone, or type &ldquo;Nobody&rdquo; for the items no
           one owes a move on.
         </p>
       </form>
 
+      {items.length === 0 && (
+        <EmptyState icon={<ListChecks aria-hidden />}>
+          {isMine(scope)
+            ? 'Nothing unresolved is sitting with me.'
+            : 'Nothing unresolved.'}
+        </EmptyState>
+      )}
+
       {items.length > 0 && (
-        <div className="bg-card overflow-x-auto rounded-lg border">
+        <div className="bg-card overflow-x-auto rounded-lg border shadow-xs">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-28">Open since</TableHead>
-                <TableHead className="w-24">Project</TableHead>
+                <TableHead className="hidden w-28 sm:table-cell">Open since</TableHead>
+                <TableHead className="hidden w-24 sm:table-cell">Project</TableHead>
                 <TableHead>Unresolved</TableHead>
-                <TableHead>Blocks</TableHead>
+                <TableHead className="hidden sm:table-cell">Blocks</TableHead>
                 <TableHead className="w-36">Next move</TableHead>
-                <TableHead className="w-36">Sits with</TableHead>
+                <TableHead className="hidden w-36 sm:table-cell">Sits with</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell className="text-muted-foreground align-top tabular-nums">
+                  <TableCell className="text-muted-foreground hidden align-top tabular-nums sm:table-cell">
                     {/*
                       Each row in its own job's zone (ADR-0054). An item whose
                       subject resolves to no project has no building and so no
@@ -130,7 +137,7 @@ export default async function PendingItems({
                     */}
                     {day(item.waitingSince, item.project?.timezone ?? 'UTC')}
                   </TableCell>
-                  <TableCell className="align-top">
+                  <TableCell className="hidden align-top sm:table-cell">
                     {item.project === null ? (
                       <span className="text-muted-foreground">&mdash;</span>
                     ) : (
@@ -142,14 +149,27 @@ export default async function PendingItems({
                       </Link>
                     )}
                   </TableCell>
-                  <TableCell className="align-top font-medium">
-                    {item.unresolved}
+                  <TableCell className="align-top whitespace-normal sm:min-w-56">
+                    <span className="font-medium">{item.unresolved}</span>
+                    {/*
+                      On a phone the four columns folded away ride here, so the
+                      row stays one screen wide and the next move stays in view.
+                    */}
+                    <span className="text-muted-foreground block text-xs sm:hidden">
+                      {item.project === null ? '' : `${item.project.projectNumber} · `}
+                      since{' '}
+                      {day(item.waitingSince, item.project?.timezone ?? 'UTC')}{' '}
+                      &middot; with {item.owner.name}
+                    </span>
+                    <span className="text-muted-foreground block text-xs sm:hidden">
+                      Blocks: {item.blocks}
+                    </span>
                   </TableCell>
-                  <TableCell className="text-muted-foreground align-top">
+                  <TableCell className="text-muted-foreground hidden min-w-48 align-top whitespace-normal sm:table-cell">
                     {item.blocks}
                   </TableCell>
-                  <TableCell className="align-top">
-                    <Badge variant="outline">
+                  <TableCell className="align-top whitespace-normal">
+                    <Badge variant="outline" className="h-auto whitespace-normal">
                       {item.waitingOn ?? 'Nobody'}
                     </Badge>
                   </TableCell>
@@ -157,7 +177,7 @@ export default async function PendingItems({
                     Our side of the line, where **next move** is theirs: an
                     open item sits with a user and waits on a party.
                   */}
-                  <TableCell className="text-muted-foreground align-top">
+                  <TableCell className="text-muted-foreground hidden align-top sm:table-cell">
                     {item.owner.name}
                   </TableCell>
                 </TableRow>

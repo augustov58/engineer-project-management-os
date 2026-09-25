@@ -1,8 +1,19 @@
+import { CalendarCheck } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { inCourtDays } from '../ball-in-court';
 import { getProject, listClock, REGISTER_NAMES } from '../api';
+import { EmptyState } from '../empty-state';
+import { PageHeader } from '../page-header';
 import { ScopeToggle, isMine, scopeHref, scopeOf } from '../scope';
 
 /** The point of this screen is what is sitting in our court right now. */
@@ -46,68 +57,104 @@ export default async function Clock({
 
   return (
     <div className="space-y-6">
-      <div>
-        {project !== undefined && (
-          <Link
-            href={`/projects/${project.id}`}
-            className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-          >
-            &larr; {project.projectNumber} {project.name}
-          </Link>
-        )}
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Clock</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {onTheClock.length === 0
-            ? `Nothing is sitting in ${isMine(scope) ? 'my' : 'our'} court past its turnaround.`
+      <PageHeader
+        back={
+          project === undefined
+            ? undefined
+            : {
+                href: `/projects/${project.id}`,
+                label: `${project.projectNumber} ${project.name}`,
+              }
+        }
+        title="Clock"
+        description={
+          onTheClock.length === 0
+            ? undefined
             : `${onTheClock.length} ${
                 onTheClock.length === 1
                   ? `entry is${isMine(scope) ? ' in my court and' : ''} past its clock`
                   : `entries are${isMine(scope) ? ' in my court and' : ''} past their clock`
-              }${project === undefined ? ' across every live project' : ''}`}
-        </p>
-        <div className="mt-3">
-          <ScopeToggle scope={scope} href={here} />
-        </div>
-      </div>
+              }${project === undefined ? ' across every live project' : ''}`
+        }
+        aside={<ScopeToggle scope={scope} href={here} />}
+      />
 
-      {onTheClock.length > 0 && (
-        <ul className="bg-card divide-y rounded-lg border">
-          {onTheClock.map((entry) => {
-            const held = inCourtDays(entry.inCourtMs);
-            return (
-              <li key={entry.id}>
-                <Link
-                  href={`/register-entries/${entry.id}`}
-                  className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-4 py-3 transition-colors"
-                >
-                  {project === undefined && (
-                    <Badge variant="secondary" className="font-mono">
-                      {entry.project.projectNumber}
-                    </Badge>
-                  )}
-                  <Badge variant="outline" className="font-mono">
-                    {entry.number}
-                  </Badge>
-                  <span className="font-medium">{entry.subject}</span>
-                  {/*
-                    Both numbers, not the overrun: the target is the reason
-                    this is on the list and hiding it would leave the figure
-                    unexplained.
-                  */}
-                  <Badge variant="destructive" className="tabular-nums">
-                    {held} / {entry.turnaroundDays} days &middot; over
-                  </Badge>
-                  <span className="text-muted-foreground text-sm">
-                    {REGISTER_NAMES[entry.kind]} &middot; from {entry.fromParty}
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+      {onTheClock.length === 0 ? (
+        <EmptyState icon={<CalendarCheck aria-hidden />}>
+          Nothing is sitting in {isMine(scope) ? 'my' : 'our'} court past its
+          turnaround.
+        </EmptyState>
+      ) : (
+        <div className="bg-card overflow-hidden rounded-lg border shadow-xs">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {project === undefined && (
+                  <TableHead className="hidden w-24 sm:table-cell">Project</TableHead>
+                )}
+                <TableHead className="hidden w-24 sm:table-cell">Number</TableHead>
+                <TableHead>Subject</TableHead>
+                <TableHead className="hidden md:table-cell">Register</TableHead>
+                <TableHead className="w-36 text-right">In our court</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {onTheClock.map((entry) => {
+                const held = inCourtDays(entry.inCourtMs);
+                return (
+                  <TableRow key={entry.id}>
+                    {project === undefined && (
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant="secondary" className="font-mono">
+                          {entry.project.projectNumber}
+                        </Badge>
+                      </TableCell>
+                    )}
+                    <TableCell className="hidden font-mono text-xs sm:table-cell">
+                      {entry.number}
+                    </TableCell>
+                    <TableCell className="whitespace-normal">
+                      <Link
+                        href={`/register-entries/${entry.id}`}
+                        className="hover:text-primary font-medium transition-colors"
+                      >
+                        {entry.subject}
+                      </Link>
+                      {/*
+                        On a phone the job and the number ride here, so the
+                        figure this row is on the list for stays on screen.
+                      */}
+                      <span className="text-muted-foreground block text-xs">
+                        <span className="font-mono sm:hidden">
+                          {project === undefined &&
+                            `${entry.project.projectNumber} · `}
+                          {entry.number} &middot;{' '}
+                        </span>
+                        from {entry.fromParty}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground hidden md:table-cell">
+                      {REGISTER_NAMES[entry.kind]}
+                    </TableCell>
+                    {/*
+                      Both numbers, not the overrun: the target is the reason
+                      this is on the list and hiding it would leave the figure
+                      unexplained.
+                    */}
+                    <TableCell className="text-right align-top sm:align-middle">
+                      <Badge variant="destructive" className="tabular-nums">
+                        {held} / {entry.turnaroundDays} days &middot; over
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
-      <p className="text-muted-foreground text-sm">
+      <p className="text-muted-foreground text-xs">
         Longest in our court first. Time spent waiting on somebody else is not
         counted &mdash; the clock runs only while the ball is ours, summed from
         the handoff history. Recording a disposition hands the ball back and
