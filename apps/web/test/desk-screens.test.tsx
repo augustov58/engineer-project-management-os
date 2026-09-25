@@ -376,6 +376,12 @@ test('the conversation is the last thing on the project record, and its turns sc
   expect(scroller?.className).toMatch(/(?<![\w-])max-h-/);
   expect(scroller?.className).toContain('overflow-y-auto');
   expect(scroller?.className).toContain('flex-col-reverse');
+  // A region that scrolls is one a keyboard has to reach (WCAG 2.1.1; axe's
+  // scrollable-region-focusable, the one violation the audit of issue #158
+  // found), and a named one a screen reader can announce.
+  expect(scroller?.getAttribute('tabindex')).toBe('0');
+  expect(scroller?.getAttribute('role')).toBe('region');
+  expect(scroller?.getAttribute('aria-label')).toBeTruthy();
   // The bar to type into is outside the scroller, so it never scrolls away.
   expect(scroller?.querySelector('textarea[aria-label="What you want to know"]')).toBeNull();
 });
@@ -524,6 +530,37 @@ function entry(patch: Partial<api.RegisterEntry> = {}): api.RegisterEntry {
     ...patch,
   };
 }
+
+test('every id on the register entry is its own, so each label names its own field', async () => {
+  // The screen carries the handoff fields twice — the next handoff and the
+  // disposition — and both used fixed ids, so each label focused the first
+  // form's field and a screen reader read the wrong one (issue #158; axe's
+  // duplicate-id-aria). ADR-0068 sets WCAG 2.2 AA on every screen.
+  vi.mocked(api.getRegisterEntry).mockResolvedValue(entry());
+  const root = await paint(
+    RegisterEntryRecord({
+      params: Promise.resolve({ id: 'entry-1' }),
+    }) as Promise<React.ReactElement>,
+  );
+
+  const ids = [...root.querySelectorAll('[id]')].map((one) => one.id);
+  expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+  const labels = [...root.querySelectorAll('label[for]')];
+  expect(labels.length).toBeGreaterThan(0);
+  for (const label of labels) {
+    const target = root.querySelector(`#${CSS.escape(label.getAttribute('for')!)}`);
+    expect(target, label.textContent ?? '').not.toBeNull();
+    expect(target?.closest('form')).toBe(label.closest('form'));
+  }
+});
+
+test('the mine/ours toggle is a named group, so its name is read', async () => {
+  // A plain `div` with an `aria-label` has no role that takes a name, so a
+  // screen reader drops it (axe's aria-prohibited-attr, issue #158).
+  const root = await paint(Home({ searchParams: Promise.resolve({}) }) as Promise<React.ReactElement>);
+  const toggle = root.querySelector('[aria-label="Whose"]');
+  expect(toggle?.getAttribute('role')).toBe('group');
+});
 
 test('the disposition stays one action with both inputs visible, and says the window in words', async () => {
   vi.mocked(api.getRegisterEntry).mockResolvedValue(entry());

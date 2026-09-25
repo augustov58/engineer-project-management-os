@@ -627,8 +627,8 @@ export function ConfirmAssumptionRecord({
    * form. The ids were keyed on the **submission** and two proposals against
    * one issuance — an ordinary second ask — put four duplicated ids on the page,
    * so every label focused the first form's field. That is the `id="party"`
-   * defect the register entry already carries, and it is not worth having
-   * twice.
+   * defect the register entry carried until issue #158, and it is not worth
+   * having twice.
    */
   turnId: string;
   proposal: RecordProposal;

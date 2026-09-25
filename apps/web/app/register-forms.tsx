@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -57,15 +57,19 @@ function HandoffFields({
   users: User[];
   me: string;
 }) {
+  // One prefix per instance: the entry screen renders these fields twice (the
+  // next handoff and the disposition), and fixed ids made every label focus
+  // the first form's field and a screen reader name the wrong one (issue #158).
+  const id = useId();
   return (
     <fieldset className="space-y-3 rounded-lg border p-3">
       <legend className="text-muted-foreground px-1 text-sm">{legend}</legend>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="party">Whose court</Label>
+          <Label htmlFor={`${id}-party`}>Whose court</Label>
           <Input
-            id="party"
+            id={`${id}-party`}
             name="party"
             required
             maxLength={120}
@@ -73,8 +77,8 @@ function HandoffFields({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="heldSince">Since</Label>
-          <Input id="heldSince" name="heldSince" type="date" />
+          <Label htmlFor={`${id}-heldSince`}>Since</Label>
+          <Input id={`${id}-heldSince`} name="heldSince" type="date" />
           <p className="text-muted-foreground text-xs">
             Left blank, today. A transmittal log written up afterwards is dated
             when the ball actually moved.
@@ -110,9 +114,9 @@ function HandoffFields({
         else.
       */}
       <div className="space-y-1.5">
-        <Label htmlFor="userId">If it is ours, whose</Label>
+        <Label htmlFor={`${id}-userId`}>If it is ours, whose</Label>
         <select
-          id="userId"
+          id={`${id}-userId`}
           name="userId"
           defaultValue={me}
           className={selectClassName}
