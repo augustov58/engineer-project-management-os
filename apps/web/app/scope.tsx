@@ -77,7 +77,7 @@ export function ScopeToggle({
 }) {
   return (
     <div
-      className="bg-muted/30 inline-flex rounded-lg border p-0.5"
+      className="bg-card inline-flex rounded-full border p-1 shadow-xs"
       // A group, so the name is read: a plain `div` takes none (issue #158).
       role="group"
       aria-label="Whose"
@@ -89,8 +89,8 @@ export function ScopeToggle({
           aria-current={scope === option ? 'true' : undefined}
           className={
             scope === option
-              ? 'bg-background rounded-md px-3 py-1 text-sm font-medium shadow-sm'
-              : 'text-muted-foreground hover:text-foreground rounded-md px-3 py-1 text-sm transition-colors'
+              ? 'bg-primary text-primary-foreground rounded-full px-4 py-1.5 text-sm font-medium'
+              : 'text-muted-foreground hover:text-foreground rounded-full px-4 py-1.5 text-sm transition-colors'
           }
         >
           {option === 'mine' ? 'Mine' : 'Ours'}

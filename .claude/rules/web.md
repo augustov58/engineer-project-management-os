@@ -24,6 +24,14 @@ apply to every path stay in `AGENTS.md`.
   are gated on being non-empty (ADR-0038). Different questions: on a project screen an empty
   count is noise, and on the morning screen the count *is* the screen, so a card that
   vanished would read as one that had not loaded. This asymmetry is intended.
+- The morning screen's **per-job counts** (ADR-0069 D4, issue #173) are the two lists the tiles
+  already read, grouped by `row.project.id` in the page — **no endpoint, never summed, never sorted
+  on together**, and each non-zero figure a link to that list narrowed to the job (`?projectId=`) at
+  the same scope, so a column cannot say what its list does not. Their links are named *Exposure on
+  260117: 2*, never in the tiles' words, so a tile stays the one link that says what a whole list
+  counts. **Open issues carries no count on this screen** — ADR-0016's third figure. A list on the
+  desk **folds its secondary columns into its first cell below `sm`** rather than scrolling sideways
+  inside a 390 px screen: document width alone does not catch a table that scrolls in its own box.
 - The **desk screens are built to plates D-01…D-04** (issue #120, ADR-0059 point 3). Two
   things there are decisions rather than layout. **Everything but *Open items* on the project
   record is a disclosure carrying its count**, which is what takes the page from 4 479 px to

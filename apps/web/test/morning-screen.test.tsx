@@ -38,8 +38,12 @@ const listExposure = vi.mocked(api.listExposure);
 const listClock = vi.mocked(api.listClock);
 
 /** Rows of the two lists. Only their number is read here. */
+// Rows carry the one field the screen reads off each: which job it is on,
+// since each job's share of the two lists is counted from them (issue #173).
 function rows(count: number): never[] {
-  return Array.from({ length: count }) as never[];
+  return Array.from({ length: count }, () => ({
+    project: { id: 'a-job-not-listed' },
+  })) as never[];
 }
 
 beforeEach(() => {
@@ -72,8 +76,10 @@ function cards(): [HTMLElement, HTMLElement] {
 }
 
 /** The figure the card leads with, which is the whole of what it counts. */
+// The tile's number, which leads it in the reading but no longer in the markup
+// since the icon and its state sit above it (ADR-0069, issue #173).
 function count(card: HTMLElement): string | null {
-  return card.firstElementChild?.textContent ?? null;
+  return card.querySelector('[data-slot="count"]')?.textContent ?? null;
 }
 
 test('both cards render at zero, and say zero', async () => {
@@ -160,6 +166,35 @@ test('one of each reads as one of each', async () => {
   expect(cards()[1].textContent).toContain(
     'register entry sitting in our court past its turnaround',
   );
+});
+
+test('each job carries its share of both lists, as two links at the same scope', async () => {
+  // ADR-0069 D4 (issue #173): two columns counted in the page from the two
+  // lists the tiles already read — no endpoint, never summed, and each figure a
+  // link to that list narrowed to the job, so it cannot disagree with it.
+  listProjects.mockResolvedValue([
+    { id: 'job-a', projectNumber: '260001', name: 'Job A', timezone: 'America/New_York' },
+    { id: 'job-b', projectNumber: '260002', name: 'Job B', timezone: 'America/Chicago' },
+  ] as never[]);
+  listExposure.mockResolvedValue([
+    { project: { id: 'job-a' } },
+    { project: { id: 'job-a' } },
+  ] as never[]);
+  listClock.mockResolvedValue([{ project: { id: 'job-b' } }] as never[]);
+
+  await morning('ours');
+
+  expect(
+    screen.getByRole('link', { name: 'Exposure on 260001: 2' }).getAttribute('href'),
+  ).toBe('/exposure?projectId=job-a&scope=ours');
+  expect(
+    screen.getByRole('link', { name: 'Clock on 260002: 1' }).getAttribute('href'),
+  ).toBe('/clock?projectId=job-b&scope=ours');
+  // A job with none of a list says so rather than showing a zero badge.
+  expect(screen.queryByRole('link', { name: /Exposure on 260002/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: /Clock on 260001/ })).toBeNull();
+  // The tiles are still the only links that say what a whole list counts.
+  expect(cards().map(count)).toEqual(['2', '1']);
 });
 
 test('the screen reads two lists and no morning endpoint', () => {
