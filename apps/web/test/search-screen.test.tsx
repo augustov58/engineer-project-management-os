@@ -24,12 +24,14 @@ vi.mock('next/navigation', () => ({
     throw new Error('redirect');
   },
   useRouter: () => ({ refresh: () => {} }),
+  usePathname: () => '/search',
 }));
 
 vi.mock('../app/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   searchEveryJob: vi.fn(),
   currentUser: vi.fn(),
+  listProjects: vi.fn(async () => []),
 }));
 
 beforeEach(() => {

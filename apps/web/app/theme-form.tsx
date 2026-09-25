@@ -23,8 +23,8 @@ const THEMES: { value: Theme; label: string }[] = [
 
 export function ThemeForm({ theme }: { theme: Theme }) {
   return (
-    <form action={setTheme} className="flex items-center">
-      <fieldset className="flex items-center gap-1">
+    <form action={setTheme}>
+      <fieldset className="bg-muted grid grid-cols-3 gap-1 rounded-lg p-1">
         <legend className="sr-only">Theme</legend>
         {THEMES.map(({ value, label }) => (
           <button
@@ -34,9 +34,9 @@ export function ThemeForm({ theme }: { theme: Theme }) {
             value={value}
             aria-pressed={value === theme}
             className={cn(
-              'rounded-md px-2 py-1 text-xs transition-colors',
+              'min-h-8 rounded-md px-2 py-1 text-xs transition-colors',
               value === theme
-                ? 'bg-secondary text-secondary-foreground'
+                ? 'bg-card text-foreground font-medium shadow-xs'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
