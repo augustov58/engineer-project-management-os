@@ -66,7 +66,7 @@ export default async function Exposure({
       </div>
 
       {carrying.length > 0 && (
-        <ul className="divide-y rounded-lg border">
+        <ul className="bg-card divide-y rounded-lg border">
           {carrying.map((issued) => (
             <li key={issued.id}>
               <Link

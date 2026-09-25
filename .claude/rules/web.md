@@ -128,3 +128,13 @@ apply to every path stay in `AGENTS.md`.
   needs a **role that takes one** (`role="group"` on the mine/ours toggle); and a region that
   **scrolls is focusable and named** (`tabIndex={0}`, `role="region"`, an `aria-label` — the
   project chat's list from #164).
+- **Colour is a legend and it is closed** (ADR-0069, issue #169). One blueprint blue is the action
+  colour — `primary`, links, focus (`--ring` and `--info` are `var(--primary)`). Four hues each mean
+  one thing: `destructive` late, over or standing on something unresolved; `warning` ours to move and
+  not yet late; `success` settled; `info` informational or the agent's proposal. Each is ink on its
+  own `/10` tint (`/20` in dark) — `Badge`'s variants of the same names — and **never shown without a
+  word or a glyph**. A fifth meaning, or a hue as decoration, is a change to ADR-0069, and
+  `theme.test.tsx` fails on any Tailwind palette colour in product code, with no exceptions. The page is
+  a tinted canvas (`--background`) and content sits on the sheet (`--card`): **a bordered container
+  takes `bg-card`**, or it reads as a grey hole in the page; a dashed empty state stays transparent.
+

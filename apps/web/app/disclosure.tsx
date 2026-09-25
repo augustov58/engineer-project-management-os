@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 /**
@@ -13,8 +14,10 @@ import type { ReactNode } from 'react';
  *
  * The summary is a 44 px row, which is density rule 6's field target and clears
  * its desk one (≥ 32 px). `list-none` plus the WebKit marker rule removes the
- * platform triangle so the `+` / `−` below is the only affordance, as the
- * plates draw it.
+ * platform triangle so the chevron is the only affordance. It was a `+` / `−`
+ * until the second design pass (ADR-0069, issue #169), which also put the
+ * disclosure on the sheet: the page is a tinted canvas now, and a closed
+ * disclosure is a row of the record rather than a hole in the page.
  */
 export function Disclosure({
   summary,
@@ -37,13 +40,13 @@ export function Disclosure({
   open?: boolean;
 }) {
   return (
-    <details open={open} className="group rounded-lg border">
-      <summary className="flex min-h-11 list-none items-center gap-2 px-4 text-sm font-medium group-open:border-b [&::-webkit-details-marker]:hidden">
-        <span className="text-muted-foreground font-mono">
-          <span className="group-open:hidden">+</span>
-          <span className="hidden group-open:inline">&minus;</span>
-        </span>
+    <details open={open} className="group bg-card rounded-lg border shadow-xs">
+      <summary className="hover:bg-muted/50 flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors group-open:rounded-b-none group-open:border-b [&::-webkit-details-marker]:hidden">
         {summary}
+        <ChevronRight
+          aria-hidden
+          className="text-muted-foreground ml-auto size-4 shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+        />
       </summary>
       <div className="p-4">{children}</div>
     </details>

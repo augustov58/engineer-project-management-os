@@ -34,6 +34,7 @@ vi.mock('../app/api', async (importOriginal) => ({
 // in favour of anything it recognises as a second font utility.
 vi.mock('next/font/google', () => ({
   Geist: () => ({ variable: '__variable_1a2b3c' }),
+  Geist_Mono: () => ({ variable: '__variable_4d5e6f' }),
 }));
 
 const currentUser = vi.mocked(api.currentUser);
@@ -129,16 +130,23 @@ test('every token the brief moved is in the stylesheet, both halves', async () =
   const { join } = await import('node:path');
   const css = await readFile(join(process.cwd(), 'app/globals.css'), 'utf8');
 
+  // The second pass's values (ADR-0069, issue #169): the red is the legend's,
+  // darker than the brief's, and the rest of the legend beside it is new.
   const moved: [string, string, string][] = [
-    ['--destructive', 'oklch(0.52 0.2 27.325)', 'oklch(0.73 0.15 22.216)'],
-    ['--muted-foreground', 'oklch(0.522 0 0)', 'oklch(0.72 0 0)'],
-    ['--input', 'oklch(0.65 0 0)', 'oklch(0.55 0 0)'],
-    ['--ring', 'oklch(0.55 0 0)', 'oklch(0.72 0 0)'],
-    ['--border', 'oklch(0.86 0 0)', 'oklch(0.35 0 0)'],
+    ['--destructive', 'oklch(0.500 0.182 29.5)', 'oklch(0.759 0.144 26.1)'],
+    ['--warning', 'oklch(0.479 0.112 59.9)', 'oklch(0.813 0.135 74.4)'],
+    ['--success', 'oklch(0.468 0.107 153.1)', 'oklch(0.791 0.126 156.9)'],
+    ['--primary', 'oklch(0.484 0.207 264.3)', 'oklch(0.725 0.142 266.9)'],
+    ['--muted-foreground', 'oklch(0.45 0.031 259)', 'oklch(0.724 0.029 255.1)'],
+    ['--input', 'oklch(0.587 0.026 258.4)', 'oklch(0.567 0.036 261.6)'],
+    ['--border', 'oklch(0.911 0.011 256.7)', 'oklch(0.308 0.04 260.4)'],
   ];
   for (const [token, light, dark] of moved) {
     expect(css).toContain(`${token}: light-dark(${light}, ${dark});`);
   }
+  // Focus and the agent's proposal are the action colour, not a fourth blue.
+  expect(css).toContain('--ring: var(--primary);');
+  expect(css).toContain('--info: var(--primary);');
 
   // The orphan blue: the only other hue the file ever had, rendering nowhere
   // because there is no sidebar. The brief deletes it, so the token is one
@@ -158,20 +166,13 @@ test('every token the brief moved is in the stylesheet, both halves', async () =
 });
 
 /**
- * The memory diff is the **one** screen that paints outside the palette.
+ * No screen paints a colour the palette does not name.
  *
- * The brief's `## Colour` calls `bg-amber-500` on the budget meter "the one
- * hard-coded colour in the app". It is not: `memory-versions.tsx` has carried
- * an emerald and a red for added and removed lines since the memory screen was
- * built, and the brief did not see them. They are left alone here on purpose
- * — a diff needs two hues to be a diff, and this palette has one, which means
- * greying them is a design decision the brief never took rather than a tidy-up
- * this ticket may make. The meter is different: nothing was lost by making it
- * a chart grey.
- *
- * So the sweep runs with one named exception, which is a property a test can
- * hold where two would be the start of a list (`gate.md`'s argument for the
- * ingest webhook). A second file appearing here is the defect.
+ * Until issue #169 this ran with one named exception: `memory-versions.tsx`
+ * carried an emerald and a red for added and removed lines, because a diff
+ * needs two hues and the brief's palette had one. ADR-0069 gave the palette a
+ * legend, and the diff reads its green and red tokens now — so the exception
+ * is gone and **any** file appearing here is the defect.
  */
 test('no screen paints a colour the palette does not name', async () => {
   const palette =
@@ -182,5 +183,5 @@ test('no screen paints a colour the palette does not name', async () => {
     .filter(({ text }) => palette.test(text))
     .map(({ path }) => path);
 
-  expect(offenders).toEqual(['app/memory-versions.tsx']);
+  expect(offenders).toEqual([]);
 });

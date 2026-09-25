@@ -71,7 +71,7 @@ export default async function Clock({
       </div>
 
       {onTheClock.length > 0 && (
-        <ul className="divide-y rounded-lg border">
+        <ul className="bg-card divide-y rounded-lg border">
           {onTheClock.map((entry) => {
             const held = inCourtDays(entry.inCourtMs);
             return (

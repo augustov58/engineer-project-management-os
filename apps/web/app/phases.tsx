@@ -35,7 +35,7 @@ export function PhaseList({
   const ids = phases.map((phase) => phase.id);
 
   return (
-    <ul className="divide-y rounded-lg border">
+    <ul className="bg-card divide-y rounded-lg border">
       {phases.map((phase, index) => (
         <li key={phase.id} className="flex flex-wrap items-center gap-2 p-3">
           <RenamePhaseForm

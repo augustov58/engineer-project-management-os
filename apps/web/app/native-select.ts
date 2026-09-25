@@ -7,7 +7,7 @@
  * how a control serialises.
  */
 const shared =
-  'rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
+  'rounded-lg border border-input bg-card px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
 
 /** The desk height: the design brief's density rule 6 asks for ≥ 32 px there. */
 export const selectClassName = `h-8 ${shared}`;

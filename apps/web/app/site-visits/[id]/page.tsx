@@ -388,7 +388,7 @@ export default async function SiteVisitRecord({
             Nothing observed yet.
           </p>
         ) : (
-          <ul className="divide-y rounded-lg border">
+          <ul className="bg-card divide-y rounded-lg border">
             {visit.observations.map((observation) => {
               const finding = raisedFrom.get(observation.id);
               const evidence = evidencing.get(observation.id) ?? [];
@@ -602,7 +602,7 @@ export default async function SiteVisitRecord({
 
         {visit.photos.length > 0 && (
           <>
-            <ul className="divide-y rounded-lg border">
+            <ul className="bg-card divide-y rounded-lg border">
               {visit.photos.map((photo) => (
                 <li
                   key={photo.id}
@@ -731,7 +731,7 @@ export default async function SiteVisitRecord({
         </SectionHead>
 
         {visit.reports.length > 0 && (
-          <ul className="divide-y rounded-lg border">
+          <ul className="bg-card divide-y rounded-lg border">
             {visit.reports.map((report) => (
               <li
                 key={report.id}

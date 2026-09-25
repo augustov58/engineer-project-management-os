@@ -14,6 +14,13 @@ const badgeVariants = cva(
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+        // The rest of the legend (ADR-0069, issue #169), in the shape
+        // `destructive` already has: ink on its own tint, never colour alone.
+        warning:
+          "bg-warning/10 text-warning dark:bg-warning/20 [a]:hover:bg-warning/20",
+        success:
+          "bg-success/10 text-success dark:bg-success/20 [a]:hover:bg-success/20",
+        info: "bg-info/10 text-info dark:bg-info/20 [a]:hover:bg-info/20",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

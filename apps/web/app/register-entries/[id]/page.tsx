@@ -374,7 +374,7 @@ export default async function RegisterEntryRecord({
           Ball-in-court
         </SectionHead>
 
-        <ul className="divide-y rounded-lg border">
+        <ul className="bg-card divide-y rounded-lg border">
           {entry.handoffs.map((handoff) => (
             <li
               key={handoff.id}
@@ -510,7 +510,7 @@ export default async function RegisterEntryRecord({
                 entry.registerId,
                 project.id,
               )}
-              className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+              className="bg-card flex flex-wrap items-end gap-2 rounded-lg border p-3"
             >
               {/* Native, because the action reads this out of FormData. */}
               <select

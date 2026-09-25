@@ -121,7 +121,7 @@ export default async function SearchPage({
             >
               {job.projectNumber} — {job.projectName}
             </SectionHead>
-            <ul className="divide-y rounded-lg border">
+            <ul className="bg-card divide-y rounded-lg border">
               {results.map((result) => (
                 <li key={`${result.kind}:${result.id}`} className="grid gap-1 px-4 py-3">
                   <p className="text-muted-foreground text-xs">{KIND[result.kind]}</p>

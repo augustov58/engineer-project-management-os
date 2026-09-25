@@ -21,7 +21,7 @@ function ProjectList({
   archived?: boolean;
 }) {
   return (
-    <ul className="divide-y rounded-lg border">
+    <ul className="bg-card divide-y rounded-lg border">
       {projects.map((project) => (
         <li key={project.id}>
           <Link

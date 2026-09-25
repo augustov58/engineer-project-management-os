@@ -1,4 +1,4 @@
-import { Geist } from 'next/font/google';
+import { Geist, Geist_Mono } from 'next/font/google';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,9 @@ import { ThemeForm } from './theme-form';
 import './globals.css';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
+// Identifiers only — a job number, an entry number, a filename (ADR-0069,
+// issue #169). Until now `font-mono` fell back to whatever the system had.
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' });
 
 /**
  * The class `<html>` carries for a theme (issue #117, ADR-0059 point 4 as the
@@ -50,7 +53,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html
       lang="en"
-      className={cn('font-sans', geist.variable, themeClass(user?.theme))}
+      className={cn('font-sans', geist.variable, geistMono.variable, themeClass(user?.theme))}
     >
       <body className="bg-background text-foreground min-h-svh antialiased">
         <header className="border-b">

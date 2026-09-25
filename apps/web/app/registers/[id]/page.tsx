@@ -91,7 +91,7 @@ export default async function RegisterLog({
             Nothing has been logged in this register.
           </p>
         ) : (
-          <ul className="divide-y rounded-lg border">
+          <ul className="bg-card divide-y rounded-lg border">
             {register.entries.map((entry) => {
               const unresolved = entry.openItems.filter(
                 (item) => item.resolvedAt === null,

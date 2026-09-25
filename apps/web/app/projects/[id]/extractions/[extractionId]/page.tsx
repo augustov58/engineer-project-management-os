@@ -123,7 +123,7 @@ export default async function ExtractionPage({
               (extraction.source.envelope.sender !== null ||
                 extraction.source.envelope.subject !== null ||
                 extraction.source.envelope.body !== null) && (
-                <div className="space-y-1 rounded-lg border p-4 text-sm">
+                <div className="bg-card space-y-1 rounded-lg border p-4 text-sm">
                   {extraction.source.envelope.subject !== null && (
                     <p className="font-medium">
                       {extraction.source.envelope.subject}
@@ -143,7 +143,7 @@ export default async function ExtractionPage({
                   )}
                 </div>
               )}
-            <pre className="text-muted-foreground max-h-[32rem] overflow-auto rounded-lg border p-4 text-xs whitespace-pre-wrap">
+            <pre className="bg-card text-muted-foreground max-h-[32rem] overflow-auto rounded-lg border p-4 text-xs whitespace-pre-wrap">
               {extraction.ocrText ?? ''}
             </pre>
             <a

@@ -354,7 +354,7 @@ export default async function ProjectRecord({
         >
           <div className="space-y-3">
             {submissions.length > 0 && (
-              <ul className="divide-y rounded-lg border">
+              <ul className="bg-card divide-y rounded-lg border">
                 {submissions.map((issued) => (
                   <li key={issued.id}>
                     <Link
@@ -423,7 +423,7 @@ export default async function ProjectRecord({
         >
           <div className="space-y-3">
             {siteVisits.length > 0 && (
-              <ul className="divide-y rounded-lg border">
+              <ul className="bg-card divide-y rounded-lg border">
                 {siteVisits.map((visit) => (
                   <li key={visit.id}>
                     <Link
@@ -475,7 +475,7 @@ export default async function ProjectRecord({
               the observation it was seen in, on the walk that produced it.
             </p>
           ) : (
-            <ul className="divide-y rounded-lg border">
+            <ul className="bg-card divide-y rounded-lg border">
               {issues.map((issue) => (
                 <li key={issue.id}>
                   <Link
@@ -513,7 +513,7 @@ export default async function ProjectRecord({
           a choice about a job.
         */}
         <Disclosure summary="Registers">
-          <ul className="divide-y rounded-lg border">
+          <ul className="bg-card divide-y rounded-lg border">
             {registers.map((register) => (
               <li key={register.id}>
                 <Link
@@ -668,7 +668,7 @@ export default async function ProjectRecord({
             )}
 
             {memory.content !== null && memory.versionedAt !== null && (
-              <div className="rounded-lg border px-3 py-2">
+              <div className="bg-card rounded-lg border px-3 py-2">
                 <p className="text-base whitespace-pre-wrap">
                   {memory.content}
                 </p>

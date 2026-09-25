@@ -59,6 +59,10 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+    --color-warning: var(--warning);
+    --color-success: var(--success);
+    --color-info: var(--info);
+    --font-mono: var(--font-geist-mono);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -79,54 +83,73 @@
  * (ADR-0025), and without it the browser paints them as light-theme widgets
  * on a dark page.
  *
- * The values are the approved design brief's `## Colour` tables verbatim
- * (`docs/design/design-brief.md` in the vault, issue #116). **Six token names
- * moved, eleven declarations across the two themes** — `--destructive`,
- * `--muted-foreground`, `--input`, `--ring` and `--border` in both, and the
- * dark `--sidebar-primary` deleted. A token that is one value in both themes
- * is written once rather than as a pair of identical halves.
+ * The values were the approved design brief's `## Colour` tables (issue
+ * #116, #117) until ADR-0069 (issue #169) gave the product a **legend** and an
+ * **action colour**: the values are now the second design pass's tables
+ * (`docs/design/redesign-plan-2026-09-24.md` §5.1 in the vault), converted to
+ * oklch. A tinted canvas (`--background`) carries white sheets (`--card`), the
+ * greys lean slate, one blueprint blue is everything you can act on, and four
+ * hues each mean one thing — red late, amber ours to move, green settled, blue
+ * informational — and are never shown without a word. A token that is one value
+ * in both themes is written once rather than as a pair of identical halves.
  */
 :root {
     /* No override: the system answers. The two classes below are the override,
        written on `<html>` by the root layout from `users.theme`. */
     color-scheme: light dark;
 
-    --background: light-dark(oklch(1 0 0), oklch(0.145 0 0));
-    --foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
-    --card: light-dark(oklch(1 0 0), oklch(0.205 0 0));
-    --card-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
-    --popover: light-dark(oklch(1 0 0), oklch(0.205 0 0));
-    --popover-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
-    --primary: light-dark(oklch(0.205 0 0), oklch(0.922 0 0));
-    --primary-foreground: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
-    --secondary: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
-    --secondary-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
-    --muted: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
-    /* Was 0.556 / 0.708. The nav, every helper line and most secondary text in
-       the product at once, and it cleared AA by a quarter of a point. */
-    --muted-foreground: light-dark(oklch(0.522 0 0), oklch(0.72 0 0));
-    --accent: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
-    --accent-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
+    /* The canvas, and the sheet on it: a page and its content are two
+       surfaces, so a card needs its own fill and not only a border (#169). */
+    --background: light-dark(oklch(0.976 0.003 264.5), oklch(0.172 0.019 259.7));
+    --foreground: light-dark(oklch(0.204 0.033 260.3), oklch(0.941 0.011 256.7));
+    --card: light-dark(oklch(1 0 0), oklch(0.216 0.027 258.3));
+    --card-foreground: light-dark(oklch(0.204 0.033 260.3), oklch(0.941 0.011 256.7));
+    --popover: light-dark(oklch(1 0 0), oklch(0.216 0.027 258.3));
+    --popover-foreground: light-dark(oklch(0.204 0.033 260.3), oklch(0.941 0.011 256.7));
+    /* The action colour (ADR-0069 D1): a primary button, a link, focus. Was
+       near-black / near-white. */
+    --primary: light-dark(oklch(0.484 0.207 264.3), oklch(0.725 0.142 266.9));
+    --primary-foreground: light-dark(oklch(1 0 0), oklch(0.172 0.019 259.7));
+    --secondary: light-dark(oklch(0.957 0.006 255.5), oklch(0.258 0.032 258.3));
+    --secondary-foreground: light-dark(oklch(0.204 0.033 260.3), oklch(0.941 0.011 256.7));
+    --muted: light-dark(oklch(0.957 0.006 255.5), oklch(0.258 0.032 258.3));
+    /* Was 0.522 / 0.72 grey, and 0.556 / 0.708 before #117, when it cleared AA
+       by a quarter of a point. */
+    --muted-foreground: light-dark(oklch(0.45 0.031 259), oklch(0.724 0.029 255.1));
+    --accent: light-dark(oklch(0.957 0.006 255.5), oklch(0.258 0.032 258.3));
+    --accent-foreground: light-dark(oklch(0.204 0.033 260.3), oklch(0.941 0.011 256.7));
     /* Was 0.577 0.245 / 0.704 0.191, and **both were outside sRGB** — nothing
        above chroma 0.235 is in gamut at the light one's lightness, nothing
        above 0.188 at the dark one's, so the browser painted a clamped value
        neither token ever described. These two are in gamut: the number in the
        file is the number on the screen. This is the AA failure on seven of
-       sixteen screens. */
-    --destructive: light-dark(oklch(0.52 0.2 27.325), oklch(0.73 0.15 22.216));
+       sixteen screens. Then the legend red of ADR-0069 (issue #169), darker
+       again: the badge's tint now lies over a tinted canvas and a bluer dark
+       sheet, and the old value read 4.77:1 and 4.94:1 there. Still in gamut —
+       both are converted from sRGB hex. */
+    --destructive: light-dark(oklch(0.500 0.182 29.5), oklch(0.759 0.144 26.1));
+    /* The rest of the legend (ADR-0069 D1). Each is ink read on its own `/10`
+       tint (`/20` in dark), the shape the red badge already had, and each has
+       one meaning: amber ours to move and not yet late, green settled, blue
+       informational or the agent's proposal. Red above keeps the brief's
+       meaning — late, or unconfirmed — and stays the loudest. `--info` is the
+       action colour on purpose: a proposal is the one thing to act on. */
+    --warning: light-dark(oklch(0.479 0.112 59.9), oklch(0.813 0.135 74.4));
+    --success: light-dark(oklch(0.468 0.107 153.1), oklch(0.791 0.126 156.9));
+    --info: var(--primary);
     /* Was 0.922 / white at 10%. A separator is decoration and carries no AA
        bar; the floor is legibility on a bright screen outdoors. The dark half
        stops being an alpha because its contrast was otherwise a different
        number on every surface it touched. */
-    --border: light-dark(oklch(0.86 0 0), oklch(0.35 0 0));
+    --border: light-dark(oklch(0.911 0.011 256.7), oklch(0.308 0.04 260.4));
     /* Was 0.922 / white at 15%. A field outline **is** a UI component: AA asks
-       3:1 and it was 1.26:1. */
-    --input: light-dark(oklch(0.65 0 0), oklch(0.55 0 0));
-    /* Was 0.708 / 0.556. The focus indicator, at 2.58:1. */
-    --ring: light-dark(oklch(0.55 0 0), oklch(0.72 0 0));
-    /* Five greys, the same in both themes. The palette is achromatic with one
-       hue on purpose: the only colour in this product means *late, or
-       unconfirmed*, and a second hue would dilute the first. */
+       3:1 and it was 1.26:1; the plan's first draft computed 3.07 / 3.05 and
+       was darkened before a screen was drawn with it. */
+    --input: light-dark(oklch(0.587 0.026 258.4), oklch(0.567 0.036 261.6));
+    /* Was 0.708 / 0.556, at 2.58:1, then grey. Focus is the action colour. */
+    --ring: var(--primary);
+    /* Five greys, the same in both themes, until a chart exists. The legend
+       above is the product's colour; a chart series is not a meaning. */
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);

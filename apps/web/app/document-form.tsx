@@ -217,7 +217,7 @@ export function LinkDocumentForm({
   return (
     <form
       action={link}
-      className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+      className="bg-card flex flex-wrap items-end gap-2 rounded-lg border p-3"
     >
       {/* Native, because the action reads this out of FormData (ADR-0025). */}
       <select

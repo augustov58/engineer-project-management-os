@@ -73,7 +73,7 @@ export function ExtractionList({
       {live.extractions.map((extraction) => (
         <li
           key={extraction.id}
-          className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2 text-sm"
+          className="bg-card flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2 text-sm"
         >
           <span className="font-medium break-all">
             {extraction.source.filename}
@@ -340,7 +340,7 @@ export function ExtractionConfirmForm({
         </p>
       </div>
 
-      <fieldset className="space-y-3 rounded-lg border p-3">
+      <fieldset className="bg-card space-y-3 rounded-lg border p-3">
         <legend className="text-muted-foreground px-1 text-sm">
           Whose court it starts in
         </legend>

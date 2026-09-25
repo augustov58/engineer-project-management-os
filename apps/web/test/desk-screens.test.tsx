@@ -28,6 +28,7 @@ import { productSources } from './sources';
 // layout is rendered here for the nav. `theme.test.tsx` stubs it the same way.
 vi.mock('next/font/google', () => ({
   Geist: () => ({ variable: '__variable_1a2b3c' }),
+  Geist_Mono: () => ({ variable: '__variable_4d5e6f' }),
 }));
 
 vi.mock('next/navigation', () => ({
