@@ -110,13 +110,18 @@ apply to every path stay in `AGENTS.md`.
   on those rows, so it is past plate D-02's ≤ 1 800 closed target **before** this section —
   the job grew since #120's 1 314 px, which was measured on the rows of that morning. Those
   figures predate #164's cap: a long conversation no longer adds its full height.
-- The **app shell's nav wraps** since issue #120, and that is density rule 7's *one column
-  below 768 px*. Until then neither of its two flex rows carried `flex-wrap`, so the nav's
-  735 px min-content width reached the document through `<body>` and **every** screen scrolled
-  sideways on a phone — the walk included, though the walk's own content was 390 px. Measured
-  at 390 px on 2026-09-20: the document is 390 px on all seven screens checked. Wrapping and
-  **not** `overflow-x-auto`, which is what the walk's jumper does: the jumper is five anchors
-  that have to stay one 44 px bar, and a header may be two rows on a phone at no cost.
+- The **app shell is a sidebar at the desk and one bar on a phone** since issue #171 (ADR-0069 D2),
+  replacing #120's wrapping two-row header. `app/app-shell.tsx`: at `lg` a fixed 256 px `aside`
+  (search, the nav in two groups, the **live jobs**, the theme control and the person); below it a
+  56 px top bar — the mark, a search link, and a *Menu* that is a native `<details>` with 44 px
+  targets. Exactly one is displayed, so one is in the accessibility tree. **The top bar is not
+  sticky**: the walk's jumper is the sticky bar on a phone, and two would stack. **Signed out there
+  is no nav**, only the mark, and the layout asks the API for no jobs. The **active state** is
+  `app/nav-link.tsx`, a client component because the root layout is never handed the path;
+  `usePathname` answers in the server render, so the first paint marks the right item. The phone
+  menu's one effect **closes it on a path change** — the layout stays mounted across a client
+  navigation, so an open `<details>` would otherwise sit over the next screen. The rule #120 set
+  still holds and is measured, not asserted: **every screen's document is 390 px wide at 390 px.**
 - **The screen-reader bar is WCAG 2.2 AA on every screen** (issue #158, ADR-0068): VoiceOver
   on an iPhone for the walk, NVDA with Chrome at the desk. `scripts/a11y.mjs` is the automated
   half of its audit — axe-core over `contrast.mjs`'s `SCREENS` at 390 px and 1,280 px, axe's

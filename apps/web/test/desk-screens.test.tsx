@@ -39,6 +39,7 @@ vi.mock('next/navigation', () => ({
     throw new Error('redirect');
   },
   useRouter: () => ({ refresh: () => {} }),
+  usePathname: () => '/projects/project-1',
 }));
 
 vi.mock('../app/api', async (importOriginal) => {
@@ -279,20 +280,48 @@ test('text-lg has left the product entirely', () => {
   expect(offenders).toEqual([]);
 });
 
-test('the app shell nav wraps, so nothing makes the document wider than the phone', async () => {
+test('the app shell is a sidebar at the desk and one bar on a phone, never both', async () => {
+  vi.mocked(api.listProjects).mockResolvedValue([project]);
   const root = await paint(
     RootLayout({ children: null }) as Promise<React.ReactElement>,
   );
 
-  // Density rule 7, and the one thing left that scrolled sideways on a phone:
-  // a non-wrapping flex inside `<body>` propagates its 735 px min-content width
-  // to the document, so the walk screen scrolled too though its own content was
-  // 390 px. Both rows, because either one alone still pins the width.
-  const nav = root.querySelector('nav');
-  expect(nav?.className).toContain('flex-wrap');
-  for (const row of nav?.querySelectorAll(':scope > div') ?? []) {
-    expect(row.className).toContain('flex-wrap');
-  }
+  // Density rule 7, and what #120's `flex-wrap` was for: the old header's
+  // 735 px min-content width reached the document and every screen scrolled
+  // sideways on a phone. ADR-0069 D2 (issue #171) replaced the header: the
+  // sidebar exists only at `lg`, and the phone bar is the mark, one search link
+  // and one *Menu* — with the mark's name the part that gives way.
+  const sidebar = root.querySelector('aside[aria-label="Main"]');
+  expect(sidebar?.className).toMatch(/(^| )hidden( |$)/);
+  expect(sidebar?.className).toContain('lg:flex');
+  const bar = root.querySelector('header');
+  expect(bar?.className).toContain('lg:hidden');
+  expect(bar?.querySelector('.truncate')?.textContent).toBe('Engineer PM OS');
+
+  // The nav says which screen this is, and Open issues is in it at last.
+  const current = sidebar?.querySelectorAll('a[aria-current="page"]') ?? [];
+  expect([...current].map((link) => link.getAttribute('href'))).toEqual([
+    `/projects/${project.id}`,
+  ]);
+  expect(sidebar?.querySelector('a[href="/issues"]')?.textContent).toBe('Open issues');
+
+  // The phone menu is the native element and its targets are the field's.
+  const menu = bar?.querySelector('details');
+  expect(menu?.querySelector('summary')?.className).toContain('h-11');
+  expect(menu?.querySelector('summary + div')?.className).toContain('[&_a]:min-h-11');
+});
+
+test('signed out, the shell is the mark and no nav', async () => {
+  vi.mocked(api.currentUser).mockResolvedValue(undefined);
+  vi.mocked(api.listProjects).mockClear();
+  const root = await paint(
+    RootLayout({ children: null }) as Promise<React.ReactElement>,
+  );
+
+  expect(root.querySelector('nav')).toBeNull();
+  expect(root.querySelector('aside')).toBeNull();
+  expect(root.textContent).toContain('Engineer PM OS');
+  expect(vi.mocked(api.listProjects)).not.toHaveBeenCalled();
 });
 
 test('every creation form on the project record is behind a closed disclosure', async () => {

@@ -27,7 +27,12 @@ import { productSources } from './sources';
 vi.mock('../app/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   currentUser: vi.fn(),
+  // The sidebar's live jobs (issue #171).
+  listProjects: vi.fn(async () => []),
 }));
+
+// The shell's nav marks the screen you are on (issue #171).
+vi.mock('next/navigation', () => ({ usePathname: () => '/' }));
 
 // What `next/font` actually hands back is a generated class, not a readable
 // one — and it matters here: `cn` is `twMerge`, which would drop `font-sans`
