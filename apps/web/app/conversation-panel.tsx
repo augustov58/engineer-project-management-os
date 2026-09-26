@@ -164,9 +164,19 @@ export function ConversationPanel({
               const answered = neighbour(-1, 'ENGINEER');
 
               return (
-                <li key={turn.id} className="bg-muted/40 grid gap-2 px-4 py-3">
+                // The legend's blue: *the agent's proposal* (ADR-0069 D1, issue
+                // #175), its tint and its word together — never the tint alone.
+                // `/5` in both themes and the badge at `/12` in dark, the nav's
+                // answer (#171): the legend's `/20` badge on a `/10` row read
+                // 4.19:1 on the dark sheet.
+                <li
+                  key={turn.id}
+                  className="bg-info/5 grid gap-2 px-4 py-3"
+                >
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">Proposed</Badge>
+                    <Badge variant="info" className="dark:bg-info/12">
+                      Proposed
+                    </Badge>
                     <span className="text-muted-foreground text-xs">
                       {walk === undefined
                         ? 'The agent read the job.'

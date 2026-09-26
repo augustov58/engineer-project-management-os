@@ -130,6 +130,17 @@ apply to every path stay in `AGENTS.md`.
   menu's one effect **closes it on a path change** — the layout stays mounted across a client
   navigation, so an open `<details>` would otherwise sit over the next screen. The rule #120 set
   still holds and is measured, not asserted: **every screen's document is 390 px wide at 390 px.**
+- **The project record is a title block, two tiles, a jumper, a rail and section cards** since issue
+  #175 (ADR-0069 D3). **Two tiles and never four**: an open-items or issues tile is ADR-0016's third
+  figure, and the two stay **gated on being non-empty** (the asymmetry above). The **rail** is 320 px
+  beside the record at `xl` and folds above it below that, first in the source; it is `<div>`s and not
+  `<section>`s, because the tests read the first `<section>` as *Open items* and the record column's
+  last child as the conversation. **`Disclosure` is the section card**: `icon`, `count`, `detail` and
+  `state` are optional, a creation form passes none, and the title sits in `[data-slot="title"]`,
+  which is what `summaries()` in `desk-screens.test.tsx` reads. A card's line is **read off what the
+  page already fetched**, never a query of its own. The jumper's anchors are asserted against real ids.
+  A legend badge on a **tinted** row, or standing for the blue on the dark sheet, takes `/12` in dark
+  and not `/20` (4.19:1 and 4.96:1 measured); the green and red `/20` pass as they are.
 - **The screen-reader bar is WCAG 2.2 AA on every screen** (issue #158, ADR-0068): VoiceOver
   on an iPhone for the walk, NVDA with Chrome at the desk. `scripts/a11y.mjs` is the automated
   half of its audit — axe-core over `contrast.mjs`'s `SCREENS` at 390 px and 1,280 px, axe's

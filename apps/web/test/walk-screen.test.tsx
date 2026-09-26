@@ -302,7 +302,7 @@ async function commitsUnder(turns: api.Turn[]): Promise<string[]> {
   const root = await paint();
   return [...root.querySelectorAll('#conversation > ul > li')]
     .filter((one) => one.querySelector('textarea[name="observed"]') !== null)
-    .map((one) => (one.className.includes('bg-muted/40') ? 'agent' : 'engineer'));
+    .map((one) => (one.className.includes('bg-info/5') ? 'agent' : 'engineer'));
 }
 
 test('the commit sits under the agent turn that proposed, and nowhere else', async () => {

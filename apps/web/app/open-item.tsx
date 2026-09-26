@@ -1,3 +1,4 @@
+import { Check, Hourglass } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -78,10 +79,17 @@ export function OpenItemEntry({
 
   return (
     <li
-      className={`rounded-lg border p-4 ${resolved ? 'bg-muted/30' : ''} space-y-3`}
+      className={`rounded-lg border p-4 ${resolved ? 'bg-muted/30' : 'bg-card'} space-y-3`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <p className={`font-medium ${resolved ? 'text-muted-foreground' : ''}`}>
+      {/*
+        Wrapping and not squeezing: a badge beside a long item left it four
+        words a line on a phone, so the badge drops under the item instead.
+      */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        {/* The item is the record, so it reads at the Record step (issue #175). */}
+        <p
+          className={`text-base font-medium ${resolved ? 'text-muted-foreground' : ''}`}
+        >
           {item.unresolved}
         </p>
         {resolved ? (
@@ -90,6 +98,7 @@ export function OpenItemEntry({
           </Badge>
         ) : (
           <Badge variant="outline" className="shrink-0">
+            <Hourglass aria-hidden />
             {item.waitingOn ?? 'Nobody'}
           </Badge>
         )}
@@ -188,7 +197,9 @@ export function OpenItemEntry({
             title="When it was answered"
             className="w-40"
           />
-          <Button type="submit" variant="secondary">
+          {/* The one thing this row is for, so it is the primary action. */}
+          <Button type="submit">
+            <Check aria-hidden />
             Resolve
           </Button>
         </form>
