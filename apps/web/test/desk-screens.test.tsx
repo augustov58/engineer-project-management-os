@@ -248,12 +248,18 @@ function projectRecord(kept?: string) {
   );
 }
 
-/** Every disclosure's summary, with the `+` / `−` marker stripped. */
+/**
+ * Every disclosure's title: a record section's card names itself in its
+ * `title` slot and carries its count and one line beside it (issue #175), so
+ * the title is read from the slot where there is one.
+ */
 function summaries(root: HTMLElement): string[] {
   return [...root.querySelectorAll('details')].map(
     (one) =>
-      one.querySelector('summary')?.textContent?.replace(/^[^A-Za-z]+/, '') ??
-      '',
+      (
+        one.querySelector('summary [data-slot="title"]') ??
+        one.querySelector('summary')
+      )?.textContent?.replace(/^[^A-Za-z]+/, '') ?? '',
   );
 }
 
@@ -331,27 +337,84 @@ test('every creation form on the project record is behind a closed disclosure', 
   // Density rule 1. The record screen shows the record; what adds to it is a
   // native `<details>`, closed — native so the `<form>` inside is untouched,
   // which is ADR-0025's rule reaching a container.
+  //
+  // Since issue #175 the head carries *More* (archiving, which nothing undoes)
+  // and the rail carries the phases' edit list; Registers is a rail card with
+  // no form at all, so it is no longer a disclosure.
   expect(summaries(root)).toEqual([
+    'More',
+    'Add a phase',
     'Add an open item',
-    'Submissions (none issued yet)',
+    'Submissions',
     'Record a submission',
-    'Site visits (no walks yet)',
+    'Site visits',
     'Record a site visit',
-    'Issues (nothing found yet)',
-    'Registers',
-    'Documents (nothing stored yet)',
+    'Issues',
+    'Documents',
     'Store a document',
-    'Arrived (nothing yet)',
+    'Arrived',
     'Record what arrived',
-    'Extractions (nothing awaiting an answer)',
-    'Memory (nothing written yet)',
-    'Phases (0)',
+    'Extractions',
+    'Memory',
   ]);
   expect(
     [...root.querySelectorAll('details')].filter((one) =>
       one.hasAttribute('open'),
     ),
   ).toEqual([]);
+});
+
+test('the project record\'s jumper names only sections that are on it', async () => {
+  const root = await projectRecord();
+
+  // The walk's rule reaching the desk (issue #175): an anchor whose target was
+  // renamed scrolls nowhere and renders perfectly, so every anchor must name an
+  // element that exists, and each target clears the sticky bar.
+  const anchors = [
+    ...root.querySelectorAll('nav[aria-label="Sections"] a'),
+  ].map((one) => one.getAttribute('href')?.slice(1) ?? '');
+  expect(anchors.length).toBeGreaterThan(0);
+  for (const id of anchors) {
+    const target = root.querySelector(`#${id}`);
+    expect(target, id).not.toBeNull();
+    expect(target?.className, id).toContain('scroll-mt-14');
+  }
+});
+
+test('the phase strip marks the current phase and claims nothing about the rest', async () => {
+  const phases: api.Phase[] = ['Schematic Design', 'Design Development', 'Construction Documents'].map(
+    (name, index) => ({ id: `phase-${index}`, projectId: project.id, name, position: index + 1 }),
+  );
+  vi.mocked(api.listPhases).mockResolvedValue(phases);
+  vi.mocked(api.getProject).mockResolvedValue({ ...project, currentPhaseId: 'phase-1' });
+  const root = await projectRecord();
+
+  const strip = root.querySelector('ol[aria-label="Phases"]');
+  expect([...(strip?.querySelectorAll('li') ?? [])].map((one) => one.textContent)).toEqual([
+    'Schematic Design',
+    'Design Development (current)',
+    'Construction Documents',
+  ]);
+  // One step is current and none is marked done: the record does not say a
+  // phase is finished, so the strip draws no progress.
+  expect(strip?.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
+});
+
+test('the rail counts each register\'s entries past turnaround from the clock list itself', async () => {
+  vi.mocked(api.listRegisters).mockResolvedValue([
+    { id: 'register-s', projectId: project.id, kind: 'SUBMITTAL', createdAt: project.createdAt, entries: [] },
+    { id: 'register-r', projectId: project.id, kind: 'RFI', createdAt: project.createdAt, entries: [] },
+  ]);
+  vi.mocked(api.listClock).mockResolvedValue([
+    { registerId: 'register-r' },
+    { registerId: 'register-r' },
+  ] as never[]);
+  const root = await projectRecord();
+
+  // Grouped from the list the tile counts, so the rail and the clock screen
+  // cannot disagree (bar 5), and never added to exposure (ADR-0016).
+  const links = [...root.querySelectorAll('#registers a')].map((one) => one.textContent);
+  expect(links).toEqual(['Submittalsnothing logged yet', 'RFIsnothing logged yet2 past turnaround']);
 });
 
 test('the project record is the one screen at both measures', async () => {
@@ -486,11 +549,11 @@ test('the item just resolved keeps its place, and only the next load files it', 
   expect(openSection?.textContent).toContain('Resolved just now');
   expect(openSection?.textContent).toContain('Undo');
   // It is in Open items *instead of*, not as well as: one row, one record.
-  expect(summaries(kept)).not.toContain('Resolved (1)');
+  expect(summaries(kept)).not.toContain('Resolved');
 
   // And the next load files it, which is the other half of the rule.
   const next = await projectRecord();
-  expect(summaries(next)).toContain('Resolved (1)');
+  expect(summaries(next)).toContain('Resolved');
   expect(next.querySelector('section')?.textContent).not.toContain(
     resolvedItem.unresolved,
   );
@@ -505,7 +568,7 @@ test('an unknown ?kept= keeps nothing', async () => {
   // It is a rendering instruction off the query string and never a record, so
   // a hand-typed or stale one has to be inert rather than an error.
   const root = await projectRecord('no-such-item');
-  expect(summaries(root)).toContain('Resolved (1)');
+  expect(summaries(root)).toContain('Resolved');
   expect(root.querySelector('section')?.textContent).toContain(
     'Nothing unresolved.',
   );

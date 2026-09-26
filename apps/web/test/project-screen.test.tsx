@@ -72,7 +72,11 @@ const project: api.Project = {
 
 /** Rows of the two counted lists. Only their number is read here. */
 function rows(count: number): never[] {
-  return Array.from({ length: count }) as never[];
+  // Each carries the register it is in, which the rail groups the clock by
+  // (issue #175); nothing else about a row is read on this screen.
+  return Array.from({ length: count }, () => ({
+    registerId: 'register-1',
+  })) as never[];
 }
 
 beforeEach(() => {
@@ -131,10 +135,10 @@ test('each strip appears the moment its list is not empty', async () => {
     name: /past (its|their) turnaround/,
   });
 
-  // The figure the strip leads with, and the list it links to: the count is
-  // that list's length, so clicking it lands on exactly what it counted.
-  expect(exposure.firstElementChild?.textContent).toBe('2');
-  expect(clock.firstElementChild?.textContent).toBe('1');
+  // The figure the tile carries, and the list it links to: the count is that
+  // list's length, so clicking it lands on exactly what it counted.
+  expect(exposure.querySelector('[data-slot="count"]')?.textContent).toBe('2');
+  expect(clock.querySelector('[data-slot="count"]')?.textContent).toBe('1');
   expect(exposure).toHaveProperty(
     'href',
     expect.stringContaining(`/exposure?projectId=${project.id}`),
